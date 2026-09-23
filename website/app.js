@@ -6,8 +6,8 @@
  */
 
 // ─── Configuration ───────────────────────────────────────────────────────────
-const GITHUB_OWNER = 'OWNER';
-const GITHUB_REPO  = 'REPO';
+const GITHUB_OWNER = 'hassnmo998-del';
+const GITHUB_REPO  = 'mihrab-app';
 const GITHUB_API   = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const SESSION_KEY  = 'mihrab_release_cache';
 

@@ -96,9 +96,9 @@ v1.1.0 Release
 
 | الرابط | الوصف |
 |--------|-------|
-| `https://github.com/OWNER/REPO/releases` | صفحة الإصدارات |
-| `https://OWNER.github.io/REPO` | موقع التحميل |
-| `https://api.github.com/repos/OWNER/REPO/releases/latest` | API الإصدار الأخير |
+| `https://github.com/hassnmo998-del/mihrab-app/releases` | صفحة الإصدارات |
+| `https://hassnmo998-del.github.io/mihrab-app` | موقع التحميل |
+| `https://api.github.com/repos/hassnmo998-del/mihrab-app/releases/latest` | API الإصدار الأخير |
 
 ---
 
