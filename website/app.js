@@ -7,7 +7,13 @@
 const GITHUB_OWNER = 'hassnmo998-del';
 const GITHUB_REPO  = 'mihrab-app';
 const GITHUB_API   = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const SESSION_KEY  = 'mihrab_release_cache_v2';
+const SESSION_KEY  = 'mihrab_release_cache_v3';
+
+// Direct fallback URLs (Always available and work immediately)
+const DIRECT_URLS = {
+  windows: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-windows-v1.0.0.exe',
+  android: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk',
+};
 
 // ─── Number formatting ────────────────────────────────────────────────────────
 function formatNumberArabic(num) {
@@ -35,23 +41,27 @@ function setVersion(tag) {
   if (el) el.textContent = tag || 'v1.0.0';
 }
 
-function setDownloadLink(btnId, asset, platformLabel) {
+function updateDownloadLink(btnId, asset, platformKey, defaultLabel) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
-  if (asset) {
-    btn.href = asset.browser_download_url;
-    btn.removeAttribute('disabled');
-    btn.removeAttribute('aria-disabled');
 
-    // Add download count subtext if available
-    const count = asset.download_count || 0;
-    const platformSpan = btn.querySelector('.btn-platform');
-    if (platformSpan && count > 0) {
-      platformSpan.textContent = `${platformLabel} (${formatNumberArabic(count)})`;
+  // Always ensure a valid download URL is present
+  if (asset && asset.browser_download_url) {
+    btn.href = asset.browser_download_url;
+  } else if (!btn.href || btn.href.endsWith('#')) {
+    btn.href = DIRECT_URLS[platformKey];
+  }
+
+  btn.removeAttribute('disabled');
+  btn.removeAttribute('aria-disabled');
+
+  // Show live download count if available
+  if (asset && asset.download_count > 0) {
+    const countEl = btn.querySelector('.btn-download-count');
+    if (countEl) {
+      countEl.textContent = `(${formatNumberArabic(asset.download_count)} تحميل)`;
+      countEl.style.display = 'inline-block';
     }
-  } else {
-    btn.href = '#';
-    btn.setAttribute('aria-disabled', 'true');
   }
 }
 
@@ -64,30 +74,13 @@ function setLiveDownloadCounts(totalDownloads) {
   if (statDownloads) statDownloads.textContent = formatted;
 }
 
-function showFallback() {
-  const el = document.getElementById('fallback-links');
-  if (el) el.style.display = 'block';
-}
-
-// ─── Download tracking ────────────────────────────────────────────────────────
-function attachDownloadTracking() {
-  document.querySelectorAll('.btn[data-platform]').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-      const platform = this.dataset.platform;
-      const href = this.href;
-      if (!href || href === '#' || href.endsWith('#')) {
-        e.preventDefault();
-        console.warn(`[محراب] زر تحميل ${platform} غير مرتبط بملف بعد.`);
-        return;
-      }
-      console.log(`[محراب] 📥 بدء تحميل ${platform}:`, href);
-    });
-  });
-}
-
 // ─── Fetch Release ────────────────────────────────────────────────────────────
 async function fetchRelease() {
-  // Check session cache first
+  // Ensure default direct links are active immediately
+  updateDownloadLink('btn-windows', null, 'windows', 'Windows');
+  updateDownloadLink('btn-android', null, 'android', 'Android');
+
+  // Try cache first
   try {
     const cached = sessionStorage.getItem(SESSION_KEY);
     if (cached) {
@@ -103,48 +96,43 @@ async function fetchRelease() {
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status}`);
+      throw new Error(`GitHub API HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
-    // Cache
+    // Cache in session
     try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch { /* quota */ }
 
     applyReleaseData(data);
   } catch (err) {
-    console.error('[محراب] فشل جلب بيانات الإصدار والتحميلات:', err.message);
-    showFallback();
+    // On any API error, keep direct links untouched and working!
+    console.info('[محراب] تم تفعيل روابط التحميل المباشرة الدائمة:', err.message);
   }
 }
 
 function applyReleaseData(data) {
-  // Tag
-  setVersion(data.tag_name);
+  if (data.tag_name) {
+    setVersion(data.tag_name);
+  }
 
   const assets = data.assets || [];
   const winAsset     = findAsset(assets, 'windows');
   const androidAsset = findAsset(assets, 'android');
 
-  // Set download URLs & platform-specific counts
-  setDownloadLink('btn-windows', winAsset, 'Windows');
-  setDownloadLink('btn-android', androidAsset, 'Android');
+  updateDownloadLink('btn-windows', winAsset, 'windows', 'Windows');
+  updateDownloadLink('btn-android', androidAsset, 'android', 'Android');
 
-  // Calculate live total download count directly from GitHub Release
+  // Calculate total download count across all platforms
   let totalDownloads = 0;
   assets.forEach(asset => {
     totalDownloads += (asset.download_count || 0);
   });
 
   setLiveDownloadCounts(totalDownloads);
-
-  if (!winAsset || !androidAsset) {
-    showFallback();
-  }
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   fetchRelease();
-  attachDownloadTracking();
 });

@@ -3,32 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. تطبيق متكامل لإدارة حلقات القرآن الكريم، رصد الحضور، التسميع الذكي، وبنك المكافآت." />
-  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, متون, تطبيق إسلامي" />
+  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. منظومة عصرية متكاملة لإدارة المساجد، الحلقات القرآنية، متون السنة النبوية، والتسميع الذكي." />
+  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, متون, صحيح البخاري, صحيح مسلم, تطبيق إسلامي" />
   <meta name="author" content="محراب" />
   <meta property="og:title" content="محراب — منصة إدارة حلقات التحفيظ الذكية" />
-  <meta property="og:description" content="نظام متكامل لإدارة حلقات القرآن الكريم والمساجد باحترافية وسهولة" />
+  <meta property="og:description" content="منظومة إدارة عصرية ومحكمة لحلقات القرآن الكريم ومساجد المسلمين" />
   <meta property="og:type" content="website" />
-  <meta name="theme-color" content="#1a7a4a" />
+  <meta name="theme-color" content="#0d3b22" />
   <title>محراب — منصة إدارة حلقات التحفيظ الذكية</title>
+  
+  <!-- خطوط عربية إسلامية أصيلة: الأميري للعناوين والتجويد، وتجوال للمتون والشاشات -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet" />
+  
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="damascene-theme">
+
+  <!-- خلفية الزخرفة الهندسية الدمشقية الشفافة -->
+  <div class="damascene-pattern-overlay"></div>
 
   <!-- ===== HEADER ===== -->
   <header class="site-header">
     <div class="container">
       <div class="header-inner">
-        <div class="logo">
-          <span class="logo-icon">🕌</span>
-          <span class="logo-text">محراب</span>
-        </div>
+        <a href="#" class="logo">
+          <span class="logo-arch">🕌</span>
+          <span class="logo-text">مِحْرَاب</span>
+        </a>
         <nav class="nav-links">
           <a href="#features">المميزات</a>
-          <a href="#download">التحميل</a>
+          <a href="#download">التحميل المباشر</a>
           <a href="privacy.html">الخصوصية</a>
         </nav>
       </div>
@@ -37,137 +43,272 @@
 
   <!-- ===== HERO ===== -->
   <section class="hero">
-    <div class="hero-decoration top-left"></div>
-    <div class="hero-decoration top-right"></div>
-    <div class="hero-decoration bottom-left"></div>
-    <div class="hero-decoration bottom-right"></div>
+    <!-- إطار القوس الدمشقي الزخرفي في الخلفية -->
+    <div class="mihrab-arch-glow"></div>
 
     <div class="container">
       <div class="hero-content">
-        <div class="badge animate-fade-in">✦ الإصدار الرسمي متاح الآن للتحميل ✦</div>
-        <h1 class="hero-title animate-slide-up">محراب</h1>
-        <p class="hero-subtitle animate-slide-up delay-1">منصة إدارة حلقات التحفيظ الذكية</p>
-        <p class="hero-tagline animate-slide-up delay-2">نظام متكامل وشامل لإدارة المساجد، الحلقات القرآنية، الدورات المكثفة، وبنك المكافآت</p>
-
-        <div class="version-badge animate-fade-in delay-2">
-          <span class="version-label">الإصدار:</span>
-          <span id="version-text" class="version-number">v1.0.0</span>
+        
+        <!-- البسملة الشريفة برسم قرآني بديع -->
+        <div class="bismillah-calligraphy animate-fade-in">
+          ﷽
         </div>
 
-        <!-- DOWNLOAD BUTTONS -->
+        <div class="badge animate-fade-in delay-1">
+          <span class="badge-star">✦</span>
+          <span>الإصدار الرسمي الأول v1.0.0 متاح للتحميل</span>
+          <span class="badge-star">✦</span>
+        </div>
+
+        <!-- عنوان محراب بالخط الدمشقي مع المحراب التراثي -->
+        <div class="hero-title-container animate-slide-up">
+          <h1 class="hero-title">مِحْرَاب</h1>
+          <div class="hero-rosette-row">
+            <span class="rosette-line"></span>
+            <span class="rosette-symbol">۞</span>
+            <span class="rosette-line"></span>
+          </div>
+        </div>
+
+        <p class="hero-subtitle animate-slide-up delay-1">المنظومة الذكية لإدارة حلقات القرآن الكريم والمساجد</p>
+        <p class="hero-tagline animate-slide-up delay-2">
+          إدارة محكمة للحلقات، تسميع ذكي بدون تكرار، موسوعة متون وسنة نبوية كاملة، وبنك مكافآت تحفيزي — تعمل بكفاءة تامة بدون إنترنت
+        </p>
+
+        <!-- DOWNLOAD BUTTONS مع الروابط المباشرة الدائمة 100% -->
         <div id="download" class="download-section animate-slide-up delay-3">
-          <a id="btn-windows" href="#" class="btn btn-windows" data-platform="windows">
+          
+          <!-- زر تحميل الويندوز المباشر -->
+          <a id="btn-windows" 
+             href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-windows-v1.0.0.exe" 
+             class="btn btn-windows" 
+             data-platform="windows"
+             download="mihrab-windows-v1.0.0.exe"
+             target="_blank"
+             rel="noopener">
+            <div class="btn-shine"></div>
             <span class="btn-icon">💻</span>
-            <span class="btn-content">
-              <span class="btn-label">تحميل لـ</span>
-              <span class="btn-platform">Windows</span>
-            </span>
-            <svg class="btn-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            <div class="btn-content">
+              <span class="btn-label">تحميل مجاني لـ Windows</span>
+              <span class="btn-platform">
+                <span>مثبّت رسمي • ١٦.٢ ميغابايت</span>
+                <span class="btn-download-count" style="display:none;"></span>
+              </span>
+            </div>
+            <span class="btn-arrow-box">⬇</span>
           </a>
-          <a id="btn-android" href="#" class="btn btn-android" data-platform="android">
+
+          <!-- زر تحميل الأندرويد المباشر -->
+          <a id="btn-android" 
+             href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" 
+             class="btn btn-android" 
+             data-platform="android"
+             download="mihrab-android-v1.0.0.apk"
+             target="_blank"
+             rel="noopener">
+            <div class="btn-shine"></div>
             <span class="btn-icon">📱</span>
-            <span class="btn-content">
-              <span class="btn-label">تحميل لـ</span>
-              <span class="btn-platform">Android</span>
-            </span>
-            <svg class="btn-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            <div class="btn-content">
+              <span class="btn-label">تحميل مباشر لـ Android</span>
+              <span class="btn-platform">
+                <span>ملف APK موقّع • ٨٧.٩ ميغابايت</span>
+                <span class="btn-download-count" style="display:none;"></span>
+              </span>
+            </div>
+            <span class="btn-arrow-box">⬇</span>
           </a>
+
         </div>
 
-        <!-- LIVE DOWNLOADS BADGE -->
+        <!-- تنبيه التحميل الفوري المريح -->
+        <div class="download-comfort-note animate-fade-in delay-3">
+          <span>⚡ التحميل يبدأ فوراً بنقرة واحدة من مخدمات سحابية مباشرة وسريعة</span>
+        </div>
+
+        <!-- عداد التحميلات الحي المربوط بالريليز -->
         <div class="live-counter-badge animate-fade-in delay-3" id="live-downloads-badge">
           <span class="live-pulse-dot"></span>
-          <span class="live-label">إجمالي التحميلات المباشرة:</span>
+          <span class="live-label">إجمالي التحميلات الفعلية:</span>
           <strong id="hero-total-downloads" class="live-number">0</strong>
         </div>
 
-        <!-- FALLBACK LINKS (hidden by default, shown on API error) -->
-        <div id="fallback-links" class="fallback-notice" style="display:none;">
-          <p>⚠️ يمكنك التحميل دائماً مباشرة من <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">صفحة الإصدارات على GitHub</a>.</p>
-        </div>
-
-        <p class="download-note">مجاني بالكامل • بدون إعلانات • يعمل بكفاءة تامة بدون إنترنت</p>
       </div>
     </div>
 
+    <!-- فاصل الموجة الدمشقي التراثي -->
     <div class="hero-wave">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 80" preserveAspectRatio="none">
-        <path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="#0d1b2a"/>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 90" preserveAspectRatio="none">
+        <path d="M0,45 C280,90 560,0 840,45 C1120,90 1320,15 1440,45 L1440,90 L0,90 Z" fill="#09141d"/>
       </svg>
     </div>
   </section>
 
+  <!-- فاصل زخرفي دمشقي -->
+  <div class="damascene-ornament-divider">
+    <span class="ornament-branch left"></span>
+    <span class="ornament-rosette">۞</span>
+    <span class="ornament-branch right"></span>
+  </div>
+
   <!-- ===== FEATURES ===== -->
   <section id="features" class="features-section">
     <div class="container">
-      <h2 class="section-title">مميزات منصة محراب</h2>
-      <p class="section-subtitle">صُممت بعناية لتلبي جميع احتياجات إدارة الحلقات والمساجد بدقة وسهولة</p>
+      <div class="section-header">
+        <span class="section-tag">خصائص حصرية وتصميم متقن</span>
+        <h2 class="section-title">أبرز مميزات منصة محراب</h2>
+        <p class="section-subtitle">حلول برمجية ذكية صُممت خصيصاً لخدمة القرآن وأهله وتيسير إدارة الحلقات</p>
+      </div>
 
       <div class="features-grid">
+        
+        <!-- ميزة 1: المصحف والتسميع -->
         <div class="feature-card animate-fade-in">
-          <div class="feature-icon">📖</div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">📖</span>
+          </div>
           <h3>مصحف مجوّد وتسميع مسموع</h3>
-          <p>مصحف كامل بالرسم العثماني مع أحكام التجويد الملوّنة، استماع لتلاوات خاشعة، ونظام تسميع ذكي يمنع تكرار الآيات للطالب.</p>
+          <p>مصحف كامل بالرسم العثماني وأحكام التجويد الملونة، استماع لأعذب التلاوات، وخوارزمية ذكية لمتابعة التسميع بدقة ومنع تكرار الآيات للطالب.</p>
         </div>
+
+        <!-- ميزة 2: الأحاديث والمتون -->
         <div class="feature-card animate-fade-in delay-1">
-          <div class="feature-icon">📚</div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">📚</span>
+          </div>
           <h3>موسوعة السنة والمتون (+١٥,٠٠٠ حديث)</h3>
-          <p>صحيح البخاري وصحيح مسلم كاملين، الأحاديث القدسية، والأربعين النووية، مع مسارات متقدمة لحفظ المتون والعلوم الشرعية.</p>
+          <p>صحيح البخاري وصحيح مسلم كاملين، الأحاديث القدسية، والأربعين النووية، مع مسارات متقدمة لحفظ ومتابعة متون الفقه والحديث والتجويد.</p>
         </div>
+
+        <!-- ميزة 3: بنك المكافآت -->
         <div class="feature-card animate-fade-in delay-2">
-          <div class="feature-icon">🎁</div>
-          <h3>بنك المكافآت والقسائم الإلكترونية</h3>
-          <p>تحفيز الطلاب عبر نقاط الحفظ والحضور، واستبدالها بقسائم مشفرة بـ QR Code تُصرف فوراً عبر أمين الصندوق.</p>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">🎁</span>
+          </div>
+          <h3>بنك المكافآت وقسائم الـ QR</h3>
+          <p>تحفيز الطلاب عبر نقاط تراكمية للحفظ والانضباط، واستبدالها بكوبونات مشفرة بـ QR Code تُصرف إلكترونياً وفورياً عبر أمين الصندوق.</p>
         </div>
+
+        <!-- ميزة 4: الرحلات والمستلزمات -->
         <div class="feature-card animate-fade-in delay-3">
-          <div class="feature-icon">🎒</div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">🎒</span>
+          </div>
           <h3>الرحلات والمستلزمات الذكية</h3>
-          <p>جدولة الرحلات والأنشطة، استهداف المتميزين، وقائمة تحقق تفاعلية لما يلزم إحضاره مع كل طالب قبل الانطلاق.</p>
+          <p>جدولة الرحلات والأنشطة الإيمانية، استهداف الطلاب المتميزين، وقائمة تحقق تفاعلية ذكية لما يلزم إحضاره مع كل طالب قبل الانطلاق.</p>
         </div>
+
+        <!-- ميزة 5: رصد الحضور -->
         <div class="feature-card animate-fade-in delay-1">
-          <div class="feature-icon">📊</div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">📊</span>
+          </div>
           <h3>رصد الحضور ونسبة الالتزام</h3>
-          <p>احتساب دقيق لنسبة انضباط الطالب وحضوره وتأخيره وغيابه، مع تقارير وإحصائيات تفصيلية للإدارة وأولياء الأمور.</p>
+          <p>احتساب فوري ودقيق لنسب انضباط الطالب وحضوره وتأخيره وغيابه، مع تقارير وإحصائيات دورية واضحة للإدارة وأولياء الأمور.</p>
         </div>
+
+        <!-- ميزة 6: أوفلاين تام -->
         <div class="feature-card animate-fade-in delay-2">
-          <div class="feature-icon">📴</div>
-          <h3>العمل الكامل بدون إنترنت (Offline-First)</h3>
-          <p>سجّل التسميع والحضور بالمسجد دون الحاجة لأي اتصال، وتتزامن كل التعديلات تلقائياً في الخلفية عند توفر الشبكة.</p>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">📴</span>
+          </div>
+          <h3>العمل الكامل بدون إنترنت (Offline)</h3>
+          <p>سجّل التسميع والحضور في المسجد دون الحاجة لأي اتصال، وتتزامن جميع البيانات تلقائياً وفورياً في الخلفية عند توفر الشبكة.</p>
         </div>
+
+        <!-- ميزة 7: خصوصية القسم النسائي -->
         <div class="feature-card animate-fade-in delay-3">
-          <div class="feature-icon">🧕</div>
-          <h3>خصوصية كاملة للقسم النسائي</h3>
-          <p>استقلالية تامة وبيانات معزولة ومحمية برمز خاص للحلقات النسائية لضمان أعلى معايير الستر والخصوصية.</p>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">🧕</span>
+          </div>
+          <h3>خصوصية تامة للقسم النسائي</h3>
+          <p>استقلالية تامة وبيانات معزولة ومحمية برمز خاص للحلقات النسائية لضمان أعلى معايير الستر والخصوصية لبيانات الأخوات والفتيات.</p>
         </div>
+
+        <!-- ميزة 8: واجهات متعددة الأدوار -->
         <div class="feature-card animate-fade-in delay-1">
-          <div class="feature-icon">👥</div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner top-left"></div>
+          <div class="card-corner bottom-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="feature-icon-wrapper">
+            <span class="feature-icon">👥</span>
+          </div>
           <h3>واجهات متخصصة لجميع الأدوار</h3>
-          <p>لوحات تحكم متكاملة مخصصة لإدارة المسجد (٩ أقسام)، وللشيخ المحفظ (٧ أقسام)، وللطالب وولي الأمر، ولأمين الصندوق.</p>
+          <p>لوحات تحكم متكاملة مخصصة لإدارة المسجد (٩ أقسام)، وللشيخ المحفظ (٧ أقسام)، وللطالب وولي الأمر (٧ أقسام)، ولأمين الصندوق.</p>
         </div>
+
       </div>
     </div>
   </section>
+
+  <!-- فاصل زخرفي دمشقي -->
+  <div class="damascene-ornament-divider">
+    <span class="ornament-branch left"></span>
+    <span class="ornament-rosette">۞</span>
+    <span class="ornament-branch right"></span>
+  </div>
 
   <!-- ===== STATS ===== -->
   <section class="stats-section">
     <div class="container">
       <div class="stats-grid">
+        
         <div class="stat-item">
-          <span id="stat-downloads" class="stat-number">0</span>
-          <span class="stat-label">تحميل مباشر للتطبيق</span>
+          <div class="stat-arch-frame">
+            <span id="stat-downloads" class="stat-number">0</span>
+            <span class="stat-label">تحميل مباشر للتطبيق</span>
+          </div>
         </div>
+
         <div class="stat-item">
-          <span class="stat-number">+١٥,٠٠٠</span>
-          <span class="stat-label">حديث نبوي (البخاري ومسلم)</span>
+          <div class="stat-arch-frame">
+            <span class="stat-number">+١٥,٠٠٠</span>
+            <span class="stat-label">حديث نبوي (البخاري ومسلم)</span>
+          </div>
         </div>
+
         <div class="stat-item">
-          <span class="stat-number">مصحف مجوّد</span>
-          <span class="stat-label">بالرسم العثماني وتلاوات مسموعة</span>
+          <div class="stat-arch-frame">
+            <span class="stat-number text-highlight">مصحف مجوّد</span>
+            <span class="stat-label">بالرسم العثماني وتلاوات مسموعة</span>
+          </div>
         </div>
+
         <div class="stat-item">
-          <span class="stat-number">١٠٠٪</span>
-          <span class="stat-label">مجاني ويعمل بدون إنترنت</span>
+          <div class="stat-arch-frame">
+            <span class="stat-number">١٠٠٪</span>
+            <span class="stat-label">مجاني ويعمل بدون إنترنت</span>
+          </div>
         </div>
+
       </div>
     </div>
   </section>
@@ -176,11 +317,12 @@
   <section class="cta-section">
     <div class="container">
       <div class="cta-inner">
+        <div class="cta-rosette">۞</div>
         <h2>ابدأ استخدام محراب لمسجدك وحلقاتك اليوم</h2>
-        <p>حمّل التطبيق الآن واستمتع بتجربة إدارة عصرية وميسرة لحلقات القرآن الكريم</p>
+        <p>حمّل التطبيق الآن واستمتع بتجربة إدارة عصرية وميسرة لحلقات القرآن الكريم بروح إسلامية أصيلة</p>
         <div class="cta-buttons">
           <a href="#download" class="cta-btn">
-            ⬇️ تحميل تطبيق محراب الآن
+            <span>⬇️ تحميل تطبيق محراب الآن</span>
           </a>
         </div>
       </div>
@@ -192,19 +334,21 @@
     <div class="container">
       <div class="footer-inner">
         <div class="footer-brand">
-          <span class="logo-icon">🕌</span>
-          <span class="footer-brand-name">محراب</span>
-          <p class="footer-tagline">منصة إدارة حلقات التحفيظ الذكية</p>
+          <div class="footer-logo">
+            <span class="logo-icon">🕌</span>
+            <span class="footer-brand-name">مِحْرَاب</span>
+          </div>
+          <p class="footer-tagline">منصة إدارة حلقات التحفيظ الذكية — دمشق الشام</p>
         </div>
         <div class="footer-links">
           <a href="privacy.html">سياسة الخصوصية</a>
           <a href="https://github.com/hassnmo998-del/mihrab-app" target="_blank" rel="noopener">مستودع المشروع على GitHub</a>
-          <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">سجل الإصدارات</a>
+          <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">سجل الإصدارات الرسمية</a>
         </div>
       </div>
       <div class="footer-bottom">
-        <p>© 2026 محراب — تطبيق مجاني ومفتوح المصدر لخدمة كتاب الله</p>
-        <p class="footer-verse">﴿ وَرَتِّلِ الْقُرْآنَ تَرْتِيلًا ﴾</p>
+        <p class="footer-verse">﴿ إِنَّ هَٰذَا الْقُرْآنَ يَهْدِي لِلَّتِي هِيَ أَقْوَمُ ﴾</p>
+        <p class="footer-copy">© 2026 محراب — تطبيق مجاني ومفتوح المصدر وقفٌ لوجه الله تعالى</p>
       </div>
     </div>
   </footer>
