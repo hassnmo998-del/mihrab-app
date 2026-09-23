@@ -618,11 +618,12 @@ section { padding: 90px 0; }
 
 .stat-number {
   display: block;
-  font-size: clamp(2rem, 5vw, 3rem);
+  font-size: clamp(1.8rem, 4vw, 2.7rem);
   font-weight: 900;
   color: var(--gold);
-  line-height: 1.1;
-  margin-bottom: 6px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+  word-break: keep-all;
 }
 
 .stat-label {
