@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. تطبيق احترافي لإدارة حلقات القرآن الكريم بكل سهولة واحتراف." />
-  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, تطبيق إسلامي" />
+  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. تطبيق متكامل لإدارة حلقات القرآن الكريم، رصد الحضور، التسميع الذكي، وبنك المكافآت." />
+  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, متون, تطبيق إسلامي" />
   <meta name="author" content="محراب" />
   <meta property="og:title" content="محراب — منصة إدارة حلقات التحفيظ الذكية" />
-  <meta property="og:description" content="إدارة حلقات القرآن الكريم بكل سهولة واحتراف" />
+  <meta property="og:description" content="نظام متكامل لإدارة حلقات القرآن الكريم والمساجد باحترافية وسهولة" />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#1a7a4a" />
   <title>محراب — منصة إدارة حلقات التحفيظ الذكية</title>
@@ -28,8 +28,7 @@
         </div>
         <nav class="nav-links">
           <a href="#features">المميزات</a>
-          <a href="#download">تحميل</a>
-          <a href="#release-notes-section">الأخبار</a>
+          <a href="#download">التحميل</a>
           <a href="privacy.html">الخصوصية</a>
         </nav>
       </div>
@@ -45,14 +44,14 @@
 
     <div class="container">
       <div class="hero-content">
-        <div class="badge animate-fade-in">✦ الإصدار الأحدث متاح الآن ✦</div>
+        <div class="badge animate-fade-in">✦ الإصدار الرسمي متاح الآن للتحميل ✦</div>
         <h1 class="hero-title animate-slide-up">محراب</h1>
         <p class="hero-subtitle animate-slide-up delay-1">منصة إدارة حلقات التحفيظ الذكية</p>
-        <p class="hero-tagline animate-slide-up delay-2">إدارة حلقات القرآن الكريم بكل سهولة واحتراف</p>
+        <p class="hero-tagline animate-slide-up delay-2">نظام متكامل وشامل لإدارة المساجد، الحلقات القرآنية، الدورات المكثفة، وبنك المكافآت</p>
 
         <div class="version-badge animate-fade-in delay-2">
           <span class="version-label">الإصدار:</span>
-          <span id="version-text" class="version-number">v---</span>
+          <span id="version-text" class="version-number">v1.0.0</span>
         </div>
 
         <!-- DOWNLOAD BUTTONS -->
@@ -75,12 +74,19 @@
           </a>
         </div>
 
-        <!-- FALLBACK LINKS (hidden by default, shown on API error) -->
-        <div id="fallback-links" class="fallback-notice" style="display:none;">
-          <p>⚠️ تعذّر جلب آخر إصدار. يمكنك التحميل مباشرة من <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">صفحة الإصدارات على GitHub</a>.</p>
+        <!-- LIVE DOWNLOADS BADGE -->
+        <div class="live-counter-badge animate-fade-in delay-3" id="live-downloads-badge">
+          <span class="live-pulse-dot"></span>
+          <span class="live-label">إجمالي التحميلات المباشرة:</span>
+          <strong id="hero-total-downloads" class="live-number">0</strong>
         </div>
 
-        <p class="download-note">متاح مجاناً • آمن ومحمي • يعمل بدون إنترنت</p>
+        <!-- FALLBACK LINKS (hidden by default, shown on API error) -->
+        <div id="fallback-links" class="fallback-notice" style="display:none;">
+          <p>⚠️ يمكنك التحميل دائماً مباشرة من <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">صفحة الإصدارات على GitHub</a>.</p>
+        </div>
+
+        <p class="download-note">مجاني بالكامل • بدون إعلانات • يعمل بكفاءة تامة بدون إنترنت</p>
       </div>
     </div>
 
@@ -94,63 +100,49 @@
   <!-- ===== FEATURES ===== -->
   <section id="features" class="features-section">
     <div class="container">
-      <h2 class="section-title">لماذا محراب؟</h2>
-      <p class="section-subtitle">كل ما تحتاجه لإدارة حلقات التحفيظ في مكان واحد</p>
+      <h2 class="section-title">مميزات منصة محراب</h2>
+      <p class="section-subtitle">صُممت بعناية لتلبي جميع احتياجات إدارة الحلقات والمساجد بدقة وسهولة</p>
 
       <div class="features-grid">
         <div class="feature-card animate-fade-in">
           <div class="feature-icon">📖</div>
-          <h3>تتبع الحفظ</h3>
-          <p>تتبع تقدم كل طالب في حفظ القرآن الكريم بدقة ووضوح تام</p>
+          <h3>تسميع ذكي بدون تكرار</h3>
+          <p>خوارزمية ذكية تدعم ٦,٢٣٦ آية و٣٠ جزءاً تمنع تكرار الآيات للطالب، وتفرق تلقائياً بين الحلقات والدورات المكثفة.</p>
         </div>
         <div class="feature-card animate-fade-in delay-1">
-          <div class="feature-icon">🎙️</div>
-          <h3>تسجيل التلاوة</h3>
-          <p>سجّل تلاوات الطلاب وراجعها لاحقاً لتقييم الأداء وتحسينه</p>
+          <div class="feature-icon">📚</div>
+          <h3>مسارات المتون والعلوم الشرعية</h3>
+          <p>منهاج متكامل يشمل القرآن الكريم، متون الحديث الشريف (الأربعين النووية، رياض الصالحين)، الفقه، والتجويد.</p>
         </div>
         <div class="feature-card animate-fade-in delay-2">
-          <div class="feature-icon">📊</div>
-          <h3>تقارير تفصيلية</h3>
-          <p>تقارير شاملة عن أداء الطلاب والحلقات لمساعدة المعلمين في اتخاذ القرارات</p>
+          <div class="feature-icon">🎁</div>
+          <h3>بنك المكافآت والقسائم الإلكترونية</h3>
+          <p>تحفيز الطلاب عبر نقاط الحفظ والحضور، واستبدالها بقسائم مشفرة بـ QR Code تُصرف فوراً عبر أمين الصندوق.</p>
         </div>
         <div class="feature-card animate-fade-in delay-3">
-          <div class="feature-icon">👨‍👩‍👧‍👦</div>
-          <h3>تواصل مع الأسرة</h3>
-          <p>أبقِ أولياء الأمور على اطلاع دائم بتقدم أبنائهم في الحفظ</p>
+          <div class="feature-icon">🎒</div>
+          <h3>الرحلات والمستلزمات الذكية</h3>
+          <p>جدولة الرحلات والأنشطة، استهداف المتميزين، وقائمة تحقق تفاعلية لما يلزم إحضاره مع كل طالب قبل الانطلاق.</p>
         </div>
         <div class="feature-card animate-fade-in delay-1">
-          <div class="feature-icon">🕌</div>
-          <h3>إدارة المساجد</h3>
-          <p>إدارة متعددة المساجد والحلقات من واجهة واحدة سهلة الاستخدام</p>
+          <div class="feature-icon">📊</div>
+          <h3>رصد الحضور ونسبة الالتزام</h3>
+          <p>احتساب دقيق لنسبة انضباط الطالب وحضوره وتأخيره وغيابه، مع تقارير وإحصائيات تفصيلية للإدارة وأولياء الأمور.</p>
         </div>
         <div class="feature-card animate-fade-in delay-2">
-          <div class="feature-icon">☁️</div>
-          <h3>مزامنة سحابية</h3>
-          <p>بياناتك محفوظة وآمنة في السحابة ومتزامنة على جميع أجهزتك</p>
+          <div class="feature-icon">📴</div>
+          <h3>العمل الكامل بدون إنترنت (Offline-First)</h3>
+          <p>سجّل التسميع والحضور بالمسجد دون الحاجة لأي اتصال، وتتزامن كل التعديلات تلقائياً في الخلفية عند توفر الشبكة.</p>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== RELEASE NOTES ===== -->
-  <section id="release-notes-section" class="release-notes-section">
-    <div class="container">
-      <h2 class="section-title">ما الجديد؟</h2>
-      <div class="release-card">
-        <div class="release-header">
-          <div class="release-version-tag">
-            <span id="version-text-2">v---</span>
-          </div>
-          <div id="release-date" class="release-date">
-            <span class="release-date-icon">📅</span>
-            <span class="release-date-text">جارٍ التحميل...</span>
-          </div>
+        <div class="feature-card animate-fade-in delay-3">
+          <div class="feature-icon">🧕</div>
+          <h3>خصوصية كاملة للقسم النسائي</h3>
+          <p>استقلالية تامة وبيانات معزولة ومحمية برمز خاص للحلقات النسائية لضمان أعلى معايير الستر والخصوصية.</p>
         </div>
-        <div id="release-notes" class="release-body">
-          <div class="loading-spinner">
-            <div class="spinner"></div>
-            <p>جارٍ تحميل ملاحظات الإصدار...</p>
-          </div>
+        <div class="feature-card animate-fade-in delay-1">
+          <div class="feature-icon">👥</div>
+          <h3>واجهات متخصصة لجميع الأدوار</h3>
+          <p>لوحات تحكم متكاملة مخصصة لإدارة المسجد (٩ أقسام)، وللشيخ المحفظ (٧ أقسام)، وللطالب وولي الأمر، ولأمين الصندوق.</p>
         </div>
       </div>
     </div>
@@ -161,20 +153,20 @@
     <div class="container">
       <div class="stats-grid">
         <div class="stat-item">
-          <span class="stat-number">١٠٠٠+</span>
-          <span class="stat-label">مستخدم نشط</span>
+          <span id="stat-downloads" class="stat-number">0</span>
+          <span class="stat-label">تحميل فعلي مباشر</span>
         </div>
         <div class="stat-item">
-          <span class="stat-number">٥٠٠+</span>
-          <span class="stat-label">حلقة مُدارة</span>
+          <span class="stat-number">٦,٢٣٦</span>
+          <span class="stat-label">آية قرآنية مدعومة بدقة</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number">٣٠</span>
+          <span class="stat-label">جزءاً كاملاً ومنهاج متون</span>
         </div>
         <div class="stat-item">
           <span class="stat-number">١٠٠٪</span>
-          <span class="stat-label">مجاني للتحميل</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-number">٤.٩★</span>
-          <span class="stat-label">تقييم المستخدمين</span>
+          <span class="stat-label">مجاني ويعمل بدون إنترنت</span>
         </div>
       </div>
     </div>
@@ -184,11 +176,11 @@
   <section class="cta-section">
     <div class="container">
       <div class="cta-inner">
-        <h2>ابدأ اليوم مجاناً</h2>
-        <p>انضم إلى آلاف المعلمين الذين يستخدمون محراب لإدارة حلقاتهم باحترافية</p>
+        <h2>ابدأ استخدام محراب لمسجدك وحلقاتك اليوم</h2>
+        <p>حمّل التطبيق الآن واستمتع بتجربة إدارة عصرية وميسرة لحلقات القرآن الكريم</p>
         <div class="cta-buttons">
           <a href="#download" class="cta-btn">
-            ⬇️ تحميل محراب الآن
+            ⬇️ تحميل تطبيق محراب الآن
           </a>
         </div>
       </div>
@@ -206,13 +198,12 @@
         </div>
         <div class="footer-links">
           <a href="privacy.html">سياسة الخصوصية</a>
-          <a href="https://github.com/hassnmo998-del/mihrab-app" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">الإصدارات</a>
-          <a href="mailto:contact@mihrab-app.com">تواصل معنا</a>
+          <a href="https://github.com/hassnmo998-del/mihrab-app" target="_blank" rel="noopener">مستودع المشروع على GitHub</a>
+          <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">سجل الإصدارات</a>
         </div>
       </div>
       <div class="footer-bottom">
-        <p>© 2026 محراب — جميع الحقوق محفوظة</p>
+        <p>© 2026 محراب — تطبيق مجاني ومفتوح المصدر لخدمة كتاب الله</p>
         <p class="footer-verse">﴿ وَرَتِّلِ الْقُرْآنَ تَرْتِيلًا ﴾</p>
       </div>
     </div>
