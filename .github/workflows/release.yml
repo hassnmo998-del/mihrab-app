@@ -1,0 +1,159 @@
+name: 🚀 Build & Release Mihrab App
+
+# يُشغَّل برفع وسم مثل v1.2.0 — الوسم نفسه هو رقم الإصدار، ولا يُكتب في مكان آخر.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  # يجب أن تبقى متوافقة مع `environment: sdk:` في flutter_app/pubspec.yaml.
+  # تثبيتها على نسخة أقدم من المطلوب يُفشل `pub get` قبل أي بناء.
+  FLUTTER_VERSION: '3.38.5'
+
+jobs:
+  # ─────────────────────────────────────────────
+  # ويندوز
+  # ─────────────────────────────────────────────
+  build-windows:
+    name: 🪟 Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+
+      - name: Install dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Build Windows release
+        working-directory: flutter_app
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # وصفة المثبّت ملف ثابت في المستودع (installer/mihrab.iss) لا نصّ يُولَّد
+      # هنا في كل مرة: المولَّد كان يحمل AppId جديداً مع كل تشغيل، وتغيّر AppId
+      # يجعل ويندوز يعامل التحديث كبرنامج مختلف فيثبّته إلى جانب القديم.
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & iscc /DAppVersion=$version /DTagName=${{ github.ref_name }} installer\mihrab.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer_output/*.exe
+
+  # ─────────────────────────────────────────────
+  # أندرويد
+  # ─────────────────────────────────────────────
+  build-android:
+    name: 🤖 Build Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+
+      - name: Install dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      # مفتاح التوقيع يصل كـ Secret بصيغة base64 ويُفكّ إلى ملف مؤقّت.
+      #
+      # لا شرط `if` هنا: الشرط السابق كان `if: env.KEYSTORE_BASE64 != ''`
+      # و`env` معرّفة داخل الخطوة نفسها — و`if` يُقيَّم قبل أن تُهيَّأ بيئة
+      # الخطوة، فكان فارغاً دائماً والمفتاح لا يُفكّ أبداً، ويمضي البناء بمفتاح
+      # debug دون أن يشكو أحد.
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is not set. Release APKs must be signed."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mihrab.jks"
+
+      # القيم تُمرَّر كمتغيّرات بيئة يقرأها build.gradle.kts.
+      #
+      # كانت تُمرَّر بـ --dart-define، وهي تصل إلى شيفرة Dart لا إلى Gradle،
+      # فكان إعداد التوقيع يُتجاهَل بصمت ويخرج APK موقّعاً بمفتاح debug.
+      - name: Build APK (release)
+        working-directory: flutter_app
+        env:
+          KEYSTORE_PATH:  ${{ runner.temp }}/mihrab.jks
+          KEY_ALIAS:      ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD:   ${{ secrets.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: flutter build apk --release
+
+      # أندرويد يرفض تحديثاً موقّعاً بمفتاح غير مفتاح النسخة المثبّتة، ونشر APK
+      # بمفتاح debug يقطع طريق التحديث على كل من ثبّته بلا رجعة. لذلك يُفحص
+      # التوقيع فعلياً بدل الاكتفاء بنجاح البناء.
+      - name: Verify APK is signed with the release key
+        working-directory: flutter_app
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -r | head -1)
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          "$APKSIGNER" verify --print-certs "$APK" | grep "certificate DN"
+          if "$APKSIGNER" verify --print-certs "$APK" | grep -qi "CN=Android Debug"; then
+            echo "::error::APK is debug-signed. Check the KEYSTORE_* secrets."
+            exit 1
+          fi
+
+      - name: Rename APK
+        run: |
+          cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
+             mihrab-android-${{ github.ref_name }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mihrab-android-*.apk
+
+  # ─────────────────────────────────────────────
+  # نشر الإصدار
+  # ─────────────────────────────────────────────
+  create-release:
+    name: 📦 Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-android]
+
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - run: ls -la windows-installer/ android-apk/
+
+      # أسماء الملفات تحمل "windows" و"android"، وعليها يعتمد التطبيق في التقاط
+      # رابط منصّته من قائمة المرفقات (AppUpdateService._extractAssetUrl).
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            windows-installer/*.exe
+            android-apk/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false

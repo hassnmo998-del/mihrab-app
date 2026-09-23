@@ -1,0 +1,9 @@
+- [x] إضافة حقل `isActive` لموديل `CommunityEvent`
+- [x] إضافة دالة `toggleEventStatus` في المستودعات والخدمات
+- [x] إضافة دالة `findSheikhByCode` في `DataService`
+- [x] تحديث واجهة `DiscoverScreen` الأساسية
+- [x] إنشاء `discover_event_management_view.dart` كواجهة موحدة للإدارة
+- [x] تحديث `AdminEventsTab` لاستخدام الواجهة الموحدة
+- [x] تحديث `SheikhEventsTab` لاستخدام الواجهة الموحدة
+- [x] إضافة زر "إدارة دروسي" في `DiscoverScreen` يفتح الواجهة الموحدة في Dialog
+- [x] التحقق النهائي ومراجعة الكود

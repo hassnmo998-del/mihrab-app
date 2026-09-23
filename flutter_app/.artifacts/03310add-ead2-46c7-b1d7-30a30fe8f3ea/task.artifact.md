@@ -1,0 +1,11 @@
+- [x] Update `ActiveSession` and `LocalStorageDataSource` for Super Admin support
+- [x] Add Super Admin business logic to `DataService`
+- [x] Create `SuperAdminScreen` for token management
+- [x] Implement hidden Super Admin login in `MainShell`
+- [x] Lock Mosque Registration in `AdminLockedView` behind QR scan
+- [x] Verify the full Super Admin workflow
+- [x] Implement Multi-Mosque Switcher in `CashierScreen`
+- [x] Update authorization logic to check all saved sessions
+- [x] Filter stats and history by selected mosque ID
+- [x] Add "Scan New Mosque" button in Cashier UI
+- [x] Verify multi-mosque context switching

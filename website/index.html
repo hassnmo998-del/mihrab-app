@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. تطبيق احترافي لإدارة حلقات القرآن الكريم بكل سهولة واحتراف." />
+  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, تطبيق إسلامي" />
+  <meta name="author" content="محراب" />
+  <meta property="og:title" content="محراب — منصة إدارة حلقات التحفيظ الذكية" />
+  <meta property="og:description" content="إدارة حلقات القرآن الكريم بكل سهولة واحتراف" />
+  <meta property="og:type" content="website" />
+  <meta name="theme-color" content="#1a7a4a" />
+  <title>محراب — منصة إدارة حلقات التحفيظ الذكية</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="site-header">
+    <div class="container">
+      <div class="header-inner">
+        <div class="logo">
+          <span class="logo-icon">🕌</span>
+          <span class="logo-text">محراب</span>
+        </div>
+        <nav class="nav-links">
+          <a href="#features">المميزات</a>
+          <a href="#download">تحميل</a>
+          <a href="#release-notes-section">الأخبار</a>
+          <a href="privacy.html">الخصوصية</a>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero">
+    <div class="hero-decoration top-left"></div>
+    <div class="hero-decoration top-right"></div>
+    <div class="hero-decoration bottom-left"></div>
+    <div class="hero-decoration bottom-right"></div>
+
+    <div class="container">
+      <div class="hero-content">
+        <div class="badge animate-fade-in">✦ الإصدار الأحدث متاح الآن ✦</div>
+        <h1 class="hero-title animate-slide-up">محراب</h1>
+        <p class="hero-subtitle animate-slide-up delay-1">منصة إدارة حلقات التحفيظ الذكية</p>
+        <p class="hero-tagline animate-slide-up delay-2">إدارة حلقات القرآن الكريم بكل سهولة واحتراف</p>
+
+        <div class="version-badge animate-fade-in delay-2">
+          <span class="version-label">الإصدار:</span>
+          <span id="version-text" class="version-number">v---</span>
+        </div>
+
+        <!-- DOWNLOAD BUTTONS -->
+        <div id="download" class="download-section animate-slide-up delay-3">
+          <a id="btn-windows" href="#" class="btn btn-windows" data-platform="windows">
+            <span class="btn-icon">💻</span>
+            <span class="btn-content">
+              <span class="btn-label">تحميل لـ</span>
+              <span class="btn-platform">Windows</span>
+            </span>
+            <svg class="btn-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          </a>
+          <a id="btn-android" href="#" class="btn btn-android" data-platform="android">
+            <span class="btn-icon">📱</span>
+            <span class="btn-content">
+              <span class="btn-label">تحميل لـ</span>
+              <span class="btn-platform">Android</span>
+            </span>
+            <svg class="btn-arrow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          </a>
+        </div>
+
+        <!-- FALLBACK LINKS (hidden by default, shown on API error) -->
+        <div id="fallback-links" class="fallback-notice" style="display:none;">
+          <p>⚠️ تعذّر جلب آخر إصدار. يمكنك التحميل مباشرة من <a href="https://github.com/OWNER/REPO/releases" target="_blank" rel="noopener">صفحة الإصدارات على GitHub</a>.</p>
+        </div>
+
+        <p class="download-note">متاح مجاناً • آمن ومحمي • يعمل بدون إنترنت</p>
+      </div>
+    </div>
+
+    <div class="hero-wave">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 80" preserveAspectRatio="none">
+        <path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="#0d1b2a"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ===== FEATURES ===== -->
+  <section id="features" class="features-section">
+    <div class="container">
+      <h2 class="section-title">لماذا محراب؟</h2>
+      <p class="section-subtitle">كل ما تحتاجه لإدارة حلقات التحفيظ في مكان واحد</p>
+
+      <div class="features-grid">
+        <div class="feature-card animate-fade-in">
+          <div class="feature-icon">📖</div>
+          <h3>تتبع الحفظ</h3>
+          <p>تتبع تقدم كل طالب في حفظ القرآن الكريم بدقة ووضوح تام</p>
+        </div>
+        <div class="feature-card animate-fade-in delay-1">
+          <div class="feature-icon">🎙️</div>
+          <h3>تسجيل التلاوة</h3>
+          <p>سجّل تلاوات الطلاب وراجعها لاحقاً لتقييم الأداء وتحسينه</p>
+        </div>
+        <div class="feature-card animate-fade-in delay-2">
+          <div class="feature-icon">📊</div>
+          <h3>تقارير تفصيلية</h3>
+          <p>تقارير شاملة عن أداء الطلاب والحلقات لمساعدة المعلمين في اتخاذ القرارات</p>
+        </div>
+        <div class="feature-card animate-fade-in delay-3">
+          <div class="feature-icon">👨‍👩‍👧‍👦</div>
+          <h3>تواصل مع الأسرة</h3>
+          <p>أبقِ أولياء الأمور على اطلاع دائم بتقدم أبنائهم في الحفظ</p>
+        </div>
+        <div class="feature-card animate-fade-in delay-1">
+          <div class="feature-icon">🕌</div>
+          <h3>إدارة المساجد</h3>
+          <p>إدارة متعددة المساجد والحلقات من واجهة واحدة سهلة الاستخدام</p>
+        </div>
+        <div class="feature-card animate-fade-in delay-2">
+          <div class="feature-icon">☁️</div>
+          <h3>مزامنة سحابية</h3>
+          <p>بياناتك محفوظة وآمنة في السحابة ومتزامنة على جميع أجهزتك</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== RELEASE NOTES ===== -->
+  <section id="release-notes-section" class="release-notes-section">
+    <div class="container">
+      <h2 class="section-title">ما الجديد؟</h2>
+      <div class="release-card">
+        <div class="release-header">
+          <div class="release-version-tag">
+            <span id="version-text-2">v---</span>
+          </div>
+          <div id="release-date" class="release-date">
+            <span class="release-date-icon">📅</span>
+            <span class="release-date-text">جارٍ التحميل...</span>
+          </div>
+        </div>
+        <div id="release-notes" class="release-body">
+          <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>جارٍ تحميل ملاحظات الإصدار...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== STATS ===== -->
+  <section class="stats-section">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-number">١٠٠٠+</span>
+          <span class="stat-label">مستخدم نشط</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number">٥٠٠+</span>
+          <span class="stat-label">حلقة مُدارة</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number">١٠٠٪</span>
+          <span class="stat-label">مجاني للتحميل</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-number">٤.٩★</span>
+          <span class="stat-label">تقييم المستخدمين</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CTA ===== -->
+  <section class="cta-section">
+    <div class="container">
+      <div class="cta-inner">
+        <h2>ابدأ اليوم مجاناً</h2>
+        <p>انضم إلى آلاف المعلمين الذين يستخدمون محراب لإدارة حلقاتهم باحترافية</p>
+        <div class="cta-buttons">
+          <a href="#download" class="cta-btn">
+            ⬇️ تحميل محراب الآن
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="logo-icon">🕌</span>
+          <span class="footer-brand-name">محراب</span>
+          <p class="footer-tagline">منصة إدارة حلقات التحفيظ الذكية</p>
+        </div>
+        <div class="footer-links">
+          <a href="privacy.html">سياسة الخصوصية</a>
+          <a href="https://github.com/OWNER/REPO" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/OWNER/REPO/releases" target="_blank" rel="noopener">الإصدارات</a>
+          <a href="mailto:contact@mihrab-app.com">تواصل معنا</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2026 محراب — جميع الحقوق محفوظة</p>
+        <p class="footer-verse">﴿ وَرَتِّلِ الْقُرْآنَ تَرْتِيلًا ﴾</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
