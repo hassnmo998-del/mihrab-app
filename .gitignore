@@ -19,6 +19,7 @@
 
 installer_output/
 setup.iss
+website/downloads/
 
 flutter_app/build/
 flutter_app/.dart_tool/
