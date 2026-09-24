@@ -30,10 +30,6 @@ import 'screens/super_admin_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // يُقرأ رقم الإصدار من الحزمة مرة واحدة. شاشة الإعدادات تعرضه مباشرةً، فلو
-  // تُرك لأول فحص تحديث لظهرت فارغة إلى حينه.
-  await AppUpdateService.init();
-
   // Suppress known Windows framework duplicate key-down assertions, mouse tracker assertions, and empty JSON input messages
   final originalOnError = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -63,9 +59,15 @@ void main() async {
     return false;
   };
 
+  // تهيئة حقن التبعيات
   await initInjection();
   final dataService = sl<DataService>();
-  await dataService.init();
+
+  // قراءة الإصدار وتحميل التخزين المحلي فوراً بالتوازي بأقصى سرعة ممكنة دون أي تأخير
+  await Future.wait([
+    AppUpdateService.init(),
+    dataService.init(),
+  ]);
 
   // Initialize window manager for fullscreen support (Desktop only)
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {

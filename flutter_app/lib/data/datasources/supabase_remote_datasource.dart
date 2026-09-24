@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -78,9 +79,16 @@ class SupabaseRemoteDataSource {
     final c = client;
     if (c == null) return null;
     try {
-      final res = await c.from(table).select();
+      final res = await c
+          .from(table)
+          .select()
+          .timeout(const Duration(seconds: 10));
       return List<Map<String, dynamic>>.from(res);
     } catch (e) {
+      if (e is TimeoutException) {
+        debugPrint('⏱️ Supabase fetchTable timeout ($table)');
+        return null;
+      }
       if (e is PostgrestException && e.code == 'PGRST205') {
         if (!_missingTablesNotified.contains(table)) {
           _missingTablesNotified.add(table);
@@ -124,9 +132,18 @@ class SupabaseRemoteDataSource {
     final c = client;
     if (c == null) return null;
     try {
-      final res = await c.from(table).select().eq(column, value).maybeSingle();
+      final res = await c
+          .from(table)
+          .select()
+          .eq(column, value)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 10));
       return res;
     } catch (e) {
+      if (e is TimeoutException) {
+        debugPrint('⏱️ Supabase fetchOneByColumn timeout ($table.$column=$value)');
+        return null;
+      }
       debugPrint(
         '⚠️ Supabase fetchOneByColumn error ($table.$column=$value): $e',
       );

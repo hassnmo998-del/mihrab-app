@@ -156,7 +156,9 @@ class AppUpdateService {
     void Function(UpdateInfo info)? onReadyToInstall,
   }) async {
     if (state == SilentUpdateState.downloading ||
-        state == SilentUpdateState.installing) return;
+        state == SilentUpdateState.installing) {
+      return;
+    }
 
     _setState(SilentUpdateState.checking);
 
@@ -189,6 +191,23 @@ class AppUpdateService {
     } catch (e) {
       if (kDebugMode) print('[AppUpdateService] خطأ صامت: $e');
       _setState(SilentUpdateState.error);
+    }
+  }
+
+  /// تنزيل وتثبيت مباشر للتوافق مع شاشات الحوار المباشرة
+  Future<void> downloadAndInstall(
+    UpdateInfo info, {
+    void Function(int received, int total)? onProgress,
+  }) async {
+    final url = Platform.isWindows ? info.downloadUrlWindows : info.downloadUrlAndroid;
+    if (url == null) throw Exception('No download URL available');
+    if (Platform.isWindows) {
+      await _downloadAndInstallWindowsSilent(url, info.version);
+    } else if (Platform.isAndroid) {
+      final path = await _downloadApkSilent(url, info.version);
+      if (path != null) {
+        await installDownloadedApk();
+      }
     }
   }
 
@@ -352,7 +371,9 @@ class AppUpdateService {
 
   List<int> _parseSemver(String v) {
     final parts = v.split('.');
-    while (parts.length < 3) parts.add('0');
+    while (parts.length < 3) {
+      parts.add('0');
+    }
     return parts.map((p) => int.tryParse(p) ?? 0).toList();
   }
 

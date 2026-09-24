@@ -209,48 +209,62 @@ class DataService extends ChangeNotifier {
   // Initialization & Cloud Sync
   // ==========================================
   Future<void> init() async {
-    await _remoteDataSource.initialize();
-    await audioUploadQueue.init();
-
     // 1. Instant cold-start load from local storage (0ms latency)
-    await _localDataSource.loadAllFromStorage();
-    await _restoreSavedDonations();
-    await _syncQueueManager.loadQueue();
-    // استعادة جلسة السوبر أدمن إذا كان الجهاز مصادقاً مسبقاً.
-    // لا ننتظرها كي لا يتأخر إقلاع التطبيق: تُفعّل الجلسة وتُخطر الواجهة
-    // بنفسها حالما ينتهي استرجاع جلسة Supabase المحفوظة.
+    // نُحمّل كافة البيانات المخزنة محلياً في الذاكرة بالتوازي بأقصى سرعة ممكنة
+    await Future.wait([
+      _localDataSource.loadAllFromStorage(),
+      _restoreSavedDonations(),
+      _syncQueueManager.loadQueue(),
+      audioUploadQueue.init(),
+      _remoteDataSource.initialize(),
+    ]);
+
+    // استعادة جلسة السوبر أدمن إذا كان الجهاز مصادقاً مسبقاً في الخلفية
     unawaited(restoreSuperAdminSessionIfNeeded());
-// تنظيف تلقائي: تصفير أي بث مباشر معلق بالخطأ عند بدء التطبيق
+
+    // تنظيف تلقائي: تصفير أي بث مباشر معلق بالخطأ عند بدء التطبيق
     for (var ev in _localDataSource.communityEvents) {
       if (ev.eventStatus == 'live') {
         ev.eventStatus = 'upcoming';
       }
     }
-    // 2. Non-blocking background sync queue processing
-    _syncQueueManager.processQueue(_remoteDataSource);
 
-    // 3. Sync remote tables with local cache
-    await syncWithSupabase();
-
-    // 4. Start Supabase Realtime subscription for multi-device sync
-    startRealtimeSubscription();
-
-    // 5. Start lightweight auto-sync heartbeat timer (every 12 seconds) to catch missed drops and ensure community events appear quickly
-    _autoSyncTimer?.cancel();
-    _autoSyncTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      syncWithSupabase();
-    });
-
-    // 6. رفع تلقائي إذا كانت قاعدة بيانات Supabase جديدة ولدينا بيانات محلية
-    if (_localDataSource.mosques.isNotEmpty) {
-      final checkRemote = await _remoteDataSource.fetchTable('mosques');
-      if (checkRemote != null && checkRemote.isEmpty) {
-        debugPrint('☁️ Supabase is connected but empty, auto-pushing local data...');
-        await pushAllLocalToSupabase();
-      }
-    }
-
+    // إخطار الواجهة بأن البيانات المحلية الأولية جاهزة فوراً للعرض دون أي تأخير
     notifyListeners();
+
+    // 2. إطلاق عمليات المزامنة السحابية في الخلفية بشكل صامت تماماً دون تعطيل فتح التطبيق
+    unawaited(_startBackgroundSync());
+  }
+
+  /// إطلاق المزامنة السحابية والمؤقتات والاشتراكات في الخلفية بعد ظهور الواجهة
+  Future<void> _startBackgroundSync() async {
+    try {
+      // تفريغ طابور العمليات العالقة في الخلفية
+      unawaited(_syncQueueManager.processQueue(_remoteDataSource));
+
+      // مزامنة كافة الجداول السحابية مع الكاش المحلي في الخلفية
+      await syncWithSupabase();
+
+      // تفعيل الاشتراك اللحظي في قاعدة البيانات للتحديثات المباشرة
+      startRealtimeSubscription();
+
+      // مؤقت النبضات للمزامنة الدورية الخفيفة كل 15 ثانية
+      _autoSyncTimer?.cancel();
+      _autoSyncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+        syncWithSupabase();
+      });
+
+      // رفع تلقائي إذا كانت قاعدة بيانات Supabase جديدة ولدينا بيانات محلية
+      if (_localDataSource.mosques.isNotEmpty) {
+        final checkRemote = await _remoteDataSource.fetchTable('mosques');
+        if (checkRemote != null && checkRemote.isEmpty) {
+          debugPrint('☁️ Supabase is connected but empty, auto-pushing local data...');
+          await pushAllLocalToSupabase();
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Background sync initialization note: $e');
+    }
   }
 
   /// رفع كافة البيانات المخزنة محلياً إلى سحابة Supabase فوراً
@@ -779,13 +793,38 @@ class DataService extends ChangeNotifier {
   }
 
 
+  bool _isSyncing = false;
+
   /// Cloud Synchronization with Supabase across all 17 collections
   Future<void> syncWithSupabase() async {
+    if (_isSyncing) return;
+    _isSyncing = true;
     try {
       // تفريغ طابور العمليات العالقة أولاً
       await _syncQueueManager.processQueue(_remoteDataSource);
 
-      final remoteMosques = await _remoteDataSource.fetchMosquesForSync();
+      // جلب كافة الجداول الـ 17 بالتوازي عبر Future.wait بدلاً من الانتظار التسلسلي المرهق
+      final results = await Future.wait([
+        _remoteDataSource.fetchMosquesForSync(),                     // 0
+        _remoteDataSource.fetchTable('sheikhs'),                     // 1
+        _remoteDataSource.fetchTable('halaqat'),                     // 2
+        _remoteDataSource.fetchTable('students'),                    // 3
+        _remoteDataSource.fetchTable('community_events'),            // 4
+        _remoteDataSource.fetchTable('memorization_records'),        // 5
+        _remoteDataSource.fetchTable('attendance'),                  // 6
+        _remoteDataSource.fetchTable('messages'),                    // 7
+        _remoteDataSource.fetchTable('competitions'),                // 8
+        _remoteDataSource.fetchTable('intensive_courses'),           // 9
+        _remoteDataSource.fetchTable('trips'),                       // 10
+        _remoteDataSource.fetchTable('rewards'),                     // 11
+        _remoteDataSource.fetchTable('reward_redemptions'),          // 12
+        _remoteDataSource.fetchTable('recitation_tracks'),           // 13
+        _remoteDataSource.fetchTable('subject_recitation_records'),  // 14
+        _remoteDataSource.fetchTable('points_logs'),                 // 15
+        _remoteDataSource.fetchTable('event_questions'),             // 16
+      ]);
+
+      final remoteMosques = results[0];
       if (remoteMosques != null) {
         _syncCollection<Mosque>(
           list: _localDataSource.mosques,
@@ -826,7 +865,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteSheikhs = await _remoteDataSource.fetchTable('sheikhs');
+      final remoteSheikhs = results[1];
       if (remoteSheikhs != null) {
         _syncCollection<Sheikh>(
           list: _localDataSource.sheikhs,
@@ -837,7 +876,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteHalaqat = await _remoteDataSource.fetchTable('halaqat');
+      final remoteHalaqat = results[2];
       if (remoteHalaqat != null) {
         _syncCollection<Halaqa>(
           list: _localDataSource.halaqat,
@@ -848,7 +887,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteStudents = await _remoteDataSource.fetchTable('students');
+      final remoteStudents = results[3];
       if (remoteStudents != null) {
         _syncCollection<Student>(
           list: _localDataSource.students,
@@ -859,7 +898,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteEvents = await _remoteDataSource.fetchTable('community_events');
+      final remoteEvents = results[4];
       if (remoteEvents != null) {
         _syncCollection<CommunityEvent>(
           list: _localDataSource.communityEvents,
@@ -884,7 +923,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteMem = await _remoteDataSource.fetchTable('memorization_records');
+      final remoteMem = results[5];
       if (remoteMem != null) {
         _syncCollection<MemorizationRecord>(
           list: _localDataSource.memorizationRecords,
@@ -895,7 +934,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteAtt = await _remoteDataSource.fetchTable('attendance');
+      final remoteAtt = results[6];
       if (remoteAtt != null) {
         _syncCollection<AttendanceRecord>(
           list: _localDataSource.attendanceRecords,
@@ -906,7 +945,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteMsgs = await _remoteDataSource.fetchTable('messages');
+      final remoteMsgs = results[7];
       if (remoteMsgs != null) {
         _syncCollection<AppMessage>(
           list: _localDataSource.messages,
@@ -917,7 +956,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteComps = await _remoteDataSource.fetchTable('competitions');
+      final remoteComps = results[8];
       if (remoteComps != null) {
         _syncCollection<Competition>(
           list: _localDataSource.competitions,
@@ -928,7 +967,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteCourses = await _remoteDataSource.fetchTable('intensive_courses');
+      final remoteCourses = results[9];
       if (remoteCourses != null) {
         _syncCollection<IntensiveCourse>(
           list: _localDataSource.intensiveCourses,
@@ -939,7 +978,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteTrips = await _remoteDataSource.fetchTable('trips');
+      final remoteTrips = results[10];
       if (remoteTrips != null) {
         _syncCollection<Trip>(
           list: _localDataSource.trips,
@@ -950,7 +989,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteRewards = await _remoteDataSource.fetchTable('rewards');
+      final remoteRewards = results[11];
       if (remoteRewards != null) {
         _syncCollection<Reward>(
           list: _localDataSource.rewards,
@@ -961,7 +1000,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteRedemptions = await _remoteDataSource.fetchTable('reward_redemptions');
+      final remoteRedemptions = results[12];
       if (remoteRedemptions != null) {
         _syncCollection<RewardRedemption>(
           list: _localDataSource.redemptions,
@@ -972,7 +1011,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteTracks = await _remoteDataSource.fetchTable('recitation_tracks');
+      final remoteTracks = results[13];
       if (remoteTracks != null) {
         _syncCollection<RecitationTrack>(
           list: _localDataSource.recitationTracks,
@@ -983,7 +1022,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteSubjectRec = await _remoteDataSource.fetchTable('subject_recitation_records');
+      final remoteSubjectRec = results[14];
       if (remoteSubjectRec != null) {
         _syncCollection<SubjectRecitationRecord>(
           list: _localDataSource.subjectRecitationRecords,
@@ -994,7 +1033,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remotePoints = await _remoteDataSource.fetchTable('points_logs');
+      final remotePoints = results[15];
       if (remotePoints != null) {
         _syncCollection<PointsLog>(
           list: _localDataSource.pointsLogs,
@@ -1005,7 +1044,7 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      final remoteQuestions = await _remoteDataSource.fetchTable('event_questions');
+      final remoteQuestions = results[16];
       if (remoteQuestions != null) {
         _syncCollection<EventQuestion>(
           list: _localDataSource.eventQuestions,
@@ -1025,6 +1064,8 @@ class DataService extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('⚠️ SyncWithSupabase exception: $e');
+    } finally {
+      _isSyncing = false;
     }
   }
 
