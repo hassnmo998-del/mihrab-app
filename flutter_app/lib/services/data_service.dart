@@ -731,7 +731,6 @@ class DataService extends ChangeNotifier {
     required String Function(T) getId,
     required T Function(Map<String, dynamic>) fromJson,
     T Function(T local, T remote)? onMerge,
-    bool Function(T local)? protectLocal, // 🔒 عناصر محلية محمية من الحذف التلقائي
   }) {
     final remoteMap = <String, Map<String, dynamic>>{};
     for (var item in remoteData) {
@@ -773,17 +772,6 @@ class DataService extends ChangeNotifier {
       }
       if (!remoteMap.containsKey(id)) {
         if (_syncQueueManager.isPendingUpsert(table, id)) {
-          return false;
-        }
-        // 🔒 حماية العناصر المحلية المحمية (مثل الأرشيف) من الحذف التلقائي
-        if (protectLocal != null && protectLocal(item)) {
-          // إعادة قيدها في طابور المزامنة لضمان رفعها لاحقاً
-          _syncQueueManager.queueSync(
-            table: table,
-            action: 'upsert',
-            data: (item as dynamic).toJson() as Map<String, dynamic>,
-            remoteDataSource: _remoteDataSource,
-          );
           return false;
         }
         return true;
@@ -906,7 +894,6 @@ class DataService extends ChangeNotifier {
           table: 'community_events',
           getId: (e) => e.id,
           fromJson: (json) => CommunityEvent.fromJson(json),
-          protectLocal: (ev) => ev.eventStatus == 'archived', // 🔒 الأرشيف لا يُحذف تلقائياً أبداً
           onMerge: (localEv, remoteItem) {
             if (remoteItem.eventType == 'system_donation_config') {
               _applyDonationConfigEvent(remoteItem);
@@ -1160,7 +1147,6 @@ class DataService extends ChangeNotifier {
             table: 'community_events',
             getId: (e) => e.id,
             fromJson: (json) => CommunityEvent.fromJson(json),
-            protectLocal: (ev) => ev.eventStatus == 'archived', // 🔒 الأرشيف محمي
             onMerge: (localEv, remoteItem) {
               if (remoteItem.eventType == 'system_donation_config') {
                 _applyDonationConfigEvent(remoteItem);
