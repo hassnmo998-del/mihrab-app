@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 env:
   # يجب أن تبقى متوافقة مع `environment: sdk:` في flutter_app/pubspec.yaml.
@@ -157,3 +159,40 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  # ─────────────────────────────────────────────
+  # تحديث موقع الويب فورياً بملفات الإصدار الجديد
+  # ─────────────────────────────────────────────
+  deploy-pages:
+    name: 🌐 Update Website Fastly CDN
+    runs-on: ubuntu-latest
+    needs: [create-release]
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare website downloads
+        run: |
+          mkdir -p website/downloads
+          cp windows-installer/*.exe website/downloads/mihrab-windows.exe
+          cp android-apk/*.apk website/downloads/mihrab-android.apk
+          ls -lh website/downloads/
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'website'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

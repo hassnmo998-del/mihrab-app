@@ -13,6 +13,7 @@ import 'presentation/blocs/blocs.dart';
 import 'screens/settings_screen.dart';
 import 'services/data_service.dart';
 import 'services/app_update_service.dart';
+import 'widgets/update_dialog.dart';
 import 'widgets/code_scanner_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
 import 'screens/discover_screen.dart';
@@ -204,36 +205,37 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     // استمع لـ F11 عالمياً بدون الحاجة لـ focus - يشتغل حتى بالشاشة الكاملة
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
-    // ── فحص التحديثات الصامت عند الإطلاق ─────────────────────────
-    // نؤخر ثلاث ثوانٍ حتى تكتمل الواجهة أولاً
-    Future.delayed(const Duration(seconds: 3), _silentUpdateCheck);
+    // ── فحص التحديثات عند الإطلاق ─────────────────────────
+    // نؤخر ثانيتين ونصف حتى تستقر الواجهة الرئيسية أولاً
+    Future.delayed(const Duration(milliseconds: 2500), _checkUpdateOnLaunch);
 
-    // فحص صامت دوري كل 24 ساعة
+    // فحص دوري كل 24 ساعة
     AppUpdateService.instance.startPeriodicSilentCheck(
       interval: const Duration(hours: 24),
-      onReadyToInstall: _showInstallSnackBar, // Android فقط
+      onReadyToInstall: _showInstallSnackBar,
     );
   }
 
-  /// فحص صامت — لا يظهر للمستخدم شيء إلا في Android عند الجهوز
-  Future<void> _silentUpdateCheck() async {
-    await AppUpdateService.instance.checkAndDownloadSilently(
-      onReadyToInstall: _showInstallSnackBar, // Android: إشعار واحد فقط
-      // Windows: يثبّت تلقائياً بدون إشعار
-    );
+  /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث إن وُجد إصدار جديد
+  Future<void> _checkUpdateOnLaunch() async {
+    final info = await AppUpdateService.instance.checkForUpdate(ignoreDismissed: false);
+    if (!mounted || info == null) return;
+
+    // إذا توفر تحديث ولم يتجاهله المستخدم مسبقاً، نعرض نافذة التحديث الأنيقة
+    UpdateDialog.show(context, info, AppUpdateService.instance);
   }
 
-  /// Android فقط — يظهر Snackbar بسيط في أسفل الشاشة
+  /// يظهر Snackbar عند اكتمال تنزيل التحديث في الخلفية
   void _showInstallSnackBar(UpdateInfo info) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('تحديث v${info.version} جاهز للتثبيت'),
+        content: Text('تحديث محراب v${info.version} جاهز للتثبيت 🚀'),
         action: SnackBarAction(
-          label: 'تثبيت',
-          onPressed: () => AppUpdateService.instance.installDownloadedApk(),
+          label: 'تثبيت الآن',
+          onPressed: () => AppUpdateService.instance.installDownloadedUpdate(),
         ),
-        duration: const Duration(seconds: 10),
+        duration: const Duration(seconds: 15),
         behavior: SnackBarBehavior.floating,
       ),
     );

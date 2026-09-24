@@ -3,14 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="محراب — منصة إدارة حلقات التحفيظ الذكية. منظومة عصرية متكاملة لإدارة المساجد، الحلقات القرآنية، متون السنة النبوية، والتسميع الذكي." />
-  <meta name="keywords" content="محراب, حلقات تحفيظ, قرآن كريم, إدارة حلقات, متون, صحيح البخاري, صحيح مسلم, تطبيق إسلامي" />
-  <meta name="author" content="محراب" />
-  <meta property="og:title" content="محراب — منصة إدارة حلقات التحفيظ الذكية" />
-  <meta property="og:description" content="منظومة إدارة عصرية ومحكمة لحلقات القرآن الكريم ومساجد المسلمين" />
+  <title>محراب — منصة إدارة حلقات تحفيظ القرآن الكريم والحديث النبوي</title>
+  <meta name="description" content="محراب (Mihrab) المنظومة الإسلامية الذكية لإدارة حلقات تحفيظ القرآن الكريم في المساجد، المتون العلمية، صحيح البخاري ومسلم، مع التسميع التلقائي ومتابعة الطلاب بدون إنترنت. متوفر مجاناً لويندوز وأندرويد." />
+  <meta name="keywords" content="محراب, تطبيق محراب, حلقات تحفيظ القرآن, إدارة المساجد, تحفيظ القرآن, صحيح البخاري, صحيح مسلم, متون علمية, تجويد القرآن, تطبيق إسلامي, أندرويد, ويندوز, mihrab, quran halaqat" />
+  <meta name="author" content="فريق محراب" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://hassnmo998-del.github.io/mihrab-app/" />
+
+  <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://hassnmo998-del.github.io/mihrab-app/" />
+  <meta property="og:title" content="محراب — المنصة الذكية لإدارة حلقات القرآن الكريم" />
+  <meta property="og:description" content="منظومة عصرية ومحكمة لإدارة حلقات التحفيظ ومساجد المسلمين مجاناً وبدون إنترنت." />
+  <meta property="og:site_name" content="منصة محراب" />
+  <meta property="og:locale" content="ar_AR" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="محراب — منصة إدارة حلقات تحفيظ القرآن الكريم" />
+  <meta name="twitter:description" content="تطبيق مجاني مفتوح المصدر لإدارة حلقات القرآن والمساجد على Windows و Android." />
+
   <meta name="theme-color" content="#0d3b22" />
-  <title>محراب — منصة إدارة حلقات التحفيظ الذكية</title>
+
+  <!-- Google Structured Data (JSON-LD) for SoftwareApplication -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "محراب",
+    "alternateName": "Mihrab App",
+    "operatingSystem": "Android, Windows",
+    "applicationCategory": "EducationalApplication",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "description": "منظومة إسلامية ذكية لإدارة حلقات تحفيظ القرآن الكريم، التسميع الصوتي، واختبارات متون الحديث النبوي الشريف.",
+    "url": "https://hassnmo998-del.github.io/mihrab-app/",
+    "downloadUrl": "https://hassnmo998-del.github.io/mihrab-app/downloads/mihrab-android.apk",
+    "softwareVersion": "1.0.1",
+    "inLanguage": "ar"
+  }
+  </script>
   
   <!-- خطوط عربية إسلامية أصيلة: الأميري للعناوين والتجويد، وتجوال للمتون والشاشات -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -61,7 +96,7 @@
 
         <div class="badge animate-fade-in delay-1">
           <span class="badge-star">✦</span>
-          <span>الإصدار الرسمي الأول v1.0.0 متاح للتحميل</span>
+          <span id="hero-version-text">الإصدار الرسمي v1.0.1 متاح للتحميل</span>
           <span class="badge-star">✦</span>
         </div>
 
@@ -86,7 +121,7 @@
           <!-- زر تحميل الويندوز المباشر -->
           <a id="btn-windows" 
              href="downloads/mihrab-windows.exe" 
-             download="mihrab-windows-v1.0.0.exe"
+             download="mihrab-windows.exe"
              class="btn btn-windows" 
              data-platform="windows">
             <div class="btn-shine"></div>
@@ -94,7 +129,7 @@
             <div class="btn-content">
               <span class="btn-label">تحميل مجاني لـ Windows</span>
               <span class="btn-platform">
-                <span>مثبّت رسمي • ١٦.٢ ميغابايت</span>
+                <span>مثبّت رسمي • <span id="win-version-tag">v1.0.1</span></span>
                 <span class="btn-download-count" style="display:none;"></span>
               </span>
             </div>
@@ -104,7 +139,7 @@
           <!-- زر تحميل الأندرويد المباشر -->
           <a id="btn-android" 
              href="downloads/mihrab-android.apk" 
-             download="mihrab-android-v1.0.0.apk"
+             download="mihrab-android.apk"
              class="btn btn-android" 
              data-platform="android">
             <div class="btn-shine"></div>
@@ -112,7 +147,7 @@
             <div class="btn-content">
               <span class="btn-label">تحميل مباشر لـ Android</span>
               <span class="btn-platform">
-                <span>ملف APK موقّع • ٨٧.٩ ميغابايت</span>
+                <span>ملف APK موقّع • <span id="android-version-tag">v1.0.1</span></span>
                 <span class="btn-download-count" style="display:none;"></span>
               </span>
             </div>
@@ -133,9 +168,9 @@
           </p>
           <div class="mobile-fallback-links" style="margin-top: 10px;">
             <span>سيرفرات بديلة:</span>
-            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" id="direct-link-apk">مخدم GitHub الأساسي</a>
+            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/latest" id="direct-link-apk" target="_blank" rel="noopener">مخدم GitHub الأساسي (أحدث نسخة)</a>
             •
-            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/tag/v1.0.0" target="_blank" rel="noopener">صفحة الإصدار على GitHub</a>
+            <a href="https://github.com/hassnmo998-del/mihrab-app/releases" target="_blank" rel="noopener">سجل كافة الإصدارات على GitHub</a>
           </div>
         </div>
 

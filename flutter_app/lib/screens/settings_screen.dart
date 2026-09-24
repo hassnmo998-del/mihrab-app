@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -15,43 +16,19 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _checkingUpdate = false;
-  String _updateStatusMsg = '';
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (AppUpdateService.instance.state == SilentUpdateState.idle &&
+          AppUpdateService.instance.latestInfo == null) {
+        AppUpdateService.instance.checkForUpdate();
+      }
+    });
+  }
 
   Future<void> _manualCheckUpdate() async {
-    if (_checkingUpdate) return;
-    setState(() { _checkingUpdate = true; _updateStatusMsg = 'جارٍ التحقق...'; });
-
-    final info = await AppUpdateService.instance.checkForUpdate();
-
-    if (!mounted) return;
-    if (info == null) {
-      setState(() {
-        _checkingUpdate = false;
-        _updateStatusMsg = 'التطبيق محدَّث ✅';
-      });
-    } else {
-      setState(() {
-        _checkingUpdate = false;
-        _updateStatusMsg = 'يوجد تحديث v${info.version} — جارٍ التنزيل...';
-      });
-      await AppUpdateService.instance.checkAndDownloadSilently(
-        onReadyToInstall: (i) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('تحديث v${i.version} جاهز للتثبيت'),
-              action: SnackBarAction(
-                label: 'تثبيت',
-                onPressed: () => AppUpdateService.instance.installDownloadedApk(),
-              ),
-              duration: const Duration(seconds: 15),
-              behavior: SnackBarBehavior.floating,
-            ));
-          }
-        },
-      );
-      if (mounted) setState(() => _updateStatusMsg = 'التحديث يُثبَّت في الخلفية...');
-    }
+    await AppUpdateService.instance.checkForUpdate();
   }
 
   TextStyle _getPreviewStyle(String fontFamily, double size, FontWeight weight, Color color) {
@@ -347,95 +324,450 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// قسم رقم الإصدار في الإعدادات
+  /// قسم رقم الإصدار والتحديث التفاعلي في الإعدادات
   Widget _buildVersionSection(bool isDark) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
     final borderColor = isDark ? Colors.white12 : Colors.black12;
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // عنوان القسم
-          Row(
+    return ListenableBuilder(
+      listenable: AppUpdateService.instance,
+      builder: (context, _) {
+        final service = AppUpdateService.instance;
+        final state = service.state;
+        final latest = service.latestInfo;
+
+        return Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline_rounded, size: 18,
-                  color: isDark ? Colors.white54 : Colors.black45),
-              const SizedBox(width: 8),
-              Text('معلومات التطبيق',
-                  style: AppTypography.font(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white70 : Colors.black54)),
+              // عنوان القسم
+              Row(
+                children: [
+                  Icon(Icons.system_update_rounded, size: 20, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'معلومات التطبيق والتحديثات',
+                    style: AppTypography.titleBold(context, fontSize: 14.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // رقم الإصدار الحالي
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('الإصدار المثبت حالياً', style: AppTypography.font(fontSize: 14.5)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'v${AppUpdateService.currentVersion}',
+                      style: AppTypography.font(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+
+              // ── حالة التحديثات التفاعلية ──
+              if (state == SilentUpdateState.checking) ...[
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'جارٍ التحقق من وجود إصدار جديد...',
+                        style: AppTypography.font(
+                          fontSize: 13,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (state == SilentUpdateState.updateAvailable && latest != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.gold.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.new_releases_rounded, color: AppColors.goldDark, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'يتوفر إصدار جديد: v${latest.version}',
+                              style: AppTypography.titleBold(context, fontSize: 14, color: AppColors.goldDark),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (latest.releaseNotes.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          latest.releaseNotes,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.font(
+                            fontSize: 12.5,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => service.startDownload(latest),
+                          icon: const Icon(Icons.download_rounded, size: 18),
+                          label: const Text('تنزيل التحديث الآن'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (state == SilentUpdateState.downloading) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'جارٍ تنزيل التحديث...',
+                                style: AppTypography.titleBold(context, fontSize: 13.5),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            service.formattedProgress,
+                            style: AppTypography.titleBold(context, fontSize: 14, color: primaryColor),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: service.downloadProgress > 0 ? service.downloadProgress : null,
+                          minHeight: 8,
+                          backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                          color: primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        service.formattedSize,
+                        style: AppTypography.font(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => service.pauseOrCancelDownload(),
+                              icon: const Icon(Icons.pause_circle_outline, size: 18),
+                              label: const Text('إيقاف مؤقت'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: primaryColor,
+                                side: BorderSide(color: primaryColor.withValues(alpha: 0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: () => service.cancelDownload(),
+                            icon: const Icon(Icons.close_rounded, size: 18, color: Colors.redAccent),
+                            label: Text(
+                              'إلغاء',
+                              style: AppTypography.font(fontSize: 13, color: Colors.redAccent),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (state == SilentUpdateState.paused) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.pause_circle_filled, color: Colors.orange, size: 18),
+                              const SizedBox(width: 8),
+                              Text('تم الإيقاف المؤقت', style: AppTypography.titleBold(context, fontSize: 13.5)),
+                            ],
+                          ),
+                          Text(service.formattedProgress, style: AppTypography.titleBold(context, fontSize: 13.5, color: Colors.orange)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: service.downloadProgress,
+                          minHeight: 8,
+                          backgroundColor: Colors.orange.withValues(alpha: 0.2),
+                          color: Colors.orange,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(service.formattedSize, style: AppTypography.font(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54)),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => service.resumeDownload(),
+                              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                              label: const Text('استئناف التنزيل'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange.shade800,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: () => service.cancelDownload(),
+                            child: Text('إلغاء', style: AppTypography.font(fontSize: 13, color: Colors.redAccent)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (state == SilentUpdateState.readyToInstall) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: Colors.green, size: 22),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'اكتمل التنزيل بنجاح! جاهز للتثبيت 🚀',
+                              style: AppTypography.titleBold(context, fontSize: 14, color: Colors.green.shade800),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        Platform.isAndroid
+                            ? 'انقر بالأسفل لفتح مثبت الأندرويد. إذا طُلب منك، فعّل «السماح بتثبيت التطبيقات من هذا المصدر» لمحراب.'
+                            : 'انقر بالأسفل لإعادة تشغيل محراب وتثبيت التحديث الجديد بسلاسة.',
+                        style: AppTypography.font(fontSize: 12.5, color: isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => service.installDownloadedUpdate(),
+                          icon: Icon(
+                            Platform.isAndroid ? Icons.system_update_rounded : Icons.restart_alt_rounded,
+                            size: 20,
+                          ),
+                          label: Text(
+                            Platform.isAndroid ? 'تثبيت التحديث الآن 🚀' : 'إعادة التشغيل وتثبيت التحديث 🔄',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade700,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.center,
+                        child: TextButton(
+                          onPressed: () async {
+                            await service.cancelDownload();
+                            if (latest != null) service.startDownload(latest);
+                          },
+                          child: Text(
+                            'إعادة التنزيل من البداية',
+                            style: AppTypography.font(fontSize: 11.5, color: isDark ? Colors.white54 : Colors.black45),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (state == SilentUpdateState.installing) ...[
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'جارٍ فتح مثبت النظام...',
+                        style: AppTypography.font(fontSize: 13, color: primaryColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else if (state == SilentUpdateState.error) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              service.errorMessage ?? 'تعذر تنزيل التحديث',
+                              style: AppTypography.font(fontSize: 13, color: Colors.redAccent),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: ElevatedButton.icon(
+                          onPressed: () => service.resumeDownload(),
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text('إعادة المحاولة'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                // الحالة الافتراضية: idle
+                if (service.statusMessage.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline, color: Colors.green, size: 16),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          service.statusMessage,
+                          style: AppTypography.font(
+                            fontSize: 13,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _manualCheckUpdate,
+                    icon: Icon(Icons.refresh_rounded, size: 18, color: primaryColor),
+                    label: Text(
+                      'التحقق من وجود تحديثات',
+                      style: AppTypography.font(fontSize: 14, color: primaryColor),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: primaryColor.withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 14),
-
-          // رقم الإصدار
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('الإصدار الحالي',
-                  style: AppTypography.font(fontSize: 15)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: primaryColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: primaryColor.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  'v${AppUpdateService.currentVersion}',
-                  style: AppTypography.font(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // زر التحقق اليدوي
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _checkingUpdate ? null : _manualCheckUpdate,
-              icon: _checkingUpdate
-                  ? SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2,
-                          color: primaryColor))
-                  : Icon(Icons.refresh_rounded, size: 18, color: primaryColor),
-              label: Text(
-                _checkingUpdate ? 'جارٍ التحقق...' : 'التحقق من التحديثات',
-                style: AppTypography.font(fontSize: 14, color: primaryColor),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: primaryColor.withValues(alpha: 0.5)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-
-          // رسالة الحالة
-          if (_updateStatusMsg.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(_updateStatusMsg,
-                style: AppTypography.font(
-                    fontSize: 13,
-                    color: isDark ? Colors.white60 : Colors.black45)),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 

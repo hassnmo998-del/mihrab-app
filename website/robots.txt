@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hassnmo998-del.github.io/mihrab-app/sitemap.xml

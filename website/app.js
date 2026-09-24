@@ -6,22 +6,17 @@
 // ─── Configuration ───────────────────────────────────────────────────────────
 const GITHUB_OWNER = 'hassnmo998-del';
 const GITHUB_REPO  = 'mihrab-app';
-const GITHUB_API   = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const SESSION_KEY  = 'mihrab_release_cache_v5';
+const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const CACHE_KEY = 'mihrab_releases_cache_v6';
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 
-// Direct Fastly CDN download URLs hosted on the same domain (Zero redirects, unblocked everywhere)
+// Fastly CDN direct files hosted on the same domain
 const DIRECT_URLS = {
   windows: 'downloads/mihrab-windows.exe',
   android: 'downloads/mihrab-android.apk',
 };
 
-// Fallback GitHub release URLs
-const GITHUB_RELEASE_URLS = {
-  windows: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-windows-v1.0.0.exe',
-  android: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk',
-};
-
-// ─── Number formatting ────────────────────────────────────────────────────────
+// ─── Number formatting (Arabic) ───────────────────────────────────────────────
 function formatNumberArabic(num) {
   try {
     return Number(num).toLocaleString('ar-SA');
@@ -30,56 +25,72 @@ function formatNumberArabic(num) {
   }
 }
 
-// ─── Asset matching ───────────────────────────────────────────────────────────
-function findAsset(assets, platform) {
-  if (!Array.isArray(assets)) return null;
-  const keywords = {
-    windows: ['.exe', 'windows', 'win'],
-    android: ['.apk', 'android'],
-  };
-  const keys = keywords[platform] || [];
-  return assets.find(a => keys.some(k => a.name.toLowerCase().includes(k))) || null;
-}
+// ─── DOM Updates ──────────────────────────────────────────────────────────────
+function setVersion(tagName) {
+  if (!tagName) return;
+  const tag = tagName.startsWith('v') ? tagName : `v${tagName}`;
 
-// ─── DOM updates ──────────────────────────────────────────────────────────────
-function setVersion(tag) {
-  const el = document.getElementById('version-text');
-  if (el) el.textContent = tag || 'v1.0.0';
-}
-
-function updateDownloadLink(btnId, asset, platformKey) {
-  const btn = document.getElementById(btnId);
-  if (!btn) return;
-
-  // The primary button always points to our direct Fastly CDN file
-  btn.href = DIRECT_URLS[platformKey];
-  btn.setAttribute('download', asset ? asset.name : `mihrab-${platformKey}-v1.0.0`);
-
-  // Show live download count from GitHub Release
-  if (asset && asset.download_count > 0) {
-    const countEl = btn.querySelector('.btn-download-count');
-    if (countEl) {
-      countEl.textContent = `(${formatNumberArabic(asset.download_count)} تحميل)`;
-      countEl.style.display = 'inline-block';
-    }
+  const heroVersion = document.getElementById('hero-version-text');
+  if (heroVersion) {
+    heroVersion.textContent = `الإصدار الرسمي ${tag} متاح للتحميل`;
   }
 
-  // Update fallback link to GitHub Release
-  if (platformKey === 'android') {
-    const fallbackLink = document.getElementById('direct-link-apk');
-    if (fallbackLink && asset && asset.browser_download_url) {
-      fallbackLink.href = asset.browser_download_url;
-    }
+  const winTag = document.getElementById('win-version-tag');
+  if (winTag) winTag.textContent = tag;
+
+  const androidTag = document.getElementById('android-version-tag');
+  if (androidTag) androidTag.textContent = tag;
+
+  // Also update download button filenames
+  const btnWin = document.getElementById('btn-windows');
+  if (btnWin) {
+    btnWin.setAttribute('download', `mihrab-windows-${tag}.exe`);
+  }
+
+  const btnAndroid = document.getElementById('btn-android');
+  if (btnAndroid) {
+    btnAndroid.setAttribute('download', `mihrab-android-${tag}.apk`);
   }
 }
 
-function setLiveDownloadCounts(totalDownloads) {
+function setTotalDownloads(totalCount) {
   const heroDownloads = document.getElementById('hero-total-downloads');
   const statDownloads = document.getElementById('stat-downloads');
 
-  const formatted = formatNumberArabic(totalDownloads);
+  const formatted = formatNumberArabic(totalCount);
   if (heroDownloads) heroDownloads.textContent = formatted;
   if (statDownloads) statDownloads.textContent = formatted;
+}
+
+function updatePlatformDownloadCounts(releases) {
+  if (!Array.isArray(releases)) return;
+
+  let winDownloads = 0;
+  let androidDownloads = 0;
+
+  releases.forEach(rel => {
+    (rel.assets || []).forEach(asset => {
+      const name = (asset.name || '').toLowerCase();
+      const count = asset.download_count || 0;
+      if (name.endsWith('.apk') || name.includes('android')) {
+        androidDownloads += count;
+      } else if (name.endsWith('.exe') || name.includes('windows')) {
+        winDownloads += count;
+      }
+    });
+  });
+
+  const winCountEl = document.querySelector('#btn-windows .btn-download-count');
+  if (winCountEl && winDownloads > 0) {
+    winCountEl.textContent = `(${formatNumberArabic(winDownloads)} تحميل)`;
+    winCountEl.style.display = 'inline-block';
+  }
+
+  const androidCountEl = document.querySelector('#btn-android .btn-download-count');
+  if (androidCountEl && androidDownloads > 0) {
+    androidCountEl.textContent = `(${formatNumberArabic(androidDownloads)} تحميل)`;
+    androidCountEl.style.display = 'inline-block';
+  }
 }
 
 // ─── In-App Browser Detector (WhatsApp, Telegram, Facebook, etc.) ─────────────
@@ -92,57 +103,65 @@ function checkInAppBrowser() {
   }
 }
 
-// ─── Fetch Release ────────────────────────────────────────────────────────────
-async function fetchRelease() {
-  updateDownloadLink('btn-windows', null, 'windows');
-  updateDownloadLink('btn-android', null, 'android');
-
+// ─── Fetch Release Data (All releases combined for true cumulative stats) ──────
+async function fetchReleaseData() {
+  // Check cached releases first
   try {
-    const cached = sessionStorage.getItem(SESSION_KEY);
-    if (cached) {
-      const data = JSON.parse(cached);
-      applyReleaseData(data);
-      return;
+    const cachedStr = sessionStorage.getItem(CACHE_KEY);
+    if (cachedStr) {
+      const cached = JSON.parse(cachedStr);
+      if (Date.now() - cached.timestamp < CACHE_TTL_MS && Array.isArray(cached.data)) {
+        applyReleases(cached.data);
+        return;
+      }
     }
   } catch {}
 
   try {
-    const response = await fetch(GITHUB_API, {
+    const response = await fetch(GITHUB_RELEASES_API, {
       headers: { Accept: 'application/vnd.github.v3+json' },
     });
 
-    if (!response.ok) throw new Error(`GitHub API HTTP ${response.status}`);
-    const data = await response.json();
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const releases = await response.json();
 
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch {}
-    applyReleaseData(data);
+    if (Array.isArray(releases) && releases.length > 0) {
+      try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+          timestamp: Date.now(),
+          data: releases,
+        }));
+      } catch {}
+      applyReleases(releases);
+    }
   } catch (err) {
-    console.info('[محراب] مخدم التحميل السريع المباشر مفعل بنجاح');
+    console.info('[محراب] مخدم التحميل المباشر السريع مفعل.');
   }
 }
 
-function applyReleaseData(data) {
-  if (data.tag_name) {
-    setVersion(data.tag_name);
+function applyReleases(releases) {
+  if (!Array.isArray(releases) || releases.length === 0) return;
+
+  // The latest release is the first item in the list
+  const latest = releases[0];
+  if (latest && latest.tag_name) {
+    setVersion(latest.tag_name);
   }
 
-  const assets = data.assets || [];
-  const winAsset     = findAsset(assets, 'windows');
-  const androidAsset = findAsset(assets, 'android');
-
-  updateDownloadLink('btn-windows', winAsset, 'windows');
-  updateDownloadLink('btn-android', androidAsset, 'android');
-
+  // Sum download counts across ALL releases
   let totalDownloads = 0;
-  assets.forEach(asset => {
-    totalDownloads += (asset.download_count || 0);
+  releases.forEach(rel => {
+    (rel.assets || []).forEach(asset => {
+      totalDownloads += (asset.download_count || 0);
+    });
   });
 
-  setLiveDownloadCounts(totalDownloads);
+  setTotalDownloads(totalDownloads);
+  updatePlatformDownloadCounts(releases);
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   checkInAppBrowser();
-  fetchRelease();
+  fetchReleaseData();
 });
