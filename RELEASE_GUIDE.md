@@ -42,32 +42,29 @@ version: 1.1.0+2   # ← رقم الإصدار + رقم البناء
 #        ↑↑↑↑↑ هذا يظهر في التطبيق
 #              ↑ هذا يزيد مع كل بناء
 ```
-
-في [`flutter_app/lib/services/app_update_service.dart`](file:///c:/Users/moham/Desktop/masjed%20app/flutter_app/lib/services/app_update_service.dart):
-```dart
-const _currentVersion = '1.1.0';  // ← حدّث هنا أيضاً
-```
+*(ملاحظة: لا حاجة لتعديل أي ملف آخر؛ فنظام `AppUpdateService` يقرأ الإصدار آلياً عبر `PackageInfo`).*
 
 ### الخطوة 2 — Commit وTag
 ```bash
 git add .
 git commit -m "feat: release v1.1.0 — وصف التغييرات"
+git push origin main
 
-# إنشاء tag الإصدار (هذا يشغّل GitHub Actions تلقائياً)
+# إنشاء tag الإصدار ورفعه (هذا يشغّل بناء السحابة تلقائياً)
 git tag v1.1.0
-git push origin main --tags
+git push origin v1.1.0
 ```
 
-### الخطوة 3 — انتظر GitHub Actions
-- اذهب إلى **Actions** في مستودعك
-- ستجد workflow اسمه **"Build & Release Mihrab App"**
-- انتظر ~10-15 دقيقة
-- بعد الانتهاء، ستجد Release جديد تلقائياً في **Releases**
-
-### الخطوة 4 — تحرير Release Notes (اختياري)
-1. اذهب إلى **Releases** في مستودعك
-2. اضغط ✏️ Edit على الإصدار الجديد
-3. أضف وصف التغييرات بالعربي
+### الخطوة 3 — سير العمل الآلي بالكامل في السحابة
+- يعمل الـ Workflow **"Build & Release Mihrab App"** على خوادم GitHub Actions السحابية:
+  1. يبني مثبت Windows الرسمي (`.exe`).
+  2. يبني حزمة Android الموقعة بالشهادة الرسمية (`.apk`).
+  3. ينشر Release رسمي على GitHub مع الملفات.
+- فور نشر الـ Release، يعمل سيرفر **"Deploy Website to GitHub Pages"** تلقائياً:
+  1. يسحب ملفي الـ APK والـ EXE الجديدين.
+  2. يضعهما في مجلد `website/downloads/`.
+  3. ينشرهما على شبكة **Fastly CDN** العالمية على موقعك بروابط مباشرة سريعة وغير محجوبة.
+- أجهزة المستخدمين الحالية تكتشف الإصدار الجديد تلقائياً عند فتح التطبيق وتطلب التحديث فوراً.
 
 ---
 
