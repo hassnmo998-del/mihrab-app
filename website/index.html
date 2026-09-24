@@ -122,16 +122,19 @@
         <!-- صندوق إرشاد مستخدمي الأندرويد -->
         <div class="android-help-box animate-fade-in delay-3">
           <div class="help-box-header">
-            <span>📱 لمستخدمي هواتف أندرويد (تثبيت مباشر):</span>
+            <span>📱 لمستخدمي هواتف أندرويد (تثبيت مباشر وسريع):</span>
           </div>
           <p>
-            عند النقر على التحميل، قد يُظهر متصفحك رسالة أمان عادية: 
+            عند النقر على التحميل، قد يُظهر متصفح Chrome رسالة أمان عادية: 
             <strong>«قد يكون هذا الملف ضاراً»</strong> (لأنه ملف APK يتم تثبيته مباشرة من خارج متجر Google Play).
             اضغط على <strong>«تنزيل على أي حال» (Download anyway)</strong>، ثم افتح الملف من شريط الإشعارات واضغط <strong>«تثبيت»</strong>.
           </p>
-          <div class="mobile-fallback-links">
-            <span>إذا لم يبدأ التنزيل تلقائياً:</span>
-            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" id="direct-link-apk">اضغط هنا للتحميل المباشر</a>
+          <div class="android-fast-tip" style="margin-top: 10px; padding: 8px 12px; background: rgba(212,175,55,0.12); border-radius: 6px; border: 1px solid rgba(212,175,55,0.3); font-size: 0.85rem; color: var(--d-gold-light);">
+            ⚡ <strong>حل فوري وسريع:</strong> يمكنك الضغط مطوّلاً (Long Press) على زر التحميل الأخضر واختيار <strong>«تنزيل الرابط» (Download link)</strong> ليتكفل نظام أندرويد بالتحميل فوراً بأقصى سرعة!
+          </div>
+          <div class="mobile-fallback-links" style="margin-top: 10px;">
+            <span>روابط بديلة:</span>
+            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" id="direct-link-apk">تحميل مباشر APK</a>
             •
             <a href="https://github.com/hassnmo998-del/mihrab-app/releases/tag/v1.0.0" target="_blank" rel="noopener">صفحة الإصدار على GitHub</a>
           </div>
@@ -369,6 +372,67 @@
       </div>
     </div>
   </footer>
+
+  <!-- نافذة التحميل الذكية لمستخدمي أندرويد -->
+  <div id="android-modal" class="download-modal-overlay" style="display:none;" aria-hidden="true" role="dialog">
+    <div class="download-modal-card">
+      <button class="modal-close-btn" id="modal-close-btn" aria-label="إغلاق">&times;</button>
+      
+      <div class="modal-header">
+        <span class="modal-icon">📱</span>
+        <h3 class="modal-title">تحميل تطبيق محراب للأندرويد</h3>
+        <p class="modal-subtitle">حزمة التثبيت الرسمية APK • الإصدار v1.0.0 • ٨٧.٩ م.ب</p>
+      </div>
+
+      <!-- حالة الاتصال والتحميل -->
+      <div class="modal-status-box">
+        <div class="status-spinner"></div>
+        <div class="status-texts">
+          <strong id="status-title">يتم الآن بدء التحميل...</strong>
+          <span id="status-desc">تأكد من شريط إشعارات هاتفك في الأعلى ⬇️ خلال لحظات</span>
+        </div>
+      </div>
+
+      <!-- تنبيه الأمان في كروم -->
+      <div class="modal-security-tip">
+        <span class="tip-icon">🛡️</span>
+        <div class="tip-body">
+          <strong>رسالة أمان عادية في متصفح Chrome:</strong>
+          <p>إذا ظهرت لك رسالة «قد يكون الملف ضاراً»، اضغط على <strong>«تنزيل على أي حال» (Download anyway)</strong>، فالتطبيق آمن ومفتوح المصدر بالكامل.</p>
+        </div>
+      </div>
+
+      <!-- الحل السحري لتفادي أي بطء في المتصفح: الضغط المطول -->
+      <div class="modal-longpress-box">
+        <div class="longpress-header">
+          <span>⚡ إذا لم يبدأ التنزيل تلقائياً في متصفحك:</span>
+        </div>
+        <p class="longpress-tip">
+          اضغط مطولاً بإصبعك (Long Press) على الزر الأخضر أدناه، ثم اختر <strong>(تنزيل الرابط / Download link)</strong> من القائمة لبدء التنزيل فوراً في الخلفية:
+        </p>
+        <a id="modal-direct-download-btn" 
+           href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk"
+           class="modal-btn-download">
+          <span>⬇️ اضغط هنا أو اضغط مطولاً لتنزيل الرابط</span>
+        </a>
+      </div>
+
+      <!-- روابط بديلة ونسخ الرابط -->
+      <div class="modal-alternative-actions">
+        <button type="button" class="alt-btn" id="copy-link-btn">
+          <span>📋 نسخ رابط التحميل</span>
+        </button>
+        <a href="https://github.com/hassnmo998-del/mihrab-app/releases/tag/v1.0.0" target="_blank" rel="noopener" class="alt-btn">
+          <span>🌐 صفحة الإصدار الرسمية</span>
+        </a>
+      </div>
+
+      <div class="copy-success-toast" id="copy-toast" style="display:none;">
+        ✓ تم نسخ الرابط المباشر إلى الحافظة بنجاح!
+      </div>
+
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

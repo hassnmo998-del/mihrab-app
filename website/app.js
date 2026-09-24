@@ -45,15 +45,20 @@ function updateDownloadLink(btnId, asset, platformKey) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
 
-  // Always maintain an active, valid download URL
-  if (asset && asset.browser_download_url) {
-    btn.href = asset.browser_download_url;
-  } else if (!btn.href || btn.href.endsWith('#')) {
-    btn.href = DIRECT_URLS[platformKey];
-  }
+  const url = (asset && asset.browser_download_url) ? asset.browser_download_url : DIRECT_URLS[platformKey];
 
+  // Always maintain an active, valid download URL
+  btn.href = url;
   btn.removeAttribute('disabled');
   btn.removeAttribute('aria-disabled');
+
+  // Also update direct links in fallback boxes & modal
+  if (platformKey === 'android') {
+    const modalDirectBtn = document.getElementById('modal-direct-download-btn');
+    const fallbackLink = document.getElementById('direct-link-apk');
+    if (modalDirectBtn) modalDirectBtn.href = url;
+    if (fallbackLink) fallbackLink.href = url;
+  }
 
   // Show live download count if available
   if (asset && asset.download_count > 0) {
@@ -82,6 +87,133 @@ function checkInAppBrowser() {
   if (alertEl && isInApp) {
     alertEl.style.display = 'block';
   }
+}
+
+// ─── Android Download Modal & Smart Trigger ──────────────────────────────────
+function setupAndroidModal() {
+  const btnAndroid = document.getElementById('btn-android');
+  const modal = document.getElementById('android-modal');
+  const modalClose = document.getElementById('modal-close-btn');
+  const copyBtn = document.getElementById('copy-link-btn');
+  const copyToast = document.getElementById('copy-toast');
+  const modalDirectBtn = document.getElementById('modal-direct-download-btn');
+
+  if (!btnAndroid || !modal) return;
+
+  function openModal() {
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+
+    // Reset status indicators
+    const statusTitle = document.getElementById('status-title');
+    const statusDesc = document.getElementById('status-desc');
+    if (statusTitle) statusTitle.textContent = 'يتم الآن بدء التحميل...';
+    if (statusDesc) statusDesc.textContent = 'تأكد من شريط إشعارات هاتفك في الأعلى ⬇️ خلال لحظات';
+
+    // Trigger download in background without freezing browser navigation bar
+    const downloadUrl = (modalDirectBtn && modalDirectBtn.href) || DIRECT_URLS.android;
+    triggerBackgroundDownload(downloadUrl);
+
+    // After 3 seconds, update status to guide user if browser was slow
+    setTimeout(() => {
+      if (statusTitle) statusTitle.textContent = 'إذا لم يبدأ التنزيل تلقائياً:';
+      if (statusDesc) statusDesc.textContent = 'اضغط مطوّلاً على الزر الأخضر بالأسفل واختر (تنزيل الرابط / Download link)';
+    }, 3200);
+  }
+
+  function closeModal() {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  // Intercept Android button click
+  btnAndroid.addEventListener('click', (e) => {
+    e.preventDefault();
+    openModal();
+  });
+
+  if (modalClose) {
+    modalClose.addEventListener('click', closeModal);
+  }
+
+  // Close on clicking backdrop outside the card
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+
+  // Close on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.style.display === 'flex') {
+      closeModal();
+    }
+  });
+
+  // Copy link functionality
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const url = (modalDirectBtn && modalDirectBtn.href) || DIRECT_URLS.android;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => showCopyToast()).catch(() => fallbackCopy(url));
+      } else {
+        fallbackCopy(url);
+      }
+    });
+  }
+
+  function fallbackCopy(text) {
+    const tempInput = document.createElement('input');
+    tempInput.value = text;
+    document.body.appendChild(tempInput);
+    tempInput.select();
+    try {
+      document.execCommand('copy');
+      showCopyToast();
+    } catch {
+      alert('الرابط: ' + text);
+    }
+    document.body.removeChild(tempInput);
+  }
+
+  function showCopyToast() {
+    if (!copyToast) return;
+    copyToast.style.display = 'block';
+    setTimeout(() => {
+      copyToast.style.display = 'none';
+    }, 3500);
+  }
+}
+
+// Triggers download without causing main document navigation freeze
+function triggerBackgroundDownload(url) {
+  // Method 1: Invisible iframe (fastest, prevents top navigation bar from freezing)
+  let iframe = document.getElementById('hidden-download-frame');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'hidden-download-frame';
+    iframe.style.display = 'none';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+  }
+  iframe.src = url;
+
+  // Fallback anchor click after short delay if iframe didn't invoke
+  setTimeout(() => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try { document.body.removeChild(a); } catch {}
+    }, 500);
+  }, 1000);
 }
 
 // ─── Fetch Release ────────────────────────────────────────────────────────────
@@ -145,5 +277,6 @@ function applyReleaseData(data) {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   checkInAppBrowser();
+  setupAndroidModal();
   fetchRelease();
 });
