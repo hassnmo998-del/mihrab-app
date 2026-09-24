@@ -21,6 +21,11 @@
 </head>
 <body class="damascene-theme">
 
+  <!-- شريط تنبيه متصفحات التطبيقات الداخلية (واتساب / تليغرام / ماسنجر) -->
+  <div id="inapp-browser-alert" class="inapp-browser-alert" style="display:none;">
+    <span>⚠️ لتنزيل التطبيق بنجاح على هاتفك: يرجى الضغط على زر الخيارات (الثلاث نقاط <strong>⋮</strong> في أعلى الشاشة) واختيار <strong>«فتح في المتصفح / Open in Chrome»</strong>.</span>
+  </div>
+
   <!-- خلفية الزخرفة الهندسية الدمشقية الشفافة -->
   <div class="damascene-pattern-overlay"></div>
 
@@ -82,10 +87,7 @@
           <a id="btn-windows" 
              href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-windows-v1.0.0.exe" 
              class="btn btn-windows" 
-             data-platform="windows"
-             download="mihrab-windows-v1.0.0.exe"
-             target="_blank"
-             rel="noopener">
+             data-platform="windows">
             <div class="btn-shine"></div>
             <span class="btn-icon">💻</span>
             <div class="btn-content">
@@ -102,10 +104,7 @@
           <a id="btn-android" 
              href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" 
              class="btn btn-android" 
-             data-platform="android"
-             download="mihrab-android-v1.0.0.apk"
-             target="_blank"
-             rel="noopener">
+             data-platform="android">
             <div class="btn-shine"></div>
             <span class="btn-icon">📱</span>
             <div class="btn-content">
@@ -118,6 +117,24 @@
             <span class="btn-arrow-box">⬇</span>
           </a>
 
+        </div>
+
+        <!-- صندوق إرشاد مستخدمي الأندرويد -->
+        <div class="android-help-box animate-fade-in delay-3">
+          <div class="help-box-header">
+            <span>📱 لمستخدمي هواتف أندرويد (تثبيت مباشر):</span>
+          </div>
+          <p>
+            عند النقر على التحميل، قد يُظهر متصفحك رسالة أمان عادية: 
+            <strong>«قد يكون هذا الملف ضاراً»</strong> (لأنه ملف APK يتم تثبيته مباشرة من خارج متجر Google Play).
+            اضغط على <strong>«تنزيل على أي حال» (Download anyway)</strong>، ثم افتح الملف من شريط الإشعارات واضغط <strong>«تثبيت»</strong>.
+          </p>
+          <div class="mobile-fallback-links">
+            <span>إذا لم يبدأ التنزيل تلقائياً:</span>
+            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk" id="direct-link-apk">اضغط هنا للتحميل المباشر</a>
+            •
+            <a href="https://github.com/hassnmo998-del/mihrab-app/releases/tag/v1.0.0" target="_blank" rel="noopener">صفحة الإصدار على GitHub</a>
+          </div>
         </div>
 
         <!-- تنبيه التحميل الفوري المريح -->

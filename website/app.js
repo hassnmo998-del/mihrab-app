@@ -7,9 +7,9 @@
 const GITHUB_OWNER = 'hassnmo998-del';
 const GITHUB_REPO  = 'mihrab-app';
 const GITHUB_API   = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const SESSION_KEY  = 'mihrab_release_cache_v3';
+const SESSION_KEY  = 'mihrab_release_cache_v4';
 
-// Direct fallback URLs (Always available and work immediately)
+// Direct permanent download URLs (Always work immediately, zero dependencies)
 const DIRECT_URLS = {
   windows: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-windows-v1.0.0.exe',
   android: 'https://github.com/hassnmo998-del/mihrab-app/releases/download/v1.0.0/mihrab-android-v1.0.0.apk',
@@ -41,11 +41,11 @@ function setVersion(tag) {
   if (el) el.textContent = tag || 'v1.0.0';
 }
 
-function updateDownloadLink(btnId, asset, platformKey, defaultLabel) {
+function updateDownloadLink(btnId, asset, platformKey) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
 
-  // Always ensure a valid download URL is present
+  // Always maintain an active, valid download URL
   if (asset && asset.browser_download_url) {
     btn.href = asset.browser_download_url;
   } else if (!btn.href || btn.href.endsWith('#')) {
@@ -74,11 +74,21 @@ function setLiveDownloadCounts(totalDownloads) {
   if (statDownloads) statDownloads.textContent = formatted;
 }
 
+// ─── In-App Browser Detector (WhatsApp, Telegram, Facebook, etc.) ─────────────
+function checkInAppBrowser() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+  const isInApp = /FBAN|FBAV|Instagram|WhatsApp|Telegram|Line|Twitter|Snapchat|Messenger/i.test(ua);
+  const alertEl = document.getElementById('inapp-browser-alert');
+  if (alertEl && isInApp) {
+    alertEl.style.display = 'block';
+  }
+}
+
 // ─── Fetch Release ────────────────────────────────────────────────────────────
 async function fetchRelease() {
   // Ensure default direct links are active immediately
-  updateDownloadLink('btn-windows', null, 'windows', 'Windows');
-  updateDownloadLink('btn-android', null, 'android', 'Android');
+  updateDownloadLink('btn-windows', null, 'windows');
+  updateDownloadLink('btn-android', null, 'android');
 
   // Try cache first
   try {
@@ -106,8 +116,8 @@ async function fetchRelease() {
 
     applyReleaseData(data);
   } catch (err) {
-    // On any API error, keep direct links untouched and working!
-    console.info('[محراب] تم تفعيل روابط التحميل المباشرة الدائمة:', err.message);
+    // Keep direct links untouched and working smoothly
+    console.info('[محراب] تم تفعيل الروابط المباشرة الدائمة:', err.message);
   }
 }
 
@@ -120,8 +130,8 @@ function applyReleaseData(data) {
   const winAsset     = findAsset(assets, 'windows');
   const androidAsset = findAsset(assets, 'android');
 
-  updateDownloadLink('btn-windows', winAsset, 'windows', 'Windows');
-  updateDownloadLink('btn-android', androidAsset, 'android', 'Android');
+  updateDownloadLink('btn-windows', winAsset, 'windows');
+  updateDownloadLink('btn-android', androidAsset, 'android');
 
   // Calculate total download count across all platforms
   let totalDownloads = 0;
@@ -134,5 +144,6 @@ function applyReleaseData(data) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  checkInAppBrowser();
   fetchRelease();
 });

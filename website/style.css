@@ -424,12 +424,72 @@ a {
   color: var(--d-navy);
 }
 
+/* شريط تنبيه متصفحات التطبيقات الداخلية (WhatsApp / Telegram / etc.) */
+.inapp-browser-alert {
+  background: linear-gradient(135deg, #7c2d12, #991b1b);
+  color: #fff;
+  padding: 12px 18px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--d-gold);
+  position: relative;
+  z-index: 100;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+  line-height: 1.6;
+}
+
+/* صندوق توجيه مستخدمي الأندرويد */
+.android-help-box {
+  background: rgba(18, 36, 51, 0.75);
+  border: 1px dashed rgba(212, 175, 55, 0.4);
+  border-radius: var(--radius-md);
+  padding: 16px 22px;
+  max-width: 620px;
+  margin: 18px auto 22px;
+  font-size: 0.9rem;
+  color: var(--d-cream);
+  line-height: 1.8;
+  text-align: right;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.help-box-header {
+  color: var(--d-gold-light);
+  font-weight: 800;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+}
+
+.android-help-box strong {
+  color: #fde047;
+}
+
+.mobile-fallback-links {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--d-text-dim);
+  border-top: 1px solid rgba(212, 175, 55, 0.15);
+  padding-top: 8px;
+}
+
+.mobile-fallback-links a {
+  color: var(--d-gold-light);
+  text-decoration: underline;
+  margin: 0 4px;
+}
+
+.mobile-fallback-links a:hover {
+  color: var(--d-gold-bright);
+}
+
 /* ملاحظة الراحة والتحميل الفوري */
 .download-comfort-note {
   font-size: 0.9rem;
   color: var(--d-cream);
   opacity: 0.85;
-  margin-bottom: 22px;
+  margin-bottom: 12px;
 }
 
 /* العداد الحي للتحميلات */
