@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../presentation/widgets/unified_badge.dart';
+import '../../../services/adhan_service.dart';
+import 'adhan_audio_card.dart';
 
 /// Accurate Prayer Times & Live Dynamic Qibla Compass
 /// Rotates dynamically with real device magnetometer/heading,
@@ -44,6 +46,7 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
   @override
   void initState() {
     super.initState();
+    AdhanService.instance.init();
     _fetchLocation();
     if (_isMobile) {
       _initCompass();
@@ -74,8 +77,8 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
   }
 
   void _checkAlignment(double currentHeading) {
-    final double userLat = _currentPosition?.latitude ?? 33.5138;
-    final double userLng = _currentPosition?.longitude ?? 36.2765;
+    final double userLat = _currentPosition?.latitude ?? AdhanService.instance.latitude;
+    final double userLng = _currentPosition?.longitude ?? AdhanService.instance.longitude;
     final double qiblaBearing = _calculateQiblaBearing(userLat, userLng);
     final diff = ((qiblaBearing - currentHeading).abs() % 360);
     final isAligned = diff <= 4.0 || diff >= 356.0;
@@ -103,7 +106,12 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
       }
       if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
         final pos = await Geolocator.getCurrentPosition();
-        if (mounted) setState(() => _currentPosition = pos);
+        if (mounted) {
+          setState(() {
+            _currentPosition = pos;
+            AdhanService.instance.updateLocation(pos.latitude, pos.longitude);
+          });
+        }
       }
     } catch (_) {}
   }
@@ -122,43 +130,24 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
     return (initialBearing * (180.0 / math.pi) + 360.0) % 360.0;
   }
 
-  List<Map<String, dynamic>> _getPrayerSchedule() {
-    final y = _now.year;
-    final m = _now.month;
-    final d = _now.day;
-
-    return [
-      {'name': 'الفجر', 'time': DateTime(y, m, d, 4, 42), 'icon': Icons.nights_stay_outlined},
-      {'name': 'الشروق', 'time': DateTime(y, m, d, 6, 05), 'icon': Icons.wb_twilight_rounded},
-      {'name': 'الظهر', 'time': DateTime(y, m, d, 12, 38), 'icon': Icons.wb_sunny_rounded},
-      {'name': 'العصر', 'time': DateTime(y, m, d, 16, 08), 'icon': Icons.cloud_queue_rounded},
-      {'name': 'المغرب', 'time': DateTime(y, m, d, 18, 55), 'icon': Icons.wb_twilight_outlined},
-      {'name': 'العشاء', 'time': DateTime(y, m, d, 20, 25), 'icon': Icons.dark_mode_outlined},
-    ];
-  }
-
-  Map<String, dynamic>? _getNextPrayer(List<Map<String, dynamic>> schedule) {
-    for (var p in schedule) {
-      if ((p['time'] as DateTime).isAfter(_now)) return p;
-    }
-    final tomorrowFajr = DateTime(_now.year, _now.month, _now.day + 1, 4, 42);
-    return {'name': 'الفجر (غداً)', 'time': tomorrowFajr, 'icon': Icons.nights_stay_outlined};
+  IconData _getPrayerIcon(String name) {
+    if (name.contains('الفجر')) return Icons.nights_stay_outlined;
+    if (name.contains('الشروق')) return Icons.wb_twilight_rounded;
+    if (name.contains('الظهر')) return Icons.wb_sunny_rounded;
+    if (name.contains('العصر')) return Icons.cloud_queue_rounded;
+    if (name.contains('المغرب')) return Icons.wb_twilight_outlined;
+    return Icons.dark_mode_outlined;
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final schedule = _getPrayerSchedule();
-    final nextPrayer = _getNextPrayer(schedule);
+    final schedule = AdhanService.instance.calculateTodaySchedule(forDate: _now);
+    final prayerState = AdhanService.instance.getCurrentPrayerState();
+    final isIqamaPhase = prayerState.phase == PrayerCountdownPhase.betweenAdhanAndIqama;
 
-    Duration countdown = Duration.zero;
-    if (nextPrayer != null) {
-      countdown = (nextPrayer['time'] as DateTime).difference(_now);
-      if (countdown.isNegative) countdown = Duration.zero;
-    }
-
-    final double userLat = _currentPosition?.latitude ?? 33.5138;
-    final double userLng = _currentPosition?.longitude ?? 36.2765;
+    final double userLat = _currentPosition?.latitude ?? AdhanService.instance.latitude;
+    final double userLng = _currentPosition?.longitude ?? AdhanService.instance.longitude;
     final double qiblaBearing = _calculateQiblaBearing(userLat, userLng);
     final double distanceToMeccaKm = Geolocator.distanceBetween(userLat, userLng, _meccaLat, _meccaLng) / 1000.0;
 
@@ -173,22 +162,31 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Countdown Hero Card
+            // Adhan Audio & Controls Card (Quran Audio Bar Style)
+            AdhanAudioCard(isDark: isDark),
+
+            // Countdown Hero Card (Dynamic Adhan & Iqama Countdown)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [
-                    Theme.of(context).primaryColor,
-                    Theme.of(context).primaryColor.withValues(alpha: 0.8),
-                  ],
+                  colors: isIqamaPhase
+                      ? [
+                          const Color(0xFFC2410C),
+                          const Color(0xFFEA580C),
+                        ]
+                      : [
+                          Theme.of(context).primaryColor,
+                          Theme.of(context).primaryColor.withValues(alpha: 0.8),
+                        ],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
                 ),
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: Theme.of(context).primaryColor.withValues(alpha: 0.25),
+                    color: (isIqamaPhase ? Colors.orange : Theme.of(context).primaryColor)
+                        .withValues(alpha: 0.28),
                     blurRadius: 18,
                     offset: const Offset(0, 6),
                   ),
@@ -203,24 +201,68 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
                     runSpacing: 6,
                     children: [
                       UnifiedBadge(
-                        label: 'الصلاة القادمة: ${nextPrayer?['name'] ?? ""}',
-                        backgroundColor: Colors.white12,
+                        label: isIqamaPhase
+                            ? 'حان الآن وقت أذان ${prayerState.prayerName} 🕌'
+                            : 'الصلاة القادمة: ${prayerState.nextPrayerName}',
+                        backgroundColor: isIqamaPhase ? Colors.white24 : Colors.white12,
                         textColor: Colors.white,
-                        icon: nextPrayer?['icon'] as IconData?,
+                        icon: isIqamaPhase
+                            ? Icons.mosque_rounded
+                            : _getPrayerIcon(prayerState.nextPrayerName),
                       ),
                       Text(
                         DateFormat('hh:mm:ss a').format(_now),
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.white70, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    '${countdown.inHours.toString().padLeft(2, '0')}:${(countdown.inMinutes % 60).toString().padLeft(2, '0')}:${(countdown.inSeconds % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 42, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.white),
+                    isIqamaPhase
+                        ? '${prayerState.remaining.inMinutes.toString().padLeft(2, '0')}:${(prayerState.remaining.inSeconds % 60).toString().padLeft(2, '0')}'
+                        : '${prayerState.remaining.inHours.toString().padLeft(2, '0')}:${(prayerState.remaining.inMinutes % 60).toString().padLeft(2, '0')}:${(prayerState.remaining.inSeconds % 60).toString().padLeft(2, '0')}',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(height: 6),
-                  Text('متبقي حتى رفع أذان ${nextPrayer?['name'] ?? ""}', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  if (isIqamaPhase)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Colors.amberAccent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'متبقي حتى إقامة صلاة ${prayerState.prayerName}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      'متبقي حتى رفع أذان ${prayerState.nextPrayerName}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
                 ],
               ),
             ),
@@ -232,7 +274,6 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: 140,
-                // 85 لم تكن تكفي الأيقونة والاسم والوقت مع مقاييس الخط العربي
                 mainAxisExtent: 96,
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
@@ -241,32 +282,61 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
               itemBuilder: (context, idx) {
                 final p = schedule[idx];
                 final pTime = p['time'] as DateTime;
-                final isNext = nextPrayer?['name'] == p['name'];
+                final pName = p['name'] as String;
+
+                final isCurrentIqama = isIqamaPhase && pName == prayerState.prayerName;
+                final isNextAdhan = !isIqamaPhase &&
+                    (prayerState.nextPrayerName == pName ||
+                        prayerState.nextPrayerName.startsWith(pName));
+                final isHighlighted = isCurrentIqama || isNextAdhan;
+
                 final timeStr = DateFormat('hh:mm a').format(pTime);
-                final activeColor = Theme.of(context).primaryColor;
+                final activeColor = isCurrentIqama ? Colors.orange.shade800 : Theme.of(context).primaryColor;
 
                 return Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   decoration: BoxDecoration(
-                    color: isNext ? activeColor : (isDark ? AppColors.darkCard : Colors.white),
+                    color: isHighlighted
+                        ? activeColor
+                        : (isDark ? AppColors.darkCard : Colors.white),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: isNext ? activeColor : (isDark ? AppColors.darkBorder : AppColors.lightBorder), width: isNext ? 2 : 1),
+                    border: Border.all(
+                      color: isHighlighted
+                          ? activeColor
+                          : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                      width: isHighlighted ? 2 : 1,
+                    ),
                     boxShadow: [
-                      BoxShadow(color: isNext ? activeColor.withValues(alpha: 0.25) : Colors.black.withValues(alpha: 0.02), blurRadius: isNext ? 10 : 4, offset: const Offset(0, 3)),
+                      BoxShadow(
+                        color: isHighlighted
+                            ? activeColor.withValues(alpha: 0.25)
+                            : Colors.black.withValues(alpha: 0.02),
+                        blurRadius: isHighlighted ? 10 : 4,
+                        offset: const Offset(0, 3),
+                      ),
                     ],
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(p['icon'] as IconData, color: isNext ? Colors.white : AppColors.goldDark, size: 22),
+                      Icon(
+                        _getPrayerIcon(pName),
+                        color: isHighlighted ? Colors.white : AppColors.goldDark,
+                        size: 22,
+                      ),
                       const SizedBox(height: 4),
-                      // مرنة حتى لا تفيض البطاقة مع أي مقاييس خط
                       Flexible(
                         child: Text(
-                          p['name'] as String,
+                          isCurrentIqama ? '$pName (إقامة)' : pName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isNext ? Colors.white : (isDark ? Colors.white : AppColors.obsidianEspresso)),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                            color: isHighlighted
+                                ? Colors.white
+                                : (isDark ? Colors.white : AppColors.obsidianEspresso),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -275,7 +345,14 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
                           timeStr,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontFamily: 'monospace', fontSize: 11.5, fontWeight: isNext ? FontWeight.bold : FontWeight.w600, color: isNext ? Colors.white.withValues(alpha: 0.9) : Colors.grey),
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11.5,
+                            fontWeight: isHighlighted ? FontWeight.bold : FontWeight.w600,
+                            color: isHighlighted
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : Colors.grey,
+                          ),
                         ),
                       ),
                     ],

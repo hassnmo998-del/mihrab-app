@@ -16,6 +16,9 @@ class AccessCodeGenerator {
   static const String womenProvisionPrefix = 'WMV-';
   static const String cashierPrefix = 'CSH-';
 
+  /// Single-use codes the super admin issues to open a new mosque registration.
+  static const String registrationPrefix = 'REG-';
+
   /// Pre-hardening women's codes, derivable from the mosque code by prefix swap.
   static const String legacyWomenPrefix = 'WM-';
 
@@ -51,4 +54,9 @@ class AccessCodeGenerator {
 
   static bool isWomenProvisionToken(String code) =>
       code.trim().toUpperCase().startsWith(womenProvisionPrefix);
+
+  /// Registration codes are never login credentials: they unlock the new
+  /// mosque form, so every scanner must route them there instead of login.
+  static bool isRegistrationToken(String code) =>
+      code.trim().toUpperCase().startsWith(registrationPrefix);
 }

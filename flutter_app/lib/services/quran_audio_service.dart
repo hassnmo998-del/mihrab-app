@@ -86,9 +86,14 @@ class QuranAudioService implements BackgroundAudioSource {
 
   // Active State Notifiers
   final ValueNotifier<QuranReciter> reciterNotifier =
-      ValueNotifier<QuranReciter>(QuranReciter.defaultReciters[0]); // Al-Husary default
+      ValueNotifier<QuranReciter>(
+        QuranReciter.defaultReciters.firstWhere(
+          (r) => r.id == 'abdul_basit_murattal_192kbps',
+          orElse: () => QuranReciter.defaultReciters[0],
+        ),
+      ); // Default reciter: Abdul Basit Abdul Samad (Murattal)
   final ValueNotifier<QuranRepeatScope> scopeNotifier =
-      ValueNotifier<QuranRepeatScope>(QuranRepeatScope.page);
+      ValueNotifier<QuranRepeatScope>(QuranRepeatScope.quran); // Default: Whole Quran
   final ValueNotifier<String?> activeAyahNotifier = ValueNotifier<String?>(null); // e.g. '1:1'
   final ValueNotifier<int?> activePageNotifier = ValueNotifier<int?>(null);
   final ValueNotifier<QuranAyahAudioTag?> activeTagNotifier =
@@ -98,7 +103,7 @@ class QuranAudioService implements BackgroundAudioSource {
   final ValueNotifier<bool> isPlayingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isBufferingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<double> speedNotifier = ValueNotifier<double>(1.0);
-  final ValueNotifier<int> repeatCountNotifier = ValueNotifier<int>(1); // 1 = once, -1 = infinite
+  final ValueNotifier<int> repeatCountNotifier = ValueNotifier<int>(-1); // -1 = continuous without stop ('بلا توقف')
   final ValueNotifier<QuranStopAfter> stopAfterNotifier =
       ValueNotifier<QuranStopAfter>(QuranStopAfter.never);
   final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(Duration.zero);

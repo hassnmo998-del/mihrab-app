@@ -7,7 +7,6 @@ import '../../../models/models.dart';
 import '../../../presentation/widgets/profile_image_picker.dart';
 import '../../../presentation/widgets/widgets.dart';
 import '../../../services/data_service.dart';
-import '../../../widgets/qr_dialogs.dart';
 
 class AdminHalaqatTab extends StatefulWidget {
   final Mosque mosque;
@@ -266,14 +265,19 @@ class _AdminHalaqatTabState extends State<AdminHalaqatTab> {
                   ageGroupMax: int.tryParse(ageMaxCtrl.text) ?? 18,
                 );
                 Navigator.pop(ctx);
-                showDialog(
-                  context: context,
-                  builder: (_) => SectionQrCodeDialog(
-                    title: 'رمز اعتماد حلقة (${newHalaqa.name})',
-                    subtitle: 'باركود الانضمام المباشر لطلاب وأولياء أمور ${newHalaqa.name}',
-                    code: 'HLQ-${newHalaqa.id.length > 6 ? newHalaqa.id.substring(0, 6).toUpperCase() : newHalaqa.id.toUpperCase()}',
-                    icon: Icons.menu_book_rounded,
-                    primaryColor: AppColors.trackTeal,
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'تم إنشاء حلقة (${newHalaqa.name}) بنجاح',
+                      style: GoogleFonts.amiri(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    backgroundColor: AppColors.terracottaPrimary,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 );
               },

@@ -458,9 +458,15 @@ class AppUpdateService extends ChangeNotifier {
     });
   }
 
+  void stopPeriodicCheck() {
+    _periodicTimer?.cancel();
+    _periodicTimer = null;
+  }
+
   @override
   void dispose() {
     _periodicTimer?.cancel();
+    _periodicTimer = null;
     _cancelToken?.cancel();
     super.dispose();
   }

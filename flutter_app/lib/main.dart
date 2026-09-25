@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -196,6 +197,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
   String _activeTabId = 'discover';
   final GlobalKey<CashierScreenState> _cashierKey = GlobalKey<CashierScreenState>();
   bool _isFullscreen = false;
+  Timer? _updateLaunchTimer;
 
   @override
   void initState() {
@@ -206,14 +208,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
     // ── فحص التحديثات عند الإطلاق ─────────────────────────
-    // نؤخر ثانيتين ونصف حتى تستقر الواجهة الرئيسية أولاً
-    Future.delayed(const Duration(milliseconds: 2500), _checkUpdateOnLaunch);
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      // نؤخر ثانيتين ونصف حتى تستقر الواجهة الرئيسية أولاً
+      _updateLaunchTimer = Timer(const Duration(milliseconds: 2500), _checkUpdateOnLaunch);
 
-    // فحص دوري كل 24 ساعة
-    AppUpdateService.instance.startPeriodicSilentCheck(
-      interval: const Duration(hours: 24),
-      onReadyToInstall: _showInstallSnackBar,
-    );
+      // فحص دوري كل 24 ساعة
+      AppUpdateService.instance.startPeriodicSilentCheck(
+        interval: const Duration(hours: 24),
+        onReadyToInstall: _showInstallSnackBar,
+      );
+    }
   }
 
   /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث إن وُجد إصدار جديد
@@ -243,10 +247,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
 
   @override
   void dispose() {
+    _updateLaunchTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
-    AppUpdateService.instance.dispose(); // إلغاء المؤقت الدوري
+    AppUpdateService.instance.stopPeriodicCheck(); // إلغاء المؤقت الدوري
     super.dispose();
   }
 
@@ -587,10 +592,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     // 4. Student tab — like its siblings, hidden until the student's code is scanned
     //    from the authorization portal.
     if (isManagement || hasStudent) {
+      final studentCount = data.getStudentSessions().length;
+      final label = studentCount > 1 ? 'ملفات الأبناء' : 'تفاصيل الطالب';
+      final shortLabel = studentCount > 1 ? 'الأبناء' : 'الطالب';
       tabs.add(_ShellTab(
         id: 'student',
-        label: 'تفاصيل الطالب',
-        shortLabel: 'الطالب',
+        label: label,
+        shortLabel: shortLabel,
         icon: Icons.school_outlined,
         activeIcon: Icons.school,
         widget: StudentScreen(session: data.getSessionForRole('student') ?? session),

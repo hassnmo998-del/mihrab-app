@@ -1,3 +1,4 @@
+import 'dart:math';
 import '../../domain/repositories/students_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -60,8 +61,9 @@ class StudentsRepositoryImpl implements StudentsRepository {
     int welcomePoints = 0,
     String? profileImageUrl,
   }) {
-    final suffix =
-    (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
+    final rand = Random().nextInt(9000) + 1000;
+    final timePart = DateTime.now().microsecondsSinceEpoch % 10000;
+    final suffix = ((rand * 10000 + timePart) % 900000 + 100000).toString();
     final code = 'STD-$suffix';
 
     final student = Student(

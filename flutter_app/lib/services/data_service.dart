@@ -638,17 +638,18 @@ class DataService extends ChangeNotifier {
 
   bool isRecentlyDeleted(String id) {
     _cleanupExpiredTombstones();
-    return _recentlyDeletedIds.containsKey(id);
+    return _recentlyDeletedIds.containsKey(id) || _localDataSource.isEntityDeleted(id);
   }
 
   void recordDeletedId(String id) {
     if (id.isEmpty) return;
     _recentlyDeletedIds[id] = DateTime.now();
+    _localDataSource.recordDeletedId(id);
   }
 
   void _cleanupExpiredTombstones() {
     final now = DateTime.now();
-    _recentlyDeletedIds.removeWhere((_, time) => now.difference(time).inMinutes > 5);
+    _recentlyDeletedIds.removeWhere((_, time) => now.difference(time).inMinutes > 60);
   }
 
   void validateActiveSessions() {
@@ -702,6 +703,9 @@ class DataService extends ChangeNotifier {
       final newItem = fromJson(newRecord);
       final newId = getId(newItem);
       if (isRecentlyDeleted(newId) || (table != null && _syncQueueManager.isPendingDelete(table, newId))) {
+        if (table != null) {
+          _remoteDataSource.delete(table, matchingColumn: 'id', matchingValue: newId).catchError((_) {});
+        }
         return;
       }
       final existingIndex = list.indexWhere((item) => getId(item) == newId);
@@ -714,6 +718,9 @@ class DataService extends ChangeNotifier {
       final updatedItem = fromJson(newRecord);
       final updatedId = getId(updatedItem);
       if (isRecentlyDeleted(updatedId) || (table != null && _syncQueueManager.isPendingDelete(table, updatedId))) {
+        if (table != null) {
+          _remoteDataSource.delete(table, matchingColumn: 'id', matchingValue: updatedId).catchError((_) {});
+        }
         return;
       }
       final existingIndex = list.indexWhere((item) => getId(item) == updatedId);
@@ -741,7 +748,9 @@ class DataService extends ChangeNotifier {
     // 1. تحديث أو إضافة السجلات الواردة من السيرفر
     for (var entry in remoteMap.entries) {
       final id = entry.key;
-      if (isRecentlyDeleted(id) || _syncQueueManager.isPendingDelete(table, id)) {
+      if (isRecentlyDeleted(id) || _syncQueueManager.isPendingDelete(table, id) || _localDataSource.isEntityDeleted(id)) {
+        // فرض الحذف السحابي فوراً لمنع عودة السجلات المحذوفة محلياً
+        _remoteDataSource.delete(table, matchingColumn: 'id', matchingValue: id).catchError((_) {});
         continue;
       }
       final remoteItem = fromJson(entry.value);
@@ -767,7 +776,7 @@ class DataService extends ChangeNotifier {
     // 2. حذف العناصر المحذوفة، مع الحفاظ الصارم على العناصر المنشأة محلياً المعلقة في الطابور
     list.removeWhere((item) {
       final id = getId(item);
-      if (isRecentlyDeleted(id) || _syncQueueManager.isPendingDelete(table, id)) {
+      if (isRecentlyDeleted(id) || _syncQueueManager.isPendingDelete(table, id) || _localDataSource.isEntityDeleted(id)) {
         return true;
       }
       if (!remoteMap.containsKey(id)) {
@@ -1328,6 +1337,92 @@ class DataService extends ChangeNotifier {
   void clearSession() {
     _authSessionRepo.clearSession();
     notifyListeners();
+  }
+
+  // ==========================================
+  // Multi-Student Profile Management
+  // ==========================================
+  List<ActiveSession> getStudentSessions() => _authSessionRepo.getStudentSessions();
+
+  ActiveSession? getActiveStudentSession() => _authSessionRepo.getActiveStudentSession();
+
+  void setActiveStudent(String studentId) {
+    _authSessionRepo.setActiveStudent(studentId);
+    notifyListeners();
+  }
+
+  void addStudentSession(ActiveSession session) {
+    _authSessionRepo.addStudentSession(session);
+    notifyListeners();
+  }
+
+  void removeStudentSession(String studentId) {
+    _authSessionRepo.removeStudentSession(studentId);
+    notifyListeners();
+  }
+
+  List<Student> getLinkedStudents() {
+    final sessions = getStudentSessions();
+    final allStudents = getStudents();
+    final result = <Student>[];
+    for (final sess in sessions) {
+      final st = allStudents
+          .where((s) => (sess.studentId != null && s.id == sess.studentId) || s.code == sess.code)
+          .firstOrNull;
+      if (st != null) {
+        result.add(st);
+      } else {
+        result.add(Student(
+          id: sess.studentId ?? 'std-${sess.code}',
+          mosqueId: sess.mosqueId ?? '',
+          halaqaId: sess.halaqaId ?? '',
+          sheikhId: sess.sheikhId,
+          fullName: sess.name,
+          gender: sess.gender ?? 'male',
+          phone: '',
+          code: sess.code,
+        ));
+      }
+    }
+    return result;
+  }
+
+  /// ربط طالب جديد عبر الكود مع التحقق السحابي والمحلي ومزامنة السجلات فوراً
+  Future<({bool success, String message, ActiveSession? session})> linkStudentByCode(String code) async {
+    final clean = code.trim().toUpperCase();
+    if (clean.isEmpty) {
+      return (success: false, message: 'يرجى إدخال كود الطالب', session: null);
+    }
+
+    final session = await verifyCode(clean);
+    if (session == null) {
+      return (
+        success: false,
+        message: 'الكود غير صحيح أو لم يتم العثور على طالب بهذا الرمز في المنظومة',
+        session: null,
+      );
+    }
+
+    if (session.role != 'student') {
+      return (
+        success: false,
+        message: 'هذا الكود يتبع لرتبة (${session.roleLabel}) وليس كود طالب.',
+        session: null,
+      );
+    }
+
+    addStudentSession(session);
+
+    // مزامنة فورية في الخلفية لجلب سجلات حفظ ونقاط وحضور هذا الطالب
+    syncWithSupabase().catchError((e) {
+      debugPrint('⚠️ Sync after linking student error: $e');
+    });
+
+    return (
+      success: true,
+      message: 'تم ربط ملف الطالب ${session.name} بنجاح!',
+      session: session,
+    );
   }
 
   void logoutCompletely() {
@@ -2066,6 +2161,9 @@ class DataService extends ChangeNotifier {
   void deleteCommunityEvent(String eventId) {
     recordDeletedId(eventId);
     _eventsRepo.deleteCommunityEvent(eventId);
+    _remoteDataSource.delete('community_events', matchingColumn: 'id', matchingValue: eventId).catchError((e) {
+      debugPrint('⚠️ Direct remote delete note for community_events ($eventId): $e');
+    });
     notifyListeners();
   }
 
@@ -3098,7 +3196,7 @@ class DataService extends ChangeNotifier {
 
   Future<String> generateRegistrationToken() async {
     final token =
-        'REG-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}-${_localDataSource.mosques.length + 1}';
+        '${AccessCodeGenerator.registrationPrefix}${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}-${_localDataSource.mosques.length + 1}';
     final row = {
       'id': token,
       'is_used': false,

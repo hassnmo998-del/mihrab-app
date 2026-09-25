@@ -4,6 +4,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
 import '../../../widgets/printable_badge_dialog.dart';
 
+/// Ultra-compact, responsive header banner for the student profile view.
+/// Optimally arranged in 2 sleek rows to minimize vertical footprint on mobile devices.
 class StudentHeaderBanner extends StatelessWidget {
   final Student student;
   final Mosque mosque;
@@ -36,58 +38,98 @@ class StudentHeaderBanner extends StatelessWidget {
         : '';
 
     return Container(
-      padding: EdgeInsets.all(isSmall ? 14 : 20),
+      padding: EdgeInsets.symmetric(horizontal: isSmall ? 12 : 16, vertical: isSmall ? 10 : 14),
       decoration: BoxDecoration(
         gradient: AppColors.sunsetTwilightGradient,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: AppShadows.heroBanner,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // الصف العلوي: الشارة + صندوق النقاط
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 10,
+          // Row 1: Student Avatar + Info + Points Box
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Avatar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(AppRadius.rPill),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                child: CircleAvatar(
+                  radius: isSmall ? 22 : 28,
+                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  backgroundImage: imageProvider,
+                  child: imageProvider == null
+                      ? Text(
+                          firstLetter,
+                          style: AppTypography.font(
+                            color: Colors.white,
+                            fontSize: isSmall ? 20 : 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Name & Halaqa/Sheikh
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.verified, color: AppColors.goldBright, size: 14),
-                    const SizedBox(width: 6),
                     Text(
-                      student.gender == 'female' ? 'ملف الطالبة وولية الأمر' : 'ملف الطالب وولي الأمر',
+                      student.fullName,
                       style: AppTypography.font(
-                        color: AppColors.goldBright,
-                        fontSize: 13,
+                        color: Colors.white,
+                        fontSize: isSmall ? 17 : 20,
                         fontWeight: FontWeight.bold,
+                        height: 1.2,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${mosque.name} • ${halaqa.name} • إشراف ${sheikh.fullName}',
+                      style: AppTypography.font(
+                        color: const Color(0xFFF9EAE1),
+                        fontSize: isSmall ? 11.5 : 13,
+                        height: 1.3,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+
               // Points Trophy Box
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.emoji_events, color: AppColors.goldBright, size: 18),
-                    const SizedBox(width: 8),
+                    Icon(Icons.emoji_events, color: AppColors.goldBright, size: 16),
+                    const SizedBox(width: 5),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
@@ -96,7 +138,7 @@ class StudentHeaderBanner extends StatelessWidget {
                           'رصيد النقاط',
                           style: AppTypography.font(
                             color: const Color(0xFFF9EAE1),
-                            fontSize: 11.5,
+                            fontSize: 9.5,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -104,7 +146,7 @@ class StudentHeaderBanner extends StatelessWidget {
                           '${student.totalPoints}',
                           style: AppTypography.font(
                             color: AppColors.goldBright,
-                            fontSize: 20,
+                            fontSize: isSmall ? 15 : 18,
                             fontWeight: FontWeight.bold,
                             height: 1.1,
                           ),
@@ -116,80 +158,38 @@ class StudentHeaderBanner extends StatelessWidget {
               ),
             ],
           ),
-          SizedBox(height: isSmall ? 12 : 18),
+          const SizedBox(height: 8),
 
-          // تفاصيل الطالب مع صورته الشخصية
+          // Row 2: Role Badge + Digital QR Badge Button
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // إطار الصورة الشخصية للطالب
+              // Guardian Verification Pill
               Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.4),
-                    width: 2.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.rPill),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
                 ),
-                child: CircleAvatar(
-                  radius: isSmall ? 28 : 36,
-                  backgroundColor: Colors.white.withValues(alpha: 0.2),
-                  backgroundImage: imageProvider,
-                  child: imageProvider == null
-                      ? Text(
-                    firstLetter,
-                    style: AppTypography.font(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 16),
-
-              // اسم وبيانات الطالب
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(Icons.verified, color: AppColors.goldBright, size: 12),
+                    const SizedBox(width: 4),
                     Text(
-                      student.fullName,
+                      student.gender == 'female' ? 'ملف الطالبة وولية الأمر' : 'ملف الطالب وولي الأمر',
                       style: AppTypography.font(
-                        color: Colors.white,
-                        fontSize: 24,
+                        color: AppColors.goldBright,
+                        fontSize: isSmall ? 10.5 : 12,
                         fontWeight: FontWeight.bold,
-                        height: 1.25,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${mosque.name} • ${halaqa.name} • إشراف ${sheikh.fullName}',
-                      style: AppTypography.font(
-                        color: const Color(0xFFF9EAE1),
-                        fontSize: 13.5,
-                        height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          SizedBox(height: isSmall ? 10 : 18),
 
-          // زر بطاقة QR
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
+              // QR Digital Badge Button
               ElevatedButton.icon(
                 onPressed: () {
                   showDialog(
@@ -200,20 +200,24 @@ class StudentHeaderBanner extends StatelessWidget {
                       roleLabel: student.gender == 'female' ? 'طالبة في الحلقة' : 'طالب في الحلقة',
                       mosqueName: mosque.name,
                       code: student.code,
+                      profileImageUrl: student.profileImageUrl,
                     ),
                   );
                 },
-                icon: Icon(Icons.qr_code, size: 18, color: AppColors.obsidianEspresso),
+                icon: Icon(Icons.qr_code, size: 14, color: AppColors.obsidianEspresso),
                 label: Text(
                   'بطاقتي الرقمية / QR',
-                  style: AppTypography.buttonText(color: AppColors.obsidianEspresso),
+                  style: AppTypography.buttonText(color: AppColors.obsidianEspresso).copyWith(
+                    fontSize: isSmall ? 11 : 12.5,
+                  ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: AppColors.obsidianEspresso,
                   shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  elevation: 2,
+                  padding: EdgeInsets.symmetric(horizontal: isSmall ? 10 : 14, vertical: 4),
+                  minimumSize: const Size(0, 28),
+                  elevation: 1.5,
                 ),
               ),
             ],

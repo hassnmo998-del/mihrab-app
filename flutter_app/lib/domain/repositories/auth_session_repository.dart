@@ -10,6 +10,14 @@ abstract class AuthSessionRepository {
   bool hasRole(String role);
   void disconnectRole(String role);
   void clearSession();
+
+  // Multi-Student Profile Management
+  List<ActiveSession> getStudentSessions();
+  ActiveSession? getActiveStudentSession();
+  void setActiveStudent(String studentId);
+  void addStudentSession(ActiveSession session);
+  void removeStudentSession(String studentId);
+
   /// Resolves a scanned/typed code into a session. Women's-branch provisioning
   /// tokens resolve to null here on purpose: they are redeemed through the
   /// provisioning flow, never used as login credentials.

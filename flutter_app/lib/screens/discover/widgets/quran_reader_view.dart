@@ -152,6 +152,11 @@ class _QuranReaderViewState extends State<QuranReaderView> {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final padding = (_viewMode == 'mushaf_page' && isMobile)
+        ? const EdgeInsets.fromLTRB(6, 4, 6, 2)
+        : const EdgeInsets.fromLTRB(12, 8, 12, 8);
+
     // System back: reading view → index → leave the section.
     return PopScope(
       canPop: false,
@@ -164,7 +169,7 @@ class _QuranReaderViewState extends State<QuranReaderView> {
         }
       },
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: padding,
         child: _buildBody(context),
       ),
     );

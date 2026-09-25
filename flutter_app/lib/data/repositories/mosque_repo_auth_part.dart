@@ -33,6 +33,26 @@ mixin MosqueRepoAuthMixin implements AuthSessionRepository {
   void clearSession() => authSessionRepository.clearSession();
 
   @override
+  List<ActiveSession> getStudentSessions() =>
+      authSessionRepository.getStudentSessions();
+
+  @override
+  ActiveSession? getActiveStudentSession() =>
+      authSessionRepository.getActiveStudentSession();
+
+  @override
+  void setActiveStudent(String studentId) =>
+      authSessionRepository.setActiveStudent(studentId);
+
+  @override
+  void addStudentSession(ActiveSession session) =>
+      authSessionRepository.addStudentSession(session);
+
+  @override
+  void removeStudentSession(String studentId) =>
+      authSessionRepository.removeStudentSession(studentId);
+
+  @override
   Future<ActiveSession?> verifyCode(String code) =>
       authSessionRepository.verifyCode(code);
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'supabase_remote_datasource.dart';
 
 /// Manages the persistent FIFO background synchronization queue (`pending_sync_queue`).
@@ -56,6 +57,12 @@ class OfflineSyncQueueManager {
       _pendingSyncQueue.removeWhere(
         (item) => item['table'] == table && (item['id'] == id || item['data']?['id'] == id),
       );
+      // تنفيذ الحذف الفوري المباشر سحابياً عند توفر الاتصال
+      if (remoteDataSource != null) {
+        remoteDataSource.delete(table, matchingColumn: 'id', matchingValue: id).catchError((e) {
+          debugPrint('⚠️ Immediate delete failed ($table.$id): $e');
+        });
+      }
     }
 
     _pendingSyncQueue.add({
@@ -130,10 +137,13 @@ class OfflineSyncQueueManager {
           toRemove.add(item);
         } catch (e) {
           debugPrint('⚠️ SyncQueue error processing table ${item['table']}: $e');
+          final isPostgrest = e is PostgrestException;
           final retries = (item['retry_count'] as int? ?? 0) + 1;
           item['retry_count'] = retries;
-          if (retries >= 15) {
-            debugPrint('⚠️ SyncQueue dropping permanently failing item for table ${item['table']} after 15 retries.');
+          // إذا كان الخطأ من قاعدة البيانات نفسها (رفض السجل/بيانات غير صالحة) أو تكرر أكثر من 3 مرات
+          // نقوم بإسقاطه فوراً لمنع حظر بقية الطابور وعمليات الحذف.
+          if (isPostgrest || retries >= 3) {
+            debugPrint('⚠️ SyncQueue dropping permanently failing item for table ${item['table']} ($e)');
             toRemove.add(item);
             continue;
           }
@@ -143,8 +153,9 @@ class OfflineSyncQueueManager {
       }
       if (toRemove.isNotEmpty) {
         _pendingSyncQueue.removeWhere((i) => toRemove.contains(i));
-        await saveQueue();
       }
+      // حفظ الطابور لحفظ عدادات المحاولات وعدم ضياعها
+      await saveQueue();
     } catch (e) {
       debugPrint('⚠️ SyncQueue outer exception: $e');
     } finally {

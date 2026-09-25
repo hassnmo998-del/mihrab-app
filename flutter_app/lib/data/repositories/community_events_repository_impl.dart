@@ -233,6 +233,7 @@ class CommunityEventsRepositoryImpl implements CommunityEventsRepository {
   @override
   void deleteCommunityEvent(String eventId) {
     _localDataSource.communityEvents.removeWhere((e) => e.id == eventId);
+    _localDataSource.recordDeletedId(eventId);
     _localDataSource.saveToStorage();
     _syncQueueManager.queueSync(
       table: 'community_events',
@@ -242,8 +243,9 @@ class CommunityEventsRepositoryImpl implements CommunityEventsRepository {
       remoteDataSource: _remoteDataSource,
     );
 
-    // محاولة الإرسال الفوري إلى Supabase
+    // محاولة الإرسال الفوري والمباشر إلى Supabase
     if (_remoteDataSource != null) {
+      _remoteDataSource.delete('community_events', matchingColumn: 'id', matchingValue: eventId).catchError((_) {});
       Future.microtask(() {
         _syncQueueManager.processQueue(_remoteDataSource);
       });

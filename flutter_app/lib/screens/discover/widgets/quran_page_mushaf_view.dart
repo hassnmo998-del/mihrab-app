@@ -251,9 +251,63 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     );
   }
 
+  Widget _buildBottomSlider(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : AppColors.lightCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios_rounded, size: 16),
+            tooltip: 'الصفحة السابقة',
+            onPressed: _currentPage > 1 ? () => _goToPage(_currentPage - 1) : null,
+          ),
+          Expanded(
+            child: Slider(
+              value: _currentPage.toDouble(),
+              min: 1,
+              max: 604,
+              divisions: 603,
+              label: 'صفحة $_currentPage',
+              activeColor: AppColors.goldDark,
+              onChanged: (v) => _goToPage(v.toInt()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+            tooltip: 'الصفحة التالية',
+            onPressed: _currentPage < 604 ? () => _goToPage(_currentPage + 1) : null,
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.gold.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.goldDark, width: 1),
+            ),
+            child: Text(
+              '$_currentPage / 604',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+                color: AppColors.goldDark,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     final showResults = _searchOpen &&
         (QuranSearchService.pageNumberOf(_searchCtrl.text) != null ||
             QuranSearchService.skeleton(_searchCtrl.text).length >= 2);
@@ -262,15 +316,15 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildTopRow(isDark),
-        const SizedBox(height: 6),
+        SizedBox(height: isMobile ? 4 : 6),
 
-        // Fixed audio bar with inline listening options
+        // Fixed audio bar with collapsible listening options
         QuranAudioBar(
           isDark: isDark,
           idleTitle: _idleTitle(),
           onStart: _startFromCurrentPage,
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: isMobile ? 6 : 10),
 
         // 604-Page PageView — fills the remaining height of the Quran section
         Expanded(
@@ -294,6 +348,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
                       key: ValueKey('mushaf_page_$pageNum'),
                       page: pageData,
                       isDark: isDark,
+                      isMobile: isMobile,
                       fontSize: _fontSize,
                       isTajweedMode: _isTajweedMode,
                       onToggleTajweed: () => setState(() => _isTajweedMode = !_isTajweedMode),
@@ -303,6 +358,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
                       onBookmark: () => _bookmarkPage(pageNum),
                       isBookmarked: widget.bookmarkedPage == pageNum,
                       highlightKey: _highlightKey,
+                      bottomSlider: isMobile ? _buildBottomSlider(isDark) : null,
                     );
                   },
                 ),
@@ -311,52 +367,12 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
             ],
           ),
         ),
-        const SizedBox(height: 14),
 
-        // Bottom Page Slider & Navigator Controls
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : AppColors.lightCard,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back_ios_rounded, size: 16),
-                tooltip: 'الصفحة السابقة',
-                onPressed: _currentPage > 1 ? () => _goToPage(_currentPage - 1) : null,
-              ),
-              Expanded(
-                child: Slider(
-                  value: _currentPage.toDouble(),
-                  min: 1,
-                  max: 604,
-                  divisions: 603,
-                  label: 'صفحة $_currentPage',
-                  activeColor: AppColors.goldDark,
-                  onChanged: (v) => _goToPage(v.toInt()),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-                tooltip: 'الصفحة التالية',
-                onPressed: _currentPage < 604 ? () => _goToPage(_currentPage + 1) : null,
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.goldDark, width: 1),
-                ),
-                child: Text('$_currentPage / 604', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.goldDark)),
-              ),
-            ],
-          ),
-        ),
+        // Bottom Page Slider on Desktop/Tablet only; on mobile it appears via scroll inside the card
+        if (!isMobile) ...[
+          const SizedBox(height: 12),
+          _buildBottomSlider(isDark),
+        ],
       ],
     );
   }
@@ -377,6 +393,7 @@ class _PageSurahSegment {
 class _MushafPageCard extends StatefulWidget {
   final QuranPage page;
   final bool isDark;
+  final bool isMobile;
   final double fontSize;
   final bool isTajweedMode;
   final VoidCallback onToggleTajweed;
@@ -385,6 +402,7 @@ class _MushafPageCard extends StatefulWidget {
   final VoidCallback onZoomOut;
   final VoidCallback onBookmark;
   final bool isBookmarked;
+  final Widget? bottomSlider;
 
   /// Ayah picked from search results (`surah:ayah`), highlighted like the playing ayah.
   final String? highlightKey;
@@ -393,6 +411,7 @@ class _MushafPageCard extends StatefulWidget {
     super.key,
     required this.page,
     required this.isDark,
+    required this.isMobile,
     required this.fontSize,
     required this.isTajweedMode,
     required this.onToggleTajweed,
@@ -401,6 +420,7 @@ class _MushafPageCard extends StatefulWidget {
     required this.onZoomOut,
     required this.onBookmark,
     required this.isBookmarked,
+    this.bottomSlider,
     this.highlightKey,
   });
 
@@ -410,6 +430,8 @@ class _MushafPageCard extends StatefulWidget {
 
 class _MushafPageCardState extends State<_MushafPageCard> {
   final List<GestureRecognizer> _recognizers = [];
+  final Map<String, GlobalKey> _ayahKeys = {};
+  final GlobalKey _scrollKey = GlobalKey();
 
   /// الآية الحالية المظلّلة — تُحدَّث فوراً عند النقر ثم تتابع الصوت
   String? _activeAyahKey;
@@ -431,23 +453,60 @@ class _MushafPageCardState extends State<_MushafPageCard> {
     QuranAudioService.instance.activeAyahNotifier.removeListener(_onAudioAyahChanged);
     _scrollController.dispose();
     _clearRecognizers();
+    _ayahKeys.clear();
     super.dispose();
   }
 
-  /// Called when audio service advances to next ayah — syncs highlight without scroll jump
+  /// Called when audio service advances to next ayah — syncs highlight and auto-scrolls down if needed
   void _onAudioAyahChanged() {
     final key = QuranAudioService.instance.activeAyahNotifier.value;
     if (mounted && _activeAyahKey != key) {
       setState(() => _activeAyahKey = key);
     }
+    if (key != null) {
+      _scrollToAyahIfNeeded(key);
+    }
+  }
+
+  /// Automatically scrolls down smoothly to the active ayah if it moves out of view at the bottom
+  void _scrollToAyahIfNeeded(String ayahKey) {
+    if (!QuranAudioService.instance.isPlayingNotifier.value) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!QuranAudioService.instance.isPlayingNotifier.value) return;
+      if (_activeAyahKey != ayahKey) return;
+
+      final key = _ayahKeys[ayahKey];
+      final ayahContext = key?.currentContext;
+      if (ayahContext == null || !ayahContext.mounted) return;
+
+      final renderBox = ayahContext.findRenderObject() as RenderBox?;
+      final scrollBox = _scrollKey.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox == null || scrollBox == null) return;
+
+      final offset = renderBox.localToGlobal(Offset.zero, ancestor: scrollBox);
+      final itemY = offset.dy;
+      final viewportHeight = scrollBox.size.height;
+
+      // If active ayah is below view (near or past bottom of the card) or above top
+      if (itemY > viewportHeight - 75 || itemY < 15) {
+        Scrollable.ensureVisible(
+          ayahContext,
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeInOutCubic,
+          alignment: 0.28,
+        );
+      }
+    });
   }
 
   /// Instantly highlights an ayah and fires playback — zero perceived lag
   void _tapAyah(int surahNum, int ayahNum, {int? pageNumber}) {
-    // 1. Immediate visual feedback — highlight before any network request
-    setState(() => _activeAyahKey = '$surahNum:$ayahNum');
-    // 2. Start audio async — UI doesn't wait for this
+    final key = '$surahNum:$ayahNum';
+    setState(() => _activeAyahKey = key);
     QuranAudioService.instance.playAyah(surahNum, ayahNum, pageNumber: pageNumber);
+    _scrollToAyahIfNeeded(key);
   }
 
 
@@ -516,6 +575,17 @@ class _MushafPageCardState extends State<_MushafPageCard> {
       final activeBg = isActive
           ? AppColors.gold.withValues(alpha: isDark ? 0.22 : 0.15)
           : null;
+
+      // Anchor key for precise auto-scroll tracking
+      final anchorKey = _ayahKeys.putIfAbsent(ayahKey, () => GlobalKey());
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: SizedBox(
+          key: anchorKey,
+          width: 0,
+          height: 0,
+        ),
+      ));
 
       if (isTajweedMode) {
         // Tajweed mode — wrap each span with backgroundColor + instant tap
@@ -608,6 +678,7 @@ class _MushafPageCardState extends State<_MushafPageCard> {
 
     final page = widget.page;
     final isDark = widget.isDark;
+    final isMobile = widget.isMobile;
     final fontSize = widget.fontSize;
     final isTajweedMode = widget.isTajweedMode;
 
@@ -619,8 +690,13 @@ class _MushafPageCardState extends State<_MushafPageCard> {
     final segments = _getSegments(page.ayahs);
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      margin: EdgeInsets.symmetric(horizontal: isMobile ? 1 : 2),
+      padding: EdgeInsets.fromLTRB(
+        isMobile ? 10 : 14,
+        isMobile ? 8 : 12,
+        isMobile ? 10 : 14,
+        isMobile ? 6 : 10,
+      ),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : const Color(0xFFFFFDF8),
         borderRadius: BorderRadius.circular(22),
@@ -637,64 +713,15 @@ class _MushafPageCardState extends State<_MushafPageCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Mushaf Page Top Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: AppColors.gold.withValues(alpha: 0.3), width: 1),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      surahTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.amiri(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: isDark ? AppColors.goldLight : AppColors.goldDark,
-                      ),
-                    ),
-                  ),
-                ),
-                _headerChip(Icons.text_decrease_rounded, 'تصغير الخط', widget.onZoomOut, isDark),
-                const SizedBox(width: 6),
-                _headerChip(Icons.text_increase_rounded, 'تكبير الخط', widget.onZoomIn, isDark),
-                const SizedBox(width: 6),
-                _headerChip(
-                  widget.isBookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                  'حفظ علامة القراءة',
-                  widget.onBookmark,
-                  isDark,
-                  active: widget.isBookmarked,
-                ),
-                Expanded(
-                  child: Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Text(
-                      'الجزء ${page.juzNumber}',
-                      style: GoogleFonts.amiri(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: isDark ? AppColors.goldLight : AppColors.goldDark,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
+          _buildHeader(page, isDark, surahTitle),
+          const SizedBox(height: 6),
 
-          // Scrollable page content — controller preserves position across setState rebuilds
+          // Scrollable page content
           Expanded(
             child: SingleChildScrollView(
+              key: _scrollKey,
               controller: _scrollController,
-              physics: const BouncingScrollPhysics(),
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -753,50 +780,126 @@ class _MushafPageCardState extends State<_MushafPageCard> {
                     ),
                     if (seg != segments.last) const SizedBox(height: 12),
                   ],
+
+                  // On Mobile: Footer, Tajweed toggle, and Bottom Slider are right here inside the scroll!
+                  if (isMobile) ...[
+                    const SizedBox(height: 14),
+                    _buildFooter(page, isDark),
+                    const SizedBox(height: 6),
+                    Center(child: _buildTajweedToggle(isDark, isTajweedMode)),
+                    if (widget.bottomSlider != null) ...[
+                      const SizedBox(height: 12),
+                      widget.bottomSlider!,
+                      const SizedBox(height: 8),
+                    ],
+                  ],
                 ],
               ),
             ),
           ),
 
-          // Mushaf Page Bottom Footer
-          Container(
-            padding: const EdgeInsets.only(top: 6),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: AppColors.gold.withValues(alpha: 0.3), width: 1),
+          // On Desktop/Tablet: Pinned Footer & Tajweed toggle at the bottom of the card
+          if (!isMobile) ...[
+            _buildFooter(page, isDark),
+            const SizedBox(height: 6),
+            Center(child: _buildTajweedToggle(isDark, isTajweedMode)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(QuranPage page, bool isDark, String surahTitle) {
+    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: AppColors.gold.withValues(alpha: 0.3), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                surahTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.amiri(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: gold,
+                ),
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'الحزب ${((page.hizbQuarter - 1) ~/ 4) + 1}',
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54),
+          ),
+          _headerChip(Icons.text_decrease_rounded, 'تصغير الخط', widget.onZoomOut, isDark),
+          const SizedBox(width: 5),
+          _headerChip(Icons.text_increase_rounded, 'تكبير الخط', widget.onZoomIn, isDark),
+          const SizedBox(width: 5),
+          _headerChip(
+            widget.isBookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+            'حفظ علامة القراءة',
+            widget.onBookmark,
+            isDark,
+            active: widget.isBookmarked,
+          ),
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Text(
+                'الجزء ${page.juzNumber}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.amiri(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: gold,
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '— ${page.pageNumber} —',
-                    style: GoogleFonts.amiri(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: isDark ? AppColors.goldLight : AppColors.goldDark,
-                    ),
-                  ),
-                ),
-                Text(
-                  'الربع ${((page.hizbQuarter - 1) % 4) + 1}',
-                  style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54),
-                ),
-              ],
+              ),
             ),
           ),
-          const SizedBox(height: 6),
-          Center(child: _buildTajweedToggle(isDark, isTajweedMode)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooter(QuranPage page, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.only(top: 6),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.gold.withValues(alpha: 0.3), width: 1),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'الحزب ${((page.hizbQuarter - 1) ~/ 4) + 1}',
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.gold.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '— ${page.pageNumber} —',
+              style: GoogleFonts.amiri(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isDark ? AppColors.goldLight : AppColors.goldDark,
+              ),
+            ),
+          ),
+          Text(
+            'الربع ${((page.hizbQuarter - 1) % 4) + 1}',
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.black54),
+          ),
         ],
       ),
     );

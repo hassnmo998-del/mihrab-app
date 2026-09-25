@@ -66,22 +66,22 @@ void main() {
       QuranAudioService.instance.stop();
     });
 
-    test('Default reciter is Al-Husary murattal (index 0)', () {
+    test('Default reciter is Abdul Basit Abdul Samad', () {
       expect(QuranAudioService.instance.reciterNotifier.value.id,
-          'husary_128kbps');
+          'abdul_basit_murattal_192kbps');
     });
 
-    test('Default repeat scope is page', () {
+    test('Default repeat scope is whole Quran', () {
       expect(QuranAudioService.instance.scopeNotifier.value,
-          QuranRepeatScope.page);
+          QuranRepeatScope.quran);
     });
 
     test('Default speed is 1.0x', () {
       expect(QuranAudioService.instance.speedNotifier.value, 1.0);
     });
 
-    test('Default repeat count is 1 (once)', () {
-      expect(QuranAudioService.instance.repeatCountNotifier.value, 1);
+    test('Default repeat count is -1 (بلا توقف / continuous)', () {
+      expect(QuranAudioService.instance.repeatCountNotifier.value, -1);
     });
 
     test('setScope updates scopeNotifier correctly', () async {

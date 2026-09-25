@@ -15,6 +15,7 @@ class LocalStorageDataSource {
   // Active Session & Saved Sessions
   ActiveSession? currentSession;
   final List<ActiveSession> savedSessions = [];
+  String? activeStudentId;
   final List<String> registrationTokens = [];
   final List<Map<String, dynamic>> tokenUsageHistory = [];
 
@@ -40,6 +41,9 @@ class LocalStorageDataSource {
   final List<RecitationTrack> recitationTracks = [];
   final List<SubjectRecitationRecord> subjectRecitationRecords = [];
   final List<EventQuestion> eventQuestions = [];
+
+  // Persistent deleted entity tombstones to prevent resurrecting deleted entities
+  final Set<String> deletedEntityIds = {};
 
   static int _idCounter = 0;
   static String genId(String prefix) =>
@@ -72,6 +76,13 @@ class LocalStorageDataSource {
           (s) => s.code == currentCode,
           orElse: () => savedSessions.first,
         );
+      }
+      activeStudentId = prefs.getString('active_student_id');
+      if (activeStudentId == null && savedSessions.isNotEmpty) {
+        final firstStudent = savedSessions.where((s) => s.role == 'student').firstOrNull;
+        if (firstStudent != null) {
+          activeStudentId = firstStudent.studentId ?? firstStudent.code;
+        }
       }
 
       // Load Real Mosques
@@ -260,6 +271,13 @@ class LocalStorageDataSource {
           eventQuestions.add(EventQuestion.fromJson(item));
         }
       }
+
+      // Load Deleted Entity Tombstones
+      final delList = prefs.getStringList('deleted_entity_tombstones');
+      if (delList != null) {
+        deletedEntityIds.clear();
+        deletedEntityIds.addAll(delList);
+      }
     } catch (_) {}
   }
 
@@ -312,6 +330,11 @@ class LocalStorageDataSource {
         await prefs.setString('current_session_code', currentSession!.code);
       } else {
         await prefs.remove('current_session_code');
+      }
+      if (activeStudentId != null) {
+        await prefs.setString('active_student_id', activeStudentId!);
+      } else {
+        await prefs.remove('active_student_id');
       }
       await prefs.setBool('super_admin_authenticated', isSuperAdminAuthenticated);
 
@@ -394,6 +417,27 @@ class LocalStorageDataSource {
         'real_event_questions',
         jsonEncode(eventQuestions.map((q) => q.toJson()).toList()),
       );
+      await prefs.setStringList(
+        'deleted_entity_tombstones',
+        deletedEntityIds.toList(),
+      );
     } catch (_) {}
   }
+
+  /// Records a tombstone for a deleted entity so it is never re-imported or resurrected.
+  void recordDeletedId(String id) {
+    if (id.isEmpty) return;
+    deletedEntityIds.add(id);
+    // Keep max 1000 tombstones to prevent unbounded growth over time
+    if (deletedEntityIds.length > 1000) {
+      deletedEntityIds.remove(deletedEntityIds.first);
+    }
+    // Async persistent backup immediately
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setStringList('deleted_entity_tombstones', deletedEntityIds.toList());
+    }).catchError((_) {});
+  }
+
+  /// Whether this entity was deleted on this device
+  bool isEntityDeleted(String id) => deletedEntityIds.contains(id);
 }

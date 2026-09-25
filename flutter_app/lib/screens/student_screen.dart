@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/data_service.dart';
+import '../widgets/code_scanner_dialog.dart';
 import 'student/widgets/student_header_banner.dart';
 import 'student/widgets/student_locked_view.dart';
+import 'student/widgets/student_multi_profile_bar.dart';
 import 'student/tabs/student_progress_tab.dart';
 import 'student/tabs/student_attendance_tab.dart';
 import 'student/tabs/student_trips_tab.dart';
@@ -37,11 +39,41 @@ class _StudentScreenState extends State<StudentScreen> with SingleTickerProvider
     super.dispose();
   }
 
+  void _openAddStudentDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => CodeScannerDialog(
+        targetRole: 'student',
+        onSessionUnlocked: (newSession) {
+          if (mounted) {
+            setState(() {});
+          }
+        },
+      ),
+    );
+  }
+
+  void _handleUnlinkStudent(BuildContext context, ActiveSession session, DataService data) {
+    final studentId = session.studentId ?? session.code;
+    data.removeStudentSession(studentId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('تم إلغاء ربط ملف الطالب (${session.name}) بنجاح'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = context.watch<DataService>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final active = data.getSessionForRole('student') ?? widget.session ?? data.currentSession;
+    final studentSessions = data.getStudentSessions();
+    final active = data.getActiveStudentSession() ??
+        data.getSessionForRole('student') ??
+        widget.session ??
+        data.currentSession;
 
     final isStudentSession = active != null && active.role == 'student';
     Student? currentStudent;
@@ -49,9 +81,26 @@ class _StudentScreenState extends State<StudentScreen> with SingleTickerProvider
     if (isStudentSession && active.studentId != null) {
       currentStudent = data.getStudents().where((s) => s.id == active.studentId).firstOrNull;
     }
+    if (isStudentSession && currentStudent == null && active.code.isNotEmpty) {
+      currentStudent = data.getStudents().where((s) => s.code == active.code).firstOrNull;
+    }
+
+    // Fallback student if record is not yet in local cache
+    if (isStudentSession && currentStudent == null && active.code.isNotEmpty) {
+      currentStudent = Student(
+        id: active.studentId ?? 'std-${active.code}',
+        mosqueId: active.mosqueId ?? '',
+        halaqaId: active.halaqaId ?? '',
+        sheikhId: active.sheikhId,
+        fullName: active.name,
+        gender: active.gender ?? 'male',
+        phone: '',
+        code: active.code,
+      );
+    }
 
     // If locked or no student session
-    if (!isStudentSession || currentStudent == null) {
+    if (!isStudentSession || currentStudent == null || studentSessions.isEmpty) {
       return StudentLockedView(
         isDark: isDark,
         onSessionUnlocked: () => setState(() {}),
@@ -86,11 +135,26 @@ class _StudentScreenState extends State<StudentScreen> with SingleTickerProvider
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: StudentHeaderBanner(
-                  student: currentStudent!,
-                  mosque: mosque,
-                  halaqa: currentHalaqa,
-                  sheikh: currentSheikh,
+                child: Column(
+                  children: [
+                    StudentMultiProfileBar(
+                      studentSessions: studentSessions,
+                      activeSession: active,
+                      students: data.getStudents(),
+                      mosques: data.getMosques(),
+                      halaqat: data.getHalaqat(),
+                      isDark: isDark,
+                      onSelectStudent: (id) => data.setActiveStudent(id),
+                      onAddStudent: () => _openAddStudentDialog(context),
+                      onUnlinkStudent: (sess) => _handleUnlinkStudent(context, sess, data),
+                    ),
+                    StudentHeaderBanner(
+                      student: currentStudent!,
+                      mosque: mosque,
+                      halaqa: currentHalaqa,
+                      sheikh: currentSheikh,
+                    ),
+                  ],
                 ),
               ),
             ),

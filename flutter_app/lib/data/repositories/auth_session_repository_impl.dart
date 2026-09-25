@@ -46,11 +46,18 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
       _localDataSource.savedSessions.add(session);
     }
     _localDataSource.currentSession = session;
+    if (session.role == 'student') {
+      _localDataSource.activeStudentId = session.studentId ?? session.code;
+    }
     _localDataSource.saveToStorage();
   }
 
   @override
   void setRoleSession(ActiveSession session) {
+    if (session.role == 'student') {
+      addStudentSession(session);
+      return;
+    }
     _localDataSource.savedSessions.removeWhere((s) => s.role == session.role);
     _localDataSource.savedSessions.add(session);
     _localDataSource.currentSession = session;
@@ -58,7 +65,112 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
   }
 
   @override
+  List<ActiveSession> getStudentSessions() {
+    final seen = <String>{};
+    final list = <ActiveSession>[];
+    for (final s in _localDataSource.savedSessions) {
+      if (s.role == 'student') {
+        final key = s.studentId ?? s.code;
+        if (key.isNotEmpty && seen.add(key)) {
+          list.add(s);
+        }
+      }
+    }
+    return List.unmodifiable(list);
+  }
+
+  @override
+  ActiveSession? getActiveStudentSession() {
+    final studentSessions = getStudentSessions();
+    if (studentSessions.isEmpty) return null;
+
+    if (_localDataSource.activeStudentId != null) {
+      final matched = studentSessions.firstWhereOrNull(
+        (s) => s.studentId == _localDataSource.activeStudentId || s.code == _localDataSource.activeStudentId,
+      );
+      if (matched != null) return matched;
+    }
+
+    if (_localDataSource.currentSession?.role == 'student') {
+      final current = _localDataSource.currentSession!;
+      final matched = studentSessions.firstWhereOrNull(
+        (s) => (s.studentId != null && s.studentId == current.studentId) || s.code == current.code,
+      );
+      if (matched != null) {
+        _localDataSource.activeStudentId = matched.studentId ?? matched.code;
+        return matched;
+      }
+    }
+
+    final first = studentSessions.first;
+    _localDataSource.activeStudentId = first.studentId ?? first.code;
+    return first;
+  }
+
+  @override
+  void setActiveStudent(String studentId) {
+    final studentSessions = getStudentSessions();
+    final target = studentSessions.firstWhereOrNull(
+      (s) => s.studentId == studentId || s.code == studentId,
+    );
+    if (target != null) {
+      _localDataSource.activeStudentId = target.studentId ?? target.code;
+      if (_localDataSource.currentSession?.role == 'student') {
+        _localDataSource.currentSession = target;
+      }
+      _localDataSource.saveToStorage();
+    }
+  }
+
+  @override
+  void addStudentSession(ActiveSession session) {
+    if (session.role != 'student') {
+      setRoleSession(session);
+      return;
+    }
+    _localDataSource.savedSessions.removeWhere(
+      (s) => s.role == 'student' && (
+        (session.studentId != null && s.studentId == session.studentId) ||
+        (session.studentId == null && s.code == session.code)
+      ),
+    );
+    _localDataSource.savedSessions.add(session);
+    _localDataSource.activeStudentId = session.studentId ?? session.code;
+    if (_localDataSource.currentSession?.role == 'student' || _localDataSource.currentSession == null) {
+      _localDataSource.currentSession = session;
+    }
+    _localDataSource.saveToStorage();
+  }
+
+  @override
+  void removeStudentSession(String studentId) {
+    _localDataSource.savedSessions.removeWhere(
+      (s) => s.role == 'student' && (s.studentId == studentId || s.code == studentId),
+    );
+    if (_localDataSource.activeStudentId == studentId) {
+      final remaining = getStudentSessions();
+      if (remaining.isNotEmpty) {
+        _localDataSource.activeStudentId = remaining.first.studentId ?? remaining.first.code;
+        if (_localDataSource.currentSession?.role == 'student') {
+          _localDataSource.currentSession = remaining.first;
+        }
+      } else {
+        _localDataSource.activeStudentId = null;
+        if (_localDataSource.currentSession?.role == 'student') {
+          _localDataSource.currentSession = _localDataSource.savedSessions.isNotEmpty
+              ? _localDataSource.savedSessions.last
+              : null;
+        }
+      }
+    }
+    _localDataSource.saveToStorage();
+  }
+
+  @override
   ActiveSession? getSessionForRole(String role) {
+    if (role == 'student') {
+      return getActiveStudentSession();
+    }
     if (_localDataSource.currentSession?.role == role) {
       return _localDataSource.currentSession;
     }
@@ -69,10 +181,18 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
   }
 
   @override
-  bool hasRole(String role) => getSessionForRole(role) != null;
+  bool hasRole(String role) {
+    if (role == 'student') {
+      return getStudentSessions().isNotEmpty || _localDataSource.currentSession?.role == 'student';
+    }
+    return getSessionForRole(role) != null;
+  }
 
   @override
   void disconnectRole(String role) {
+    if (role == 'student') {
+      _localDataSource.activeStudentId = null;
+    }
     _localDataSource.savedSessions.removeWhere((s) => s.role == role);
     if (_localDataSource.currentSession?.role == role) {
       _localDataSource.currentSession =
@@ -160,6 +280,19 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
           ? _localDataSource.savedSessions.last
           : null;
       changed = true;
+    }
+
+    if (_localDataSource.activeStudentId != null) {
+      final stillExists = _localDataSource.savedSessions.any(
+        (s) => s.role == 'student' && (s.studentId == _localDataSource.activeStudentId || s.code == _localDataSource.activeStudentId),
+      );
+      if (!stillExists) {
+        final remaining = _localDataSource.savedSessions.where((s) => s.role == 'student');
+        _localDataSource.activeStudentId = remaining.isNotEmpty
+            ? (remaining.first.studentId ?? remaining.first.code)
+            : null;
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -349,6 +482,12 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
       final st = Student.fromJson(rStudent);
       _upsertLocal(_localDataSource.students, st, (e) => e.id == st.id);
       final m = await _resolveRemoteMosque(remote, st.mosqueId);
+      if (st.halaqaId.isNotEmpty) {
+        await _resolveRemoteHalaqa(remote, st.halaqaId);
+      }
+      if (st.sheikhId != null && st.sheikhId!.isNotEmpty) {
+        await _resolveRemoteSheikh(remote, st.sheikhId!);
+      }
       return ActiveSession(
         role: 'student',
         code: st.code,
@@ -379,6 +518,36 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
     return null;
   }
 
+  /// جلب بيانات الحلقة من Remote أو من الـ cache المحلي
+  Future<Halaqa?> _resolveRemoteHalaqa(dynamic remote, String halaqaId) async {
+    final local = _localDataSource.halaqat.firstWhereOrNull(
+      (h) => h.id == halaqaId,
+    );
+    if (local != null) return local;
+    final rh = await remote.fetchOneByColumn('halaqat', 'id', halaqaId);
+    if (rh != null) {
+      final h = Halaqa.fromJson(rh);
+      _localDataSource.halaqat.add(h);
+      return h;
+    }
+    return null;
+  }
+
+  /// جلب بيانات الشيخ المشرف من Remote أو من الـ cache المحلي
+  Future<Sheikh?> _resolveRemoteSheikh(dynamic remote, String sheikhId) async {
+    final local = _localDataSource.sheikhs.firstWhereOrNull(
+      (s) => s.id == sheikhId,
+    );
+    if (local != null) return local;
+    final rs = await remote.fetchOneByColumn('sheikhs', 'id', sheikhId);
+    if (rs != null) {
+      final s = Sheikh.fromJson(rs);
+      _localDataSource.sheikhs.add(s);
+      return s;
+    }
+    return null;
+  }
+
   /// إضافة أو تحديث عنصر في الـ list المحلية (upsert)
   void _upsertLocal<T>(List<T> list, T item, bool Function(T) predicate) {
     final idx = list.indexWhere(predicate);
@@ -391,6 +560,10 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
 
   /// حفظ الجلسة — يستبدل نفس الرتبة القديمة تلقائياً (setRoleSession semantics)
   void _saveSession(ActiveSession session) {
+    if (session.role == 'student') {
+      addStudentSession(session);
+      return;
+    }
     _localDataSource.savedSessions.removeWhere((s) => s.role == session.role);
     _localDataSource.savedSessions.add(session);
     _localDataSource.currentSession = session;

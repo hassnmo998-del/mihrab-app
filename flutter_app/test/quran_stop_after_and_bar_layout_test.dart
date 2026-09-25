@@ -73,6 +73,12 @@ void main() {
         ),
       );
       await tester.pump();
+      // On mobile, unfold settings to check pill visibility
+      final toggle = find.byIcon(Icons.settings_rounded);
+      if (toggle.evaluate().isNotEmpty) {
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+      }
     }
 
     for (final width in <double>[300, 320, 360, 414, 600, 800, 899, 900, 1000, 1400]) {
@@ -102,9 +108,12 @@ void main() {
       ),
     ));
 
+    // On desktop, the bar is unfolded by default without toggle button
+    expect(find.byIcon(Icons.settings_rounded), findsNothing);
+
     await tester.tap(find.text('لا يتوقف'));
     await tester.pumpAndSettle();
-    expect(find.text('يتوقف بعد'), findsWidgets);
+    expect(find.text('إيقاف التلاوة تلقائياً'), findsWidgets);
     for (final label in ['هذه الآية', 'هذه السورة', 'هذا الجزء', 'لا تتوقف']) {
       expect(find.text(label), findsWidgets);
     }

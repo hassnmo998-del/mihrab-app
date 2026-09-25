@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/access_code_generator.dart';
+import '../screens/admin/widgets/new_mosque_registration_form.dart';
 import '../screens/admin/widgets/women_branch_setup_dialog.dart';
 import '../services/data_service.dart';
 import '../models/models.dart';
@@ -106,6 +107,14 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
       return;
     }
 
+    // باركود المشرف العام لتسجيل جامع جديد ليس كود دخول: يُتحقق منه في جدول
+    // أكواد التسجيل ثم تُفتح لوحة إنشاء الجامع مباشرة. سابقاً كان يُمرَّر إلى
+    // verifyCode فيُبحث عنه في المساجد والمشايخ والطلاب فقط ويُرفض دائماً.
+    if (AccessCodeGenerator.isRegistrationToken(clean)) {
+      await _openMosqueRegistration(clean);
+      return;
+    }
+
     final session = await DataService().verifyCode(clean);
     debugPrint('📷 verifyCode result: ${session?.role} / ${session?.name}');
     if (!mounted) return;
@@ -116,14 +125,23 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
     });
 
     if (session != null) {
-      // ✅ استبدل الجلسة القديمة لنفس الرتبة تلقائياً (بدلاً من التراكم)
+      if (widget.targetRole != null && session.role != widget.targetRole) {
+        setState(() {
+          _errorMessage =
+              'هذا الكود مخصص لـ (${session.roleLabel}) وليس لحساب ${widget.targetRole == 'student' ? 'طالب' : widget.targetRole}.';
+        });
+        return;
+      }
       DataService().setRoleSession(session);
+      DataService().syncWithSupabase().catchError((_) {});
       Navigator.pop(context);
       widget.onSessionUnlocked(session);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'تم تسجيل الدخول بنجاح: ${session.name} (${session.roleLabel})',
+            session.role == 'student'
+                ? 'تم ربط ملف الطالب بنجاح: ${session.name}'
+                : 'تم تسجيل الدخول بنجاح: ${session.name} (${session.roleLabel})',
             style: AppTypography.buttonText(),
           ),
           backgroundColor: AppColors.terracottaPrimary,
@@ -133,6 +151,42 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
       setState(() {
         _errorMessage = 'الكود غير صحيح أو لم يتم العثور على صاحب هذا الرمز في المنظومة';
       });
+    }
+  }
+
+  Future<void> _openMosqueRegistration(String token) async {
+    final check = await DataService().checkRegistrationToken(token);
+    if (!mounted) return;
+
+    if (check != RegistrationTokenCheck.valid) {
+      setState(() {
+        _isLoading = false;
+        _isProcessing = false;
+        _errorMessage = switch (check) {
+          RegistrationTokenCheck.alreadyUsed =>
+            'باركود التسجيل هذا استُخدم مسبقاً لتسجيل جامع آخر. اطلب باركوداً جديداً من المشرف العام.',
+          RegistrationTokenCheck.unreachable =>
+            'تعذّر الوصول للسحابة للتحقق من باركود التسجيل — تأكد من اتصال الجهاز بالإنترنت',
+          _ => 'باركود التسجيل غير موجود أو حذفه المشرف العام. اطلب باركوداً جديداً.',
+        };
+      });
+      return;
+    }
+
+    // الماسح يُغلق قبل فتح اللوحة، فنحتفظ بالمتصفح والرد قبل الإغلاق
+    final navigator = Navigator.of(context);
+    final onSessionUnlocked = widget.onSessionUnlocked;
+    navigator.pop();
+
+    final result = await navigator.push<(Mosque, ActiveSession)>(
+      MaterialPageRoute(builder: (_) => NewMosqueRegistrationScreen(token: token)),
+    );
+    if (result == null) return;
+
+    final (mosque, session) = result;
+    onSessionUnlocked(session);
+    if (navigator.mounted) {
+      showMosqueRegisteredFeedback(navigator.context, mosque);
     }
   }
 
@@ -277,7 +331,7 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  'يحصل المحفظ على كود الحلقة من مدير المسجد، ويحصل الطالب وولي أمره على كوده وبطاقة الـ QR من المحفظ.',
+                                  'يحصل المحفظ على كود الحلقة من مدير المسجد، ويحصل الطالب وولي أمره على كوده وبطاقة الـ QR من المحفظ. ومدير الجامع الجديد يمسح باركود التسجيل (REG-) من المشرف العام لتفتح له لوحة إنشاء الجامع.',
                                   style: AppTypography.verveSubtitle(context).copyWith(fontSize: 11.5, height: 1.4),
                                 ),
                               ),

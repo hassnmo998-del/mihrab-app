@@ -352,9 +352,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Icon(Icons.system_update_rounded, size: 20, color: primaryColor),
                   const SizedBox(width: 8),
-                  Text(
-                    'معلومات التطبيق والتحديثات',
-                    style: AppTypography.titleBold(context, fontSize: 14.5),
+                  Expanded(
+                    child: Text(
+                      'معلومات التطبيق والتحديثات',
+                      style: AppTypography.titleBold(context, fontSize: 14.5),
+                    ),
                   ),
                 ],
               ),
@@ -364,7 +366,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('الإصدار المثبت حالياً', style: AppTypography.font(fontSize: 14.5)),
+                  Expanded(
+                    child: Text('الإصدار المثبت حالياً', style: AppTypography.font(fontSize: 14.5)),
+                  ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
