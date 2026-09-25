@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 
 /// Centralized Typography Engine.
@@ -20,30 +19,13 @@ class AppTypography {
     String? family,
   }) {
     final target = family ?? currentFontFamily;
-    switch (target) {
-      case 'Cairo':
-        return GoogleFonts.cairo(
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-          color: color,
-          height: height,
-        );
-      case 'Tajawal':
-        return GoogleFonts.tajawal(
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-          color: color,
-          height: height,
-        );
-      case 'Amiri':
-      default:
-        return GoogleFonts.amiri(
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-          color: color,
-          height: height,
-        );
-    }
+    return TextStyle(
+      fontFamily: target,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      height: height,
+    );
   }
 
   // Base text theme generator for ThemeData

@@ -53,25 +53,16 @@ void main() {
       final toggleFinder = find.byIcon(Icons.settings_rounded);
       expect(toggleFinder, findsOneWidget);
 
-      // Soft titles are not visible while collapsed
-      expect(find.text('نطاق التلاوة'), findsNothing);
-      expect(find.text('تكرار الآية'), findsNothing);
-      expect(find.text('التوقف التلقائي'), findsNothing);
-      expect(find.text('القارئ الشيخ'), findsNothing);
-      expect(find.text('السرعة'), findsNothing);
+      // Options pills are not visible while collapsed
+      expect(find.text('القرآن كاملاً'), findsNothing);
+      expect(find.text('عبد الباسط عبد الصمد'), findsNothing);
+      expect(find.text('1×'), findsNothing);
 
       // Tap toggle to expand options
       await tester.tap(toggleFinder);
       await tester.pumpAndSettle();
 
-      // Soft titles are now visible!
-      expect(find.text('نطاق التلاوة'), findsOneWidget);
-      expect(find.text('تكرار الآية'), findsOneWidget);
-      expect(find.text('التوقف التلقائي'), findsOneWidget);
-      expect(find.text('القارئ الشيخ'), findsOneWidget);
-      expect(find.text('السرعة'), findsOneWidget);
-
-      // Default values are shown on the pills
+      // Options pills are now visible!
       expect(find.text('القرآن كاملاً'), findsOneWidget);
       expect(find.text('بلا توقف'), findsOneWidget);
       expect(find.text('لا يتوقف'), findsOneWidget);

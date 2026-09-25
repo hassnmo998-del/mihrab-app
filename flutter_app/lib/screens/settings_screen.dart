@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/theme/app_theme.dart';
 import '../presentation/blocs/theme/theme_cubit.dart';
 import '../presentation/blocs/theme/theme_state.dart';
@@ -32,15 +33,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   TextStyle _getPreviewStyle(String fontFamily, double size, FontWeight weight, Color color) {
-    switch (fontFamily) {
-      case 'Cairo':
-        return GoogleFonts.cairo(fontSize: size, fontWeight: weight, color: color);
-      case 'Tajawal':
-        return GoogleFonts.tajawal(fontSize: size, fontWeight: weight, color: color);
-      case 'Amiri':
-      default:
-        return GoogleFonts.amiri(fontSize: size, fontWeight: weight, color: color);
-    }
+    return TextStyle(
+      fontFamily: fontFamily,
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+    );
   }
 
   @override
@@ -313,6 +311,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                     // ── قسم الإصدار والتحديث ──────────────────────
                     _buildVersionSection(isDark),
+                    const SizedBox(height: 20),
+
+                    // ── بطاقة الموقع الرسمي ──────────────────────
+                    _buildOfficialWebsiteCard(isDark),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -776,6 +778,134 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// بطاقة الموقع الرسمي لتطبيق محراب
+  Widget _buildOfficialWebsiteCard(bool isDark) {
+    const websiteUrl = 'https://hassnmo998-del.github.io/mihrab-app/';
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+    final borderColor = isDark ? Colors.white12 : Colors.black12;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.language_rounded, color: primaryColor, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'الموقع الرسمي لتطبيق محراب',
+                      style: AppTypography.font(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : AppColors.obsidianEspresso,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'تحميل الإصدارات لجميع الأجهزة ومتابعة التحديثات',
+                      style: AppTypography.font(
+                        fontSize: 12,
+                        color: isDark ? Colors.white60 : Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.black26 : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.link_rounded, size: 18, color: primaryColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    websiteUrl,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      fontFamily: 'monospace',
+                    ),
+                    textDirection: TextDirection.ltr,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse(websiteUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+                  label: const Text('زيارة الموقع الرسمي'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(const ClipboardData(text: websiteUrl));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم نسخ رابط الموقع الرسمي بنجاح 📋'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                label: const Text('نسخ'),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: primaryColor.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 16),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildScaleChip(
       BuildContext context,
       ThemeCubit cubit,
@@ -819,7 +949,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ChoiceChip(
       label: Text(
         label,
-        style: AppTypography.buttonText(
+        style: TextStyle(
+          fontFamily: familyName,
+          fontSize: 13,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
           color: isSelected ? Colors.white : (isDark ? Colors.white70 : AppColors.obsidianEspresso),
         ),
       ),

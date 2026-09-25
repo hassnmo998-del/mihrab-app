@@ -347,6 +347,19 @@ class AdhanAudioCard extends StatelessWidget {
                   isDark: isDark,
                 );
                 if (approved) {
+                  final newStatus = await service.checkPermissionsStatus();
+                  if (!newStatus.notificationsGranted) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('⚠️ تم رفض تفعيل الأذان: يجب منح إذن الإشعارات أولاً لتصلك التنبيهات'),
+                          backgroundColor: Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                    return;
+                  }
                   await service.setAdhanEnabled(true);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -358,6 +371,13 @@ class AdhanAudioCard extends StatelessWidget {
                     );
                   }
                 }
+              }
+              return;
+            }
+            final newStatus = await service.checkPermissionsStatus();
+            if (!newStatus.notificationsGranted) {
+              if (context.mounted) {
+                await AdhanPermissionsDialog.show(context, isDark: isDark);
               }
               return;
             }

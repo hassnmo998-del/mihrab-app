@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../services/data_service.dart';
 import 'theme_state.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ class ThemeCubit extends Cubit<ThemeState> {
       final paletteId = prefs.getString('palette_id') ?? 'terracotta';
       AppColors.currentPaletteId = paletteId;
       AppColors.isDarkMode = isDark;
+      AppTypography.currentFontFamily = fontFamily;
 
       emit(state.copyWith(
         isDark: isDark,
@@ -79,6 +81,7 @@ class ThemeCubit extends Cubit<ThemeState> {
   }
 
   void setFontFamily(String family) async {
+    AppTypography.currentFontFamily = family;
     emit(state.copyWith(fontFamily: family));
     try {
       final prefs = await SharedPreferences.getInstance();

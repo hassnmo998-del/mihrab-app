@@ -2,7 +2,7 @@ name: flutter_app
 description: "منصة محراب الذكية لإدارة حلقات تحفيظ القرآن والفعاليات المجتمعية"
 publish_to: 'none'
 
-version: 1.0.2+3
+version: 1.0.3+3
 
 environment:
   sdk: ^3.10.4
@@ -57,3 +57,19 @@ flutter:
   assets:
     - assets/data/
     - assets/images/
+    - assets/fonts/
+
+  fonts:
+    - family: Amiri
+      fonts:
+        - asset: assets/fonts/Amiri-Regular.ttf
+        - asset: assets/fonts/Amiri-Bold.ttf
+          weight: 700
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/Tajawal-Regular.ttf
+        - asset: assets/fonts/Tajawal-Bold.ttf
+          weight: 700

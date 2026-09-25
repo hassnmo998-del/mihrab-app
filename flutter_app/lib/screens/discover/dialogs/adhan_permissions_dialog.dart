@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../presentation/widgets/unified_badge.dart';
 import '../../../services/adhan_service.dart';
@@ -227,14 +228,41 @@ class _AdhanPermissionsDialogState extends State<AdhanPermissionsDialog>
                     Expanded(
                       flex: 2,
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          // Allow activating
-                          Navigator.of(context).pop(true);
+                        onPressed: () async {
+                          if (status?.notificationsGranted != true) {
+                            final granted = await AdhanService.instance.requestNotificationPermission();
+                            await _checkStatus();
+                            if (!granted && mounted) {
+                              final isPerm = await Permission.notification.isPermanentlyDenied;
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(isPerm
+                                        ? '⚠️ إذن الإشعارات مطلوب لتشغيل الأذان. يرجى تفعيله من إعدادات النظام'
+                                        : '⚠️ يجب منح إذن الإشعارات لتفعيل تنبيهات الأذان'),
+                                    backgroundColor: Colors.redAccent,
+                                    behavior: SnackBarBehavior.floating,
+                                    action: isPerm
+                                        ? SnackBarAction(
+                                            label: 'فتح الإعدادات',
+                                            textColor: Colors.white,
+                                            onPressed: openAppSettings,
+                                          )
+                                        : null,
+                                  ),
+                                );
+                              }
+                              return;
+                            }
+                          }
+                          if (context.mounted) {
+                            Navigator.of(context).pop(true);
+                          }
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: allDone
-                              ? Theme.of(context).primaryColor
-                              : AppColors.goldDark,
+                          backgroundColor: (status?.notificationsGranted == true)
+                              ? (allDone ? Theme.of(context).primaryColor : AppColors.goldDark)
+                              : Colors.redAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
@@ -242,11 +270,15 @@ class _AdhanPermissionsDialogState extends State<AdhanPermissionsDialog>
                           ),
                         ),
                         icon: Icon(
-                          allDone ? Icons.check_circle_rounded : Icons.notifications_active_rounded,
+                          (status?.notificationsGranted == true)
+                              ? (allDone ? Icons.check_circle_rounded : Icons.notifications_active_rounded)
+                              : Icons.notification_add_rounded,
                           size: 18,
                         ),
                         label: Text(
-                          allDone ? 'تأكيد تفعيل الأذان' : 'تفعيل مع المتابعة',
+                          (status?.notificationsGranted == true)
+                              ? (allDone ? 'تأكيد تفعيل الأذان' : 'تفعيل مع المتابعة')
+                              : 'منح إذن الإشعارات أولاً ⚠️',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
                         ),
                       ),

@@ -7,7 +7,7 @@
 const GITHUB_OWNER = 'hassnmo998-del';
 const GITHUB_REPO  = 'mihrab-app';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
-const CACHE_KEY = 'mihrab_releases_cache_v8';
+const CACHE_KEY = 'mihrab_releases_cache_v9';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 
 // Fastly CDN direct files hosted on the same domain

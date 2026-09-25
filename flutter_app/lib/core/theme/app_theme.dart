@@ -96,7 +96,10 @@ class AppTheme {
     AppColors.currentPaletteId = paletteId;
     AppColors.isDarkMode = isDark;
     final palette = AppColors.getPaletteById(paletteId);
-    final activeFont = fontFamily ?? AppTypography.font().fontFamily;
+    if (fontFamily != null) {
+      AppTypography.currentFontFamily = fontFamily;
+    }
+    final activeFont = fontFamily ?? AppTypography.currentFontFamily;
     final primaryColor = isDark ? palette.darkPrimary : palette.primary;
     final accentColor = palette.accent;
     final scaffoldBg = isDark ? palette.darkBg : palette.lightBg;
@@ -132,7 +135,7 @@ class AppTheme {
         error: const Color(0xFFDC2626),
         onError: Colors.white,
       ),
-      textTheme: AppTypography.textTheme(isDark),
+      textTheme: AppTypography.textTheme(isDark, activeFont),
 
       // AppBar Theme
       appBarTheme: AppBarTheme(
@@ -141,6 +144,7 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
         titleTextStyle: AppTypography.font(
+          family: activeFont,
           color: isDark ? Colors.white : AppColors.lightTextPrimary,
           fontSize: 20,
           fontWeight: FontWeight.bold,

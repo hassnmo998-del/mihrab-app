@@ -19,6 +19,8 @@ import 'widgets/code_scanner_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
 import 'screens/discover_screen.dart';
 import 'screens/discover/widgets/quran_reader_view.dart';
+import 'screens/discover/widgets/islamic_zad_hub_view.dart';
+import 'screens/discover/widgets/prayer_times_qibla_view.dart';
 import 'screens/student_screen.dart';
 import 'screens/sheikh_screen.dart';
 import 'screens/mosque_admin_screen.dart';
@@ -194,7 +196,8 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver, WindowListener {
-  String _activeTabId = 'discover';
+  String _activeTabId = 'events';
+  String _previousTabId = 'events';
   final GlobalKey<CashierScreenState> _cashierKey = GlobalKey<CashierScreenState>();
   bool _isFullscreen = false;
   Timer? _updateLaunchTimer;
@@ -309,7 +312,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
           Navigator.push(context, MaterialPageRoute(builder: (_) => const SuperAdminScreen()));
           break;
         default:
-          _activeTabId = 'discover';
+          _activeTabId = 'events';
       }
     });
   }
@@ -542,26 +545,64 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
 
     final tabs = <_ShellTab>[];
 
-    // 1. Discover tab (always available)
+    // 1. Events & Donations tab (Default first tab)
     tabs.add(_ShellTab(
-      id: 'discover',
-      label: 'اكتشف والفعاليات',
-      shortLabel: 'اكتشف',
-      icon: Icons.explore_outlined,
-      activeIcon: Icons.explore,
+      id: 'events',
+      label: 'الفعاليات والتبرع',
+      shortLabel: 'الفعاليات',
+      icon: Icons.campaign_outlined,
+      activeIcon: Icons.campaign_rounded,
       widget: DiscoverScreen(onOpenScanner: _openScanner),
     ));
 
-    // 1.b Holy Quran — its own full-screen section (always available)
+    // 2. Holy Quran section
     tabs.add(_ShellTab(
       id: 'quran',
       label: 'القرآن الكريم',
       shortLabel: 'القرآن',
       icon: Icons.auto_stories_outlined,
-      activeIcon: Icons.auto_stories,
+      activeIcon: Icons.auto_stories_rounded,
       widget: QuranReaderView(
         isDark: Theme.of(context).brightness == Brightness.dark,
-        onExit: () => setState(() => _activeTabId = 'discover'),
+        onExit: () => setState(() => _activeTabId = _previousTabId),
+      ),
+    ));
+
+    // 3. Islamic Content / Hadith / Ruqyah / Athkar
+    tabs.add(_ShellTab(
+      id: 'islamic_zad',
+      label: 'الأحاديث والرقية',
+      shortLabel: 'الأحاديث والرقية',
+      icon: Icons.menu_book_outlined,
+      activeIcon: Icons.menu_book_rounded,
+      widget: RefreshIndicator(
+        onRefresh: () => data.syncWithSupabase(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: IslamicZadHubView(
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+        ),
+      ),
+    ));
+
+    // 4. Adhan & Prayer Times
+    tabs.add(_ShellTab(
+      id: 'prayer_times',
+      label: 'الأذان ومواقيت الصلاة',
+      shortLabel: 'الأذان والمواقيت',
+      icon: Icons.access_time_filled_outlined,
+      activeIcon: Icons.access_time_filled_rounded,
+      widget: RefreshIndicator(
+        onRefresh: () => data.syncWithSupabase(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: PrayerTimesQiblaView(
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+        ),
       ),
     ));
 
@@ -800,42 +841,185 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
           ),
           SizedBox(width: isCompact ? 4 : 8),
         ],
-        // Top Horizontal Tabs Row
-        bottom: PreferredSize(
-          preferredSize: Size.fromHeight(isCompact ? 42 : 48),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-              border: Border(
-                top: BorderSide(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder, width: 0.8),
-                bottom: BorderSide(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder, width: 0.8),
-              ),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 12, vertical: 4),
-              child: Row(
-                children: [
-                  for (int i = 0; i < visibleTabs.length; i++) ...[
-                    _buildNavTab(
-                      isCompact: isCompact,
-                      isSelected: visibleTabs[i].id == _activeTabId,
-                      label: visibleTabs[i].label,
-                      icon: visibleTabs[i].icon,
-                      activeIcon: visibleTabs[i].activeIcon,
-                      primaryColor: primaryColor,
-                      onTap: () => setState(() => _activeTabId = visibleTabs[i].id),
+        // Top Horizontal Tabs Row (Desktop / Wide screens only)
+        bottom: isCompact
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(48),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                    border: Border(
+                      top: BorderSide(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder, width: 0.8),
+                      bottom: BorderSide(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder, width: 0.8),
                     ),
-                    if (i < visibleTabs.length - 1) SizedBox(width: isCompact ? 4 : 8),
-                  ],
-                ],
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: Row(
+                      children: [
+                        for (int i = 0; i < visibleTabs.length; i++) ...[
+                          _buildNavTab(
+                            isCompact: false,
+                            isSelected: visibleTabs[i].id == _activeTabId,
+                            label: visibleTabs[i].label,
+                            icon: visibleTabs[i].icon,
+                            activeIcon: visibleTabs[i].activeIcon,
+                            primaryColor: primaryColor,
+                            onTap: () {
+                              if (visibleTabs[i].id == 'quran') {
+                                _previousTabId = _activeTabId;
+                              }
+                              setState(() => _activeTabId = visibleTabs[i].id);
+                            },
+                          ),
+                          if (i < visibleTabs.length - 1) const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
+      ),
+      body: visibleTabs[currentIdx].widget,
+      bottomNavigationBar: isCompact
+          ? _buildMobileBottomBar(
+              visibleTabs: visibleTabs,
+              currentIdx: currentIdx,
+              primaryColor: primaryColor,
+              isDark: isDark,
+            )
+          : null,
+    );
+  }
+
+  Widget _buildMobileBottomBar({
+    required List<_ShellTab> visibleTabs,
+    required int currentIdx,
+    required Color primaryColor,
+    required bool isDark,
+  }) {
+    final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(
+          top: BorderSide(color: borderColor, width: 0.8),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: visibleTabs.length <= 5
+              ? Row(
+                  children: [
+                    for (final tab in visibleTabs)
+                      Expanded(
+                        child: _buildMobileBottomNavItem(
+                          tab: tab,
+                          isSelected: tab.id == _activeTabId,
+                          primaryColor: primaryColor,
+                          isDark: isDark,
+                        ),
+                      ),
+                  ],
+                )
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    children: [
+                      for (final tab in visibleTabs)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: _buildMobileBottomNavItem(
+                            tab: tab,
+                            isSelected: tab.id == _activeTabId,
+                            primaryColor: primaryColor,
+                            isDark: isDark,
+                            isScrollable: true,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileBottomNavItem({
+    required _ShellTab tab,
+    required bool isSelected,
+    required Color primaryColor,
+    required bool isDark,
+    bool isScrollable = false,
+  }) {
+    final activeColor = primaryColor;
+    final inactiveColor = isDark ? Colors.white60 : Colors.black54;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (tab.id == 'quran') {
+            _previousTabId = _activeTabId;
+          }
+          setState(() => _activeTabId = tab.id);
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            vertical: 4,
+            horizontal: isScrollable ? 12 : 2,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? activeColor.withValues(alpha: isDark ? 0.22 : 0.14)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppRadius.rPill),
+                ),
+                child: Icon(
+                  isSelected ? tab.activeIcon : tab.icon,
+                  size: 21,
+                  color: isSelected ? activeColor : inactiveColor,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                tab.shortLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppTypography.font(
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? activeColor : inactiveColor,
+                ),
+              ),
+            ],
           ),
         ),
       ),
-      body: visibleTabs[currentIdx].widget,
-      bottomNavigationBar: null,
     );
   }
 

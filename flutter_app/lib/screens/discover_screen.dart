@@ -760,20 +760,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     ),
                     const SizedBox(width: 4),
                     _buildMainTabButton(
-                      id: 'zad',
-                      label: 'زاد المسلم والسنة 🌿',
-                      icon: Icons.auto_stories_rounded,
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 4),
-                    _buildMainTabButton(
-                      id: 'prayer',
-                      label: 'الصلاة والقبلة 🕋',
-                      icon: Icons.access_time_filled_rounded,
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 4),
-                    _buildMainTabButton(
                       id: 'donations',
                       label: 'التبرع للمساجد 🤝',
                       icon: Icons.volunteer_activism_rounded,

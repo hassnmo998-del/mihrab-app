@@ -228,97 +228,50 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
     );
   }
 
-  /// Collapsible area containing repeat options, reciter, and playback speed with soft titles
+  /// Collapsible area containing repeat options, reciter, and playback speed in a sleek, compact layout
   Widget _buildCollapsibleOptions() {
     return AnimatedSize(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeInOut,
       alignment: Alignment.topCenter,
       child: _isExpanded
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 8),
-                Divider(
-                  height: 1,
-                  thickness: 0.8,
-                  color: widget.isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                ),
-                const SizedBox(height: 8),
+          ? Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Divider(
+                    height: 1,
+                    thickness: 0.8,
+                    color: widget.isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  ),
+                  const SizedBox(height: 8),
 
-                // Row 1: Repeat Scope, Ayah Repeat Count, Stop Timer
-                Row(
-                  children: [
-                    Expanded(
-                      child: _labeledOption(
-                        label: 'نطاق التلاوة',
-                        child: _scopePill(),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _labeledOption(
-                        label: 'تكرار الآية',
-                        child: _countPill(),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _labeledOption(
-                        label: 'التوقف التلقائي',
-                        child: _stopAfterPill(),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
+                  // Row 1: Reciter (Sheikh) and Speed
+                  Row(
+                    children: [
+                      Expanded(child: _reciterPill()),
+                      const SizedBox(width: 6),
+                      _speedPill(),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
 
-                // Row 2: Reciter on right, Speed on left (in RTL)
-                Row(
-                  children: [
-                    Expanded(
-                      child: _labeledOption(
-                        label: 'القارئ الشيخ',
-                        child: _reciterPill(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _labeledOption(
-                      label: 'السرعة',
-                      child: _speedPill(),
-                    ),
-                  ],
-                ),
-              ],
+                  // Row 2: Reading Scope, Ayah Repeat, Auto Stop
+                  Row(
+                    children: [
+                      Expanded(child: _scopePill()),
+                      const SizedBox(width: 6),
+                      Expanded(child: _countPill()),
+                      const SizedBox(width: 6),
+                      Expanded(child: _stopAfterPill()),
+                    ],
+                  ),
+                ],
+              ),
             )
           : const SizedBox.shrink(),
-    );
-  }
-
-  /// Soft informative label placed above each button
-  Widget _labeledOption({required String label, required Widget child}) {
-    final labelColor = widget.isDark ? AppColors.goldLight.withValues(alpha: 0.85) : AppColors.goldDark;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 3, right: 2, left: 2),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.bold,
-              color: labelColor,
-              letterSpacing: 0.1,
-            ),
-          ),
-        ),
-        child,
-      ],
     );
   }
 
@@ -467,7 +420,12 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
           selected: count,
           labelOf: _countLabel,
           onSelected: audio.setRepeatCount,
-          child: _Pill(isDark: widget.isDark, label: _countLabel(count), showArrow: true),
+          child: _Pill(
+            isDark: widget.isDark,
+            icon: Icons.repeat_one_rounded,
+            label: _countLabel(count),
+            showArrow: true,
+          ),
         );
       },
     );
@@ -508,7 +466,7 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
           onSelected: audio.setStopAfter,
           child: _Pill(
             isDark: widget.isDark,
-            icon: Icons.stop_circle_outlined,
+            icon: Icons.timer_outlined,
             label: _stopAfterPillLabels[stopAfter]!,
             showArrow: true,
           ),
