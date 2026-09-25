@@ -41,7 +41,7 @@ dependencies:
   dio: ^5.3.1
   package_info_plus: ^8.0.0
   audio_service: ^0.18.19
-  permission_handler: ^13.0.2
+  permission_handler: 11.3.1
   adhan: ^2.0.0+1
 
 dev_dependencies:
