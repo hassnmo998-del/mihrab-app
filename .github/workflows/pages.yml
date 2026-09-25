@@ -7,6 +7,10 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/pages.yml'
+  workflow_run:
+    workflows: ["🚀 Build & Release Mihrab App"]
+    types:
+      - completed
   release:
     types: [published]
   workflow_dispatch:
@@ -22,6 +26,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -37,14 +42,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir -p temp_downloads
+          gh release download --repo "${{ github.repository }}" --pattern "*.apk" --pattern "*.exe" --dir temp_downloads --clobber
           mkdir -p website/downloads
-          gh release download --repo "${{ github.repository }}" --pattern "*.apk" --pattern "*.exe" --dir website/downloads
-          for f in website/downloads/*.apk; do
+          for f in temp_downloads/*.apk; do
             [ -f "$f" ] && cp "$f" website/downloads/mihrab-android.apk
           done
-          for f in website/downloads/*.exe; do
+          for f in temp_downloads/*.exe; do
             [ -f "$f" ] && cp "$f" website/downloads/mihrab-windows.exe
           done
+          rm -rf temp_downloads
           ls -lh website/downloads/
 
       - name: Upload website artifact
