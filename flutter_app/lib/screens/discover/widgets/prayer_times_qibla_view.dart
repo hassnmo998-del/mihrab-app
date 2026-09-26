@@ -162,6 +162,83 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // High-visibility Live Adhan Silence Alert Banner
+            ValueListenableBuilder<String?>(
+              valueListenable: AdhanService.instance.liveFiringPrayerNotifier,
+              builder: (context, livePrayer, _) {
+                if (livePrayer == null) return const SizedBox.shrink();
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDC2626),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withValues(alpha: 0.35),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.notifications_active_rounded,
+                            color: Colors.white, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'حان الآن أذان $livePrayer 🕌',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'اضغط زر خفض الصوت بالهاتف أو الزر لإسكاته فوراً',
+                              style: TextStyle(color: Colors.white70, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => AdhanService.instance.silenceAdhan(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFFDC2626),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        icon: const Icon(Icons.volume_off_rounded, size: 18),
+                        label: const Text(
+                          'إسكات فوراً 🔇',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
             // Adhan Audio & Controls Card (Quran Audio Bar Style)
             AdhanAudioCard(isDark: isDark),
 
@@ -194,32 +271,17 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
               ),
               child: Column(
                 children: [
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      UnifiedBadge(
-                        label: isIqamaPhase
-                            ? 'حان الآن وقت أذان ${prayerState.prayerName} 🕌'
-                            : 'الصلاة القادمة: ${prayerState.nextPrayerName}',
-                        backgroundColor: isIqamaPhase ? Colors.white24 : Colors.white12,
-                        textColor: Colors.white,
-                        icon: isIqamaPhase
-                            ? Icons.mosque_rounded
-                            : _getPrayerIcon(prayerState.nextPrayerName),
-                      ),
-                      Text(
-                        DateFormat('hh:mm:ss a').format(_now),
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                          color: Colors.white70,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                  Center(
+                    child: UnifiedBadge(
+                      label: isIqamaPhase
+                          ? 'حان الآن وقت أذان ${prayerState.prayerName} 🕌'
+                          : 'الصلاة القادمة: ${prayerState.nextPrayerName}',
+                      backgroundColor: isIqamaPhase ? Colors.white24 : Colors.white12,
+                      textColor: Colors.white,
+                      icon: isIqamaPhase
+                          ? Icons.mosque_rounded
+                          : _getPrayerIcon(prayerState.nextPrayerName),
+                    ),
                   ),
                   const SizedBox(height: 18),
                   Text(

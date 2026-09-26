@@ -9,3 +9,6 @@
 /// يحاول تنزيلها بلا تسجيل دخول، ونداء API بلا مصادقة لا يراها أصلاً.
 const String kGithubRepoOwner = 'hassnmo998-del';
 const String kGithubRepoName  = 'mihrab-app';
+
+/// رقم الإصدار الحالي للتطبيق (مطابق لـ pubspec.yaml)
+const String kCurrentAppVersion = '1.0.4';

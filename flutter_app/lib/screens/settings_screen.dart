@@ -8,6 +8,7 @@ import '../presentation/blocs/theme/theme_cubit.dart';
 import '../presentation/blocs/theme/theme_state.dart';
 import '../presentation/widgets/widgets.dart';
 import '../services/app_update_service.dart';
+import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -29,7 +30,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _manualCheckUpdate() async {
-    await AppUpdateService.instance.checkForUpdate();
+    final info = await AppUpdateService.instance.checkAndPromptUpdate(context: context);
+    if (!mounted) return;
+    if (info == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('أنت تستخدم أحدث إصدار من التطبيق حالياً ✅'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   TextStyle _getPreviewStyle(String fontFamily, double size, FontWeight weight, Color color) {
@@ -450,19 +460,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                       const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => service.startDownload(latest),
-                          icon: const Icon(Icons.download_rounded, size: 18),
-                          label: const Text('تنزيل التحديث الآن'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            padding: const EdgeInsets.symmetric(vertical: 11),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => UpdateDialog.show(context, latest, service),
+                              icon: const Icon(Icons.info_outline_rounded, size: 18),
+                              label: const Text('نافذة التحديث'),
+                              style: OutlinedButton.styleFrom(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => service.startDownload(latest),
+                              icon: const Icon(Icons.download_rounded, size: 18),
+                              label: const Text('تنزيل التحديث'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

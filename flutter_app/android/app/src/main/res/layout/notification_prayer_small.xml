@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cardBackgroundSmall"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:background="@drawable/bg_prayer_card_normal"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:gravity="center_vertical">
+
+    <!-- Right Side: Badge & Prayer Time Summary -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/smallBadgeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="الصلاة القادمة: الفجر 🌙"
+            android:textColor="#FFFFFF"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/smallTimesSummary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="الأذان: 05:03 ص • الإقامة: 05:28 ص"
+            android:textColor="#CCFFFFFF"
+            android:textSize="10.5sp" />
+    </LinearLayout>
+
+    <!-- Left Side: Large Chronometer countdown -->
+    <Chronometer
+        android:id="@+id/smallCountdownChronometer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:typeface="monospace"
+        android:gravity="end|center_vertical" />
+</LinearLayout>

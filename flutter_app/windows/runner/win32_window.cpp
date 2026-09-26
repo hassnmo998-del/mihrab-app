@@ -203,10 +203,12 @@ Win32Window::MessageHandler(HWND hwnd,
         // Size and position the child window.
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
                    rect.bottom - rect.top, TRUE);
+        SetFocus(child_content_);
       }
       return 0;
     }
 
+    case WM_SETFOCUS:
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
         SetFocus(child_content_);

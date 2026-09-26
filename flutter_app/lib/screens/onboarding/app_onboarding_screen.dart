@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/data_service.dart';
+import '../../services/app_update_service.dart';
 
 class AppOnboardingScreen extends StatefulWidget {
   final VoidCallback? onFinished;
@@ -14,6 +16,20 @@ class AppOnboardingScreen extends StatefulWidget {
 
 class _AppOnboardingScreenState extends State<AppOnboardingScreen> {
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          if (mounted) {
+            AppUpdateService.instance.checkAndPromptUpdate(context: context);
+          }
+        });
+      });
+    }
+  }
 
   Future<void> _handleConfirm() async {
     setState(() => _isSubmitting = true);

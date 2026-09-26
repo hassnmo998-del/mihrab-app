@@ -18,17 +18,26 @@ class UpdateDialog extends StatefulWidget {
     required this.service,
   });
 
+  /// مؤشر لتفادي فتح أكثر من نافذة تحديث في نفس الوقت
+  static bool isShowing = false;
+
   /// طريقة مساعدة لعرض الحوار.
   static Future<void> show(
     BuildContext context,
     UpdateInfo info,
     AppUpdateService service,
   ) async {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => UpdateDialog(info: info, service: service),
-    );
+    if (isShowing) return;
+    isShowing = true;
+    try {
+      return await showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (_) => UpdateDialog(info: info, service: service),
+      );
+    } finally {
+      isShowing = false;
+    }
   }
 
   @override
@@ -36,8 +45,6 @@ class UpdateDialog extends StatefulWidget {
 }
 
 class _UpdateDialogState extends State<UpdateDialog> {
-  bool _dismissChecked = false;
-
   static const Color _emerald    = Color(0xFF1B5E20);
   static const Color _lightGreen = Color(0xFF2E7D32);
   static const Color _gold       = Color(0xFFD4AF37);
@@ -73,10 +80,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
                         const SizedBox(height: 14),
                         _buildStatusSection(service, state),
                         const SizedBox(height: 12),
-                        if (state != SilentUpdateState.downloading &&
-                            state != SilentUpdateState.readyToInstall)
-                          _buildDismissCheckbox(),
-                        const SizedBox(height: 8),
                         _buildActionButtons(service, state),
                       ],
                     ),
@@ -290,25 +293,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
     }
 
     return const SizedBox.shrink();
-  }
-
-  Widget _buildDismissCheckbox() {
-    return Row(
-      children: [
-        Checkbox(
-          value: _dismissChecked,
-          activeColor: _lightGreen,
-          onChanged: (value) async {
-            if (value == null) return;
-            setState(() => _dismissChecked = value);
-            if (value) {
-              await widget.service.dismissVersion(widget.info.version);
-            }
-          },
-        ),
-        const Text('تجاهل هذا الإصدار لاحقاً', style: TextStyle(fontSize: 13)),
-      ],
-    );
   }
 
   Widget _buildActionButtons(AppUpdateService service, SilentUpdateState state) {

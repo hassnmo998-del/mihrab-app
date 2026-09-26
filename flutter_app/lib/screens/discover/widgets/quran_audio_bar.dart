@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/quran_reciter.dart';
 import '../../../services/quran_audio_service.dart';
+import 'quran_tv_recitation_view.dart';
 
 /// Fixed Quran audio bar with collapsible listening options:
 /// - Compact top row: Play/Pause, Ayah title, Previous, Next, and Settings Fold/Unfold button.
@@ -24,6 +25,9 @@ class QuranAudioBar extends StatefulWidget {
   /// If null, auto-detects based on screen width (< 600 is mobile).
   final bool? isMobile;
 
+  /// Optional current page number to launch TV mode or start playback directly from
+  final int? currentPage;
+
   const QuranAudioBar({
     super.key,
     required this.isDark,
@@ -31,6 +35,7 @@ class QuranAudioBar extends StatefulWidget {
     this.onStart,
     this.margin = EdgeInsets.zero,
     this.isMobile,
+    this.currentPage,
   });
 
   @override
@@ -134,7 +139,13 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
           runSpacing: 6,
           alignment: singleLine ? WrapAlignment.end : WrapAlignment.start,
           children: [
-            for (final pill in [_scopePill(), _countPill(), _stopAfterPill(), _reciterPill()])
+            for (final pill in [
+              _scopePill(),
+              _countPill(),
+              _stopAfterPill(),
+              _reciterPill(),
+              _tvModeButton(context, showLabel: true),
+            ])
               ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: constraints.maxWidth.clamp(0, 220)),
                 child: pill,
@@ -170,7 +181,7 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Top Row: Primary transport controls + Mechanical gear fold/unfold button
+        // Top Row: Primary transport controls + TV mode + Mechanical gear fold/unfold button
         Row(
           children: [
             _playButton(context, tag),
@@ -179,6 +190,8 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
             _iconButton(Icons.skip_previous_rounded, 'الآية السابقة', audio.skipPrevious),
             _iconButton(Icons.skip_next_rounded, 'الآية التالية', audio.skipNext),
             const SizedBox(width: 4),
+            _tvModeButton(context, showLabel: false),
+            const SizedBox(width: 4),
             _expandToggleButton(),
           ],
         ),
@@ -186,6 +199,56 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
         // Collapsible listening settings
         _buildCollapsibleOptions(),
       ],
+    );
+  }
+
+  /// Button to launch Fullscreen TV Recitation Mode (وضع التلاوة المتلفزة / ملء الشاشة)
+  Widget _tvModeButton(BuildContext context, {bool showLabel = false}) {
+    final gold = widget.isDark ? AppColors.goldLight : AppColors.goldDark;
+    return Tooltip(
+      message: 'وضع العرض التلفزيوني (ملء الشاشة)',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          final tag = QuranAudioService.instance.activeTagNotifier.value;
+          final targetPage = tag?.pageNumber ?? widget.currentPage ?? QuranAudioService.instance.activePageNotifier.value ?? 1;
+          QuranTvRecitationView.open(
+            context,
+            initialPage: targetPage,
+            initialSurah: tag?.surahNumber,
+            initialAyah: tag?.ayahNumber,
+          );
+        },
+        child: Container(
+          height: 32,
+          padding: EdgeInsets.symmetric(horizontal: showLabel ? 8 : 7),
+          decoration: BoxDecoration(
+            color: AppColors.gold.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppColors.gold.withValues(alpha: 0.4),
+              width: 0.9,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.tv_rounded, size: 16, color: gold),
+              if (showLabel) ...[
+                const SizedBox(width: 5),
+                Text(
+                  'شاشة كاملة',
+                  style: GoogleFonts.amiri(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: gold,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 

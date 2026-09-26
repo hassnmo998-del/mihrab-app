@@ -9,11 +9,13 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/di/injection.dart';
+import 'core/navigation/navigator_key.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/blocs/blocs.dart';
 import 'screens/settings_screen.dart';
 import 'services/data_service.dart';
 import 'services/app_update_service.dart';
+import 'services/app_notification_service.dart';
 import 'widgets/update_dialog.dart';
 import 'widgets/code_scanner_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
@@ -67,9 +69,10 @@ void main() async {
   await initInjection();
   final dataService = sl<DataService>();
 
-  // قراءة الإصدار وتحميل التخزين المحلي فوراً بالتوازي بأقصى سرعة ممكنة دون أي تأخير
+  // قراءة الإصدار وتحميل التخزين المحلي وتهيئة الإشعارات فوراً بالتوازي بأقصى سرعة ممكنة
   await Future.wait([
     AppUpdateService.init(),
+    AppNotificationService.instance.init(),
     dataService.init(),
   ]);
 
@@ -145,6 +148,7 @@ class MasjedApp extends StatelessWidget {
                 AppColors.isDarkMode = effectiveThemeMode == ThemeMode.dark;
 
                 return MaterialApp(
+                  navigatorKey: appNavigatorKey,
                   title: 'منصة محراب - وحلقات القرآن الكريم',
                   debugShowCheckedModeBanner: false,
                   theme: AppTheme.buildTheme(
@@ -191,6 +195,8 @@ class MasjedApp extends StatelessWidget {
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
+  static final ValueNotifier<String?> targetTabNotifier = ValueNotifier<String?>(null);
+
   @override
   State<MainShell> createState() => _MainShellState();
 }
@@ -199,41 +205,82 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
   String _activeTabId = 'events';
   String _previousTabId = 'events';
   final GlobalKey<CashierScreenState> _cashierKey = GlobalKey<CashierScreenState>();
+  final ScrollController _mobileBottomNavScrollController = ScrollController();
+  final GlobalKey _activeMobileTabKey = GlobalKey();
   bool _isFullscreen = false;
+  bool _isTogglingFullscreen = false;
+  DateTime _lastFullscreenToggle = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _updateLaunchTimer;
+
+  void _onTabSelected(String tabId) {
+    if (tabId == 'quran') {
+      _previousTabId = _activeTabId;
+    }
+    setState(() => _activeTabId = tabId);
+    _ensureActiveMobileTabVisible();
+  }
+
+  void _ensureActiveMobileTabVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _activeMobileTabKey.currentContext;
+      if (ctx != null && ctx.mounted) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          alignment: 0.5,
+        );
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     windowManager.addListener(this);
-    // استمع لـ F11 عالمياً بدون الحاجة لـ focus - يشتغل حتى بالشاشة الكاملة
+    MainShell.targetTabNotifier.addListener(_handleTargetTabRequest);
+
+    // استعلام الحالة الحقيقية الفعلية للنافذة في أنظمة سطح المكتب
+    if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      windowManager.isFullScreen().then((isFull) {
+        if (mounted) setState(() => _isFullscreen = isFull);
+      }).catchError((_) {});
+    }
+
+    // استمع لـ F11 و Escape عالمياً بدون الحاجة لـ focus
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
     // ── فحص التحديثات عند الإطلاق ─────────────────────────
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      // نؤخر ثانيتين ونصف حتى تستقر الواجهة الرئيسية أولاً
-      _updateLaunchTimer = Timer(const Duration(milliseconds: 2500), _checkUpdateOnLaunch);
+      // نؤخر ثانية واحدة حتى تستقر الواجهة الرئيسية أولاً
+      _updateLaunchTimer = Timer(const Duration(milliseconds: 1000), _checkUpdateOnLaunch);
 
-      // فحص دوري كل 24 ساعة
+      // فحص دوري كل 6 ساعات
       AppUpdateService.instance.startPeriodicSilentCheck(
-        interval: const Duration(hours: 24),
+        interval: const Duration(hours: 6),
         onReadyToInstall: _showInstallSnackBar,
       );
     }
   }
 
-  /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث إن وُجد إصدار جديد
+  /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث أينما كان المستخدم إن وُجد إصدار جديد
   Future<void> _checkUpdateOnLaunch() async {
-    final info = await AppUpdateService.instance.checkForUpdate(ignoreDismissed: false);
-    if (!mounted || info == null) return;
+    final info = await AppUpdateService.instance.checkForUpdate();
+    if (info == null) return;
 
-    // إذا توفر تحديث ولم يتجاهله المستخدم مسبقاً، نعرض نافذة التحديث الأنيقة
-    UpdateDialog.show(context, info, AppUpdateService.instance);
+    final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
+    if (targetContext != null && targetContext.mounted) {
+      UpdateDialog.show(targetContext, info, AppUpdateService.instance);
+    }
   }
 
-  /// يظهر Snackbar عند اكتمال تنزيل التحديث في الخلفية
+  /// يظهر نافذة التحديث مع إشعار عند اكتمال تنزيل التحديث في الخلفية
   void _showInstallSnackBar(UpdateInfo info) {
+    final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
+    if (targetContext != null && targetContext.mounted) {
+      UpdateDialog.show(targetContext, info, AppUpdateService.instance);
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -250,7 +297,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
 
   @override
   void dispose() {
+    MainShell.targetTabNotifier.removeListener(_handleTargetTabRequest);
     _updateLaunchTimer?.cancel();
+    _mobileBottomNavScrollController.dispose();
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
@@ -258,29 +307,110 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     super.dispose();
   }
 
-  bool _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
-      _toggleFullscreen();
-      return true; // استهلك الحدث
+  void _handleTargetTabRequest() {
+    final target = MainShell.targetTabNotifier.value;
+    if (target != null && mounted) {
+      _onTabSelected(target);
+      MainShell.targetTabNotifier.value = null;
     }
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (kIsWeb || !(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      return false;
+    }
+    if (event is! KeyDownEvent) return false;
+
+    if (event.logicalKey == LogicalKeyboardKey.f11) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _toggleFullscreen();
+      });
+      return true; // استهلك الحدث ومنع تكراره
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.escape && _isFullscreen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _exitFullscreen();
+      });
+      return true;
+    }
+
     return false;
   }
 
   @override
   void onWindowEnterFullScreen() {
-    setState(() => _isFullscreen = true);
+    if (mounted && !_isFullscreen) {
+      setState(() => _isFullscreen = true);
+    }
   }
 
   @override
   void onWindowLeaveFullScreen() {
-    setState(() => _isFullscreen = false);
+    if (mounted && _isFullscreen) {
+      setState(() => _isFullscreen = false);
+    }
   }
 
+  /// تبديل آمن 100% للشاشة الكاملة مع قفل العمليات المتزامنة وفحص حالة النظام الحقيقية
   Future<void> _toggleFullscreen() async {
-    if (_isFullscreen) {
-      await windowManager.setFullScreen(false);
-    } else {
-      await windowManager.setFullScreen(true);
+    if (kIsWeb || !(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
+    if (_isTogglingFullscreen) return; // حماية من استدعاء مكرر أثناء الانتقال
+
+    final now = DateTime.now();
+    if (now.difference(_lastFullscreenToggle).inMilliseconds < 600) {
+      return; // تجاهل الضغطات المتتالية وتكرار ويندوز السريع
+    }
+    _lastFullscreenToggle = now;
+    _isTogglingFullscreen = true;
+
+    try {
+      // قراءة الحالة الحقيقية من نظام التشغيل مباشرة لتجنب أي تعليق أو عدم تزامن
+      final bool currentlyFull = await windowManager.isFullScreen();
+      final bool targetState = !currentlyFull;
+
+      await windowManager.setFullScreen(targetState);
+      if (Platform.isWindows) {
+        await windowManager.focus();
+      }
+      if (mounted) {
+        setState(() => _isFullscreen = targetState);
+      }
+    } catch (e) {
+      debugPrint('⚠️ [WindowManager] خطأ أثناء تبديل وضع ملء الشاشة: $e');
+    } finally {
+      // انتظار وجيز لانتهاء نظام ويندوز من تغيير نمط النوافذ وإعادة فتح القفل بأمان
+      await Future.delayed(const Duration(milliseconds: 350));
+      _isTogglingFullscreen = false;
+    }
+  }
+
+  /// خروج فوري وآمن من وضع ملء الشاشة
+  Future<void> _exitFullscreen() async {
+    if (kIsWeb || !(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
+    if (_isTogglingFullscreen) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastFullscreenToggle).inMilliseconds < 600) return;
+    _lastFullscreenToggle = now;
+    _isTogglingFullscreen = true;
+
+    try {
+      final bool currentlyFull = await windowManager.isFullScreen();
+      if (currentlyFull) {
+        await windowManager.setFullScreen(false);
+        if (Platform.isWindows) {
+          await windowManager.focus();
+        }
+        if (mounted) {
+          setState(() => _isFullscreen = false);
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [WindowManager] خطأ أثناء الخروج من ملء الشاشة: $e');
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 350));
+      _isTogglingFullscreen = false;
     }
   }
 
@@ -289,6 +419,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     if (state == AppLifecycleState.resumed) {
       if (mounted) {
         context.read<DataService>().syncWithSupabase();
+        // فحص التحديثات فور العودة للتطبيق لضمان تنبيه المستخدم
+        _checkUpdateOnLaunch();
       }
     }
   }
@@ -681,17 +813,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
         activeIcon: Icons.security_rounded,
         widget: ManagementPortalScreen(
           onNavigateToTab: (tabIdx) {
-            setState(() {
-              if (tabIdx == 1) {
-                _activeTabId = 'mosque_admin';
-              } else if (tabIdx == 2) {
-                _activeTabId = 'sheikh';
-              } else if (tabIdx == 3) {
-                _activeTabId = 'student';
-              } else if (tabIdx == 5) {
-                _activeTabId = 'cashier';
-              }
-            });
+            if (tabIdx == 1) {
+              _onTabSelected('mosque_admin');
+            } else if (tabIdx == 2) {
+              _onTabSelected('sheikh');
+            } else if (tabIdx == 3) {
+              _onTabSelected('student');
+            } else if (tabIdx == 5) {
+              _onTabSelected('cashier');
+            }
           },
           onSessionUnlocked: (unlockedSession) {
             _handleSessionUnlocked(unlockedSession);
@@ -716,14 +846,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     if (currentIdx == -1) {
       currentIdx = 0;
       _activeTabId = visibleTabs.first.id;
-    }
-
-    // The Quran section takes the whole screen: no header, actions or tabs row.
-    // Its own back button returns to Discover and brings the header back.
-    if (_activeTabId == 'quran') {
-      return Scaffold(
-        body: SafeArea(child: visibleTabs[currentIdx].widget),
-      );
     }
 
     // Phones get a slimmer header so the date and actions fit without clipping.
@@ -824,6 +946,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
           ),
           if (!isCompact) const SizedBox(width: 4),
 
+          // Fullscreen Button (Desktop only)
+          if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ...[
+            IconButton(
+              style: compactActionStyle,
+              tooltip: _isFullscreen ? 'إنهاء ملء الشاشة (F11 / Esc)' : 'ملء الشاشة (F11)',
+              icon: Icon(
+                _isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                color: primaryColor,
+              ),
+              onPressed: _toggleFullscreen,
+            ),
+            if (!isCompact) const SizedBox(width: 4),
+          ],
+
           // Profile Button
           IconButton(
             style: compactActionStyle,
@@ -867,12 +1003,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
                             icon: visibleTabs[i].icon,
                             activeIcon: visibleTabs[i].activeIcon,
                             primaryColor: primaryColor,
-                            onTap: () {
-                              if (visibleTabs[i].id == 'quran') {
-                                _previousTabId = _activeTabId;
-                              }
-                              setState(() => _activeTabId = visibleTabs[i].id);
-                            },
+                            onTap: () => _onTabSelected(visibleTabs[i].id),
                           ),
                           if (i < visibleTabs.length - 1) const SizedBox(width: 8),
                         ],
@@ -921,8 +1052,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: visibleTabs.length <= 5
-              ? Row(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // When tabs exceed 4 or don't have enough width per tab (minimum 76px per tab),
+              // enable smooth horizontal scrolling so text never truncates or cramps.
+              final isScrollable = visibleTabs.length > 4 || (constraints.maxWidth / visibleTabs.length) < 76;
+              if (!isScrollable) {
+                return Row(
                   children: [
                     for (final tab in visibleTabs)
                       Expanded(
@@ -934,27 +1070,33 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
                         ),
                       ),
                   ],
-                )
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Row(
-                    children: [
-                      for (final tab in visibleTabs)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: _buildMobileBottomNavItem(
-                            tab: tab,
-                            isSelected: tab.id == _activeTabId,
-                            primaryColor: primaryColor,
-                            isDark: isDark,
-                            isScrollable: true,
-                          ),
+                );
+              }
+
+              return SingleChildScrollView(
+                controller: _mobileBottomNavScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    for (final tab in visibleTabs)
+                      Padding(
+                        key: tab.id == _activeTabId ? _activeMobileTabKey : null,
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: _buildMobileBottomNavItem(
+                          tab: tab,
+                          isSelected: tab.id == _activeTabId,
+                          primaryColor: primaryColor,
+                          isDark: isDark,
+                          isScrollable: true,
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -973,17 +1115,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
-          if (tab.id == 'quran') {
-            _previousTabId = _activeTabId;
-          }
-          setState(() => _activeTabId = tab.id);
-        },
+        onTap: () => _onTabSelected(tab.id),
         borderRadius: BorderRadius.circular(14),
         child: Container(
+          constraints: isScrollable ? const BoxConstraints(minWidth: 70) : null,
           padding: EdgeInsets.symmetric(
             vertical: 4,
-            horizontal: isScrollable ? 12 : 2,
+            horizontal: isScrollable ? 10 : 2,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,

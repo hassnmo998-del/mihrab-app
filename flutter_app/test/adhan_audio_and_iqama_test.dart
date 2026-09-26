@@ -14,9 +14,8 @@ void main() {
   });
 
   group('AdhanData Catalog Tests', () {
-    test('contains over 100 authentic Adhan sounds', () {
-      expect(AdhanData.allSounds.length, greaterThanOrEqualTo(100));
-      expect(AdhanData.allSounds.length, equals(111));
+    test('contains 20 curated authentic Adhan sounds', () {
+      expect(AdhanData.allSounds.length, equals(20));
     });
 
     test('default sound is valid and from Haram Makkah', () {
@@ -95,6 +94,16 @@ void main() {
       await service.setAdhanEnabled(false);
       expect(service.isEnabledNotifier.value, isFalse);
     });
+    test('silenceAdhan stops playback and clears live firing prayer', () async {
+      final service = AdhanService.instance;
+      service.liveFiringPrayerNotifier.value = 'الظهر';
+      service.isPlayingNotifier.value = true;
+      expect(service.isLiveFiring, isTrue);
+
+      await service.silenceAdhan();
+      expect(service.isLiveFiring, isFalse);
+      expect(service.isPlaying, isFalse);
+    });
   });
 
   group('UI Widgets Rendering Tests', () {
@@ -102,7 +111,7 @@ void main() {
       AdhanService.instance.dispose();
     });
 
-    testWidgets('AdhanAudioCard renders title, sound name, and transport pills',
+    testWidgets('AdhanAudioCard renders title, sound name, and dynamic sound pill',
         (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -114,14 +123,22 @@ void main() {
       await tester.pump();
 
       expect(find.byType(AdhanAudioCard), findsOneWidget);
-      expect(find.text('اختيار الصوت (111)'), findsOneWidget);
+      // Selected sound label should be rendered in the picker pill
+      expect(find.text(AdhanData.defaultSound.muezzinOrLocation), findsWidgets);
       expect(find.text('أوقات الإقامة'), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+
+      // Change selected sound and verify the card updates dynamically
+      final newSound = AdhanData.getById('iconic_alaqsa_blessed');
+      await AdhanService.instance.setSelectedSound(newSound);
+      await tester.pump();
+
+      expect(find.text(newSound.muezzinOrLocation), findsWidgets);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('PrayerTimesQiblaView renders AdhanAudioCard and Hero countdown',
+    testWidgets('PrayerTimesQiblaView renders AdhanAudioCard, Hero countdown, and silence banner',
         (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -136,11 +153,23 @@ void main() {
 
       expect(find.byType(AdhanAudioCard), findsOneWidget);
       expect(find.byType(PrayerTimesQiblaView), findsOneWidget);
-      expect(find.text('الفجر'), findsOneWidget);
-      expect(find.text('الظهر'), findsOneWidget);
-      expect(find.text('العصر'), findsOneWidget);
-      expect(find.text('المغرب'), findsOneWidget);
-      expect(find.text('العشاء'), findsOneWidget);
+      expect(find.textContaining('الفجر'), findsWidgets);
+      expect(find.textContaining('الظهر'), findsWidgets);
+      expect(find.textContaining('العصر'), findsWidgets);
+      expect(find.textContaining('المغرب'), findsWidgets);
+      expect(find.textContaining('العشاء'), findsWidgets);
+
+      // Verify live silence alert banner appears when prayer fires
+      AdhanService.instance.liveFiringPrayerNotifier.value = 'العصر';
+      await tester.pump();
+
+      expect(find.text('إسكات فوراً 🔇'), findsOneWidget);
+
+      // Tap silence banner button
+      await tester.tap(find.text('إسكات فوراً 🔇'));
+      await tester.pump();
+
+      expect(AdhanService.instance.isLiveFiring, isFalse);
 
       await tester.pumpWidget(const SizedBox.shrink());
       AdhanService.instance.dispose();

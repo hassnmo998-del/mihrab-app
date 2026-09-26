@@ -74,6 +74,15 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- مستلم إسكات الأذان من إشعار شريط الصلاة المخصص -->
+        <receiver
+            android:name=".PrayerNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.masjed.mihrab.ACTION_SILENCE_ADHAN" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

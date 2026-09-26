@@ -24,7 +24,17 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
       final p = AudioPlayer();
       if (!kIsWeb && Platform.isAndroid) {
         // Keep the CPU awake so a locked phone doesn't cut the lesson off.
-        unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+        unawaited(p.setAudioContext(
+          AudioContext(
+            android: const AudioContextAndroid(
+              isSpeakerphoneOn: false,
+              stayAwake: true,
+              contentType: AndroidContentType.music,
+              usageType: AndroidUsageType.media,
+              audioFocus: AndroidAudioFocus.none,
+            ),
+          ),
+        ).catchError((_) {}));
       }
       // Every stream listener needs onError, or a platform error (bad URL) becomes an
       // unhandled exception that brings the app down.
@@ -159,7 +169,8 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
         id: 'lesson:$_activeEventId',
         title: _title,
         artist: _speaker,
-        album: 'مكتبة الدروس',
+        album: 'مكتبة الدروس والخطب',
+        artUri: BackgroundAudio.cachedArtworkUri,
         duration: _duration > Duration.zero ? _duration : null,
       ),
       playing: isPlaying,
@@ -174,16 +185,21 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
 
   @override
   Future<void> play() async {
+    BackgroundAudio.onUserPlaybackAction();
     if (_activeEventId == null || _player == null) return;
     await BackgroundAudio.claim(this);
     await _player!.resume();
   }
 
   @override
-  Future<void> pause() async => _player?.pause();
+  Future<void> pause() async {
+    BackgroundAudio.onUserPlaybackAction();
+    await _player?.pause();
+  }
 
   @override
   Future<void> stop() async {
+    BackgroundAudio.onUserPlaybackAction();
     if (_activeEventId == null) return;
     _reset();
   }

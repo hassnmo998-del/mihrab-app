@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cardBackground"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_prayer_card_normal"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:gravity="center_horizontal">
+
+    <!-- Top Badge (Pill Capsule) -->
+    <LinearLayout
+        android:id="@+id/badgeLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@drawable/bg_badge_capsule"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/badgeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="الصلاة القادمة: الفجر 🌙"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+    </LinearLayout>
+
+    <!-- Center Countdown Chronometer -->
+    <Chronometer
+        android:id="@+id/countdownChronometer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="34sp"
+        android:textStyle="bold"
+        android:typeface="monospace"
+        android:gravity="center" />
+
+    <!-- Subtitle: e.g. "الوقت المتبقي لرفع الأذان" -->
+    <TextView
+        android:id="@+id/countdownSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="الوقت المتبقي لرفع الأذان"
+        android:textColor="#CCFFFFFF"
+        android:textSize="11sp"
+        android:gravity="center" />
+
+    <!-- Two-column info chips row -->
+    <LinearLayout
+        android:id="@+id/chipsRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:gravity="center">
+
+        <!-- Right chip: Adhan Time -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_time_chip"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:layout_marginEnd="4dp"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/chipAdhanLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="موعد الأذان 🕌"
+                android:textColor="#E0FFFFFF"
+                android:textSize="10.5sp" />
+
+            <TextView
+                android:id="@+id/chipAdhanTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="05:03 ص"
+                android:textColor="#FFFFFF"
+                android:textSize="12.5sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Left chip: Iqama Time -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_time_chip"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:layout_marginStart="4dp"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/chipIqamaLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="الإقامة المتوقعة ⏳"
+                android:textColor="#E0FFFFFF"
+                android:textSize="10.5sp" />
+
+            <TextView
+                android:id="@+id/chipIqamaTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="05:28 ص"
+                android:textColor="#FFFFFF"
+                android:textSize="12.5sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Live Adhan Silence Button (Visible only when Adhan is sounding) -->
+    <LinearLayout
+        android:id="@+id/liveSilenceContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btnSilenceAdhan"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:background="@drawable/bg_silence_btn"
+            android:text="إسكات الأذان فوراً 🔇"
+            android:textColor="#DC2626"
+            android:textSize="12.5sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+    </LinearLayout>
+</LinearLayout>

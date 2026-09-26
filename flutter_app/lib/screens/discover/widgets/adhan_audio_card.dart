@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../models/adhan_sound.dart';
+import '../../../services/adhan_data.dart';
 import '../../../services/adhan_service.dart';
+import '../../../services/app_notification_service.dart';
 import '../dialogs/adhan_permissions_dialog.dart';
 import '../dialogs/adhan_sound_picker_dialog.dart';
 
@@ -62,11 +64,11 @@ class AdhanAudioCard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 14, vertical: 8),
-                            color: Colors.orange.withValues(alpha: 0.15),
+                            color: Colors.red.withValues(alpha: 0.15),
                             child: Row(
                               children: [
                                 const Icon(Icons.volume_up_rounded,
-                                    size: 18, color: Colors.orange),
+                                    size: 18, color: Colors.redAccent),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -74,15 +76,15 @@ class AdhanAudioCard extends StatelessWidget {
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12.5,
-                                      color: Colors.orange,
+                                      color: Colors.redAccent,
                                     ),
                                   ),
                                 ),
                                 TextButton.icon(
-                                  onPressed: () => service.stop(),
+                                  onPressed: () => service.silenceAdhan(),
                                   style: TextButton.styleFrom(
                                     visualDensity: VisualDensity.compact,
-                                    backgroundColor: Colors.orange,
+                                    backgroundColor: Colors.redAccent,
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 4),
@@ -90,8 +92,8 @@ class AdhanAudioCard extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                   ),
-                                  icon: const Icon(Icons.stop_rounded, size: 16),
-                                  label: const Text('إيقاف الأذان',
+                                  icon: const Icon(Icons.volume_off_rounded, size: 16),
+                                  label: const Text('إسكات الأذان 🔇',
                                       style: TextStyle(
                                           fontSize: 11.5,
                                           fontWeight: FontWeight.bold)),
@@ -125,6 +127,9 @@ class AdhanAudioCard extends StatelessWidget {
 
                                   // Master toggle pill with permission check
                                   _enableTogglePill(context, isEnabled),
+
+                                  // Sticky notification pill (pinned prayer in notification drawer)
+                                  _stickyNotificationPill(context),
 
                                   // Iqama times adjustment pill
                                   _iqamaSettingsPill(context),
@@ -244,37 +249,15 @@ class AdhanAudioCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 6,
-          runSpacing: 2,
-          children: [
-            Text(
-              sound.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.amiri(
-                fontSize: 14.5,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : Colors.black87,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-              decoration: BoxDecoration(
-                color: AppColors.gold.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                sound.category,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: gold,
-                ),
-              ),
-            ),
-          ],
+        Text(
+          sound.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.amiri(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
@@ -292,8 +275,12 @@ class AdhanAudioCard extends StatelessWidget {
   }
 
   Widget _pickerPill(BuildContext context, AdhanSound sound) {
+    final displayName = sound.title.isNotEmpty
+        ? sound.title
+        : sound.muezzinOrLocation;
+
     return Tooltip(
-      message: 'تغيير صوت الأذان (111 صوت متاح)',
+      message: 'صوت الأذان المختار: ${sound.title} (${sound.muezzinOrLocation})\nاضغط لتغيير الصوت (${AdhanData.allSounds.length} صوت متاح)',
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: () => AdhanSoundPickerDialog.show(context, isDark: isDark),
@@ -316,9 +303,14 @@ class AdhanAudioCard extends StatelessWidget {
                 color: isDark ? AppColors.goldLight : AppColors.goldDark,
               ),
               const SizedBox(width: 5),
-              const Text(
-                'اختيار الصوت (111)',
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: Text(
+                  displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                ),
               ),
               const SizedBox(width: 2),
               const Icon(Icons.expand_more_rounded, size: 16, color: Colors.grey),
@@ -427,6 +419,106 @@ class AdhanAudioCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _stickyNotificationPill(BuildContext context) {
+    final notifService = AppNotificationService.instance;
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: notifService.isStickyEnabledNotifier,
+      builder: (context, isSticky, _) {
+        return Tooltip(
+          message: isSticky
+              ? 'تثبيت الصلاة القادمة بشريط الإشعارات: مفعّل 📌 (اضغط للإلغاء)'
+              : 'تثبيت كرت الصلاة القادمة والإقامة بشريط الإشعارات دائماً 📌 (اضغط للتفعيل)',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () async {
+              if (!isSticky) {
+                final granted = await notifService.checkPermissionStatus();
+                if (!granted) {
+                  final reqResult = await notifService.requestNotificationPermission();
+                  if (!reqResult) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('⚠️ يرجى منح إذن الإشعارات من إعدادات النظام لتثبيت الصلاة بالشريط العلوي'),
+                          backgroundColor: Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+                }
+                await notifService.setStickyNotificationEnabled(true);
+                await AdhanService.instance.refreshStickyNotification();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم تثبيت كرت الصلاة القادمة في شريط الإشعارات بنجاح 📌'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } else {
+                await notifService.setStickyNotificationEnabled(false);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم إزالة كرت الصلاة من شريط الإشعارات'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              }
+            },
+            child: Container(
+              height: 32,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: isSticky
+                    ? (isDark
+                        ? AppColors.gold.withValues(alpha: 0.22)
+                        : AppColors.gold.withValues(alpha: 0.15))
+                    : (isDark ? AppColors.darkSurface : AppColors.lightInputFill),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isSticky
+                      ? AppColors.gold.withValues(alpha: 0.7)
+                      : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isSticky ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                    size: 15,
+                    color: isSticky
+                        ? (isDark ? AppColors.goldLight : AppColors.goldDark)
+                        : Colors.grey,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    isSticky ? 'الشريط العلوي: مثبت 📌' : 'تثبيت بالشريط 📌',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      color: isSticky
+                          ? (isDark ? AppColors.goldLight : AppColors.goldDark)
+                          : (isDark ? Colors.white60 : Colors.black54),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -569,7 +661,7 @@ class AdhanAudioCard extends StatelessWidget {
           child: Text('مستوى صوت الأذان',
               style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.grey)),
         ),
-        for (final v in [1.0, 0.8, 0.5, 0.3])
+        for (final v in [1.0, 0.8, 0.5, 0.3, 0.0])
           PopupMenuItem<double>(
             value: v,
             height: 38,
@@ -581,7 +673,7 @@ class AdhanAudioCard extends StatelessWidget {
                       ? Icon(Icons.check_rounded, size: 16, color: AppColors.goldDark)
                       : null,
                 ),
-                Text('${(v * 100).toInt()}%'),
+                Text(v == 0.0 ? 'كتم (إسكات الأذان 🔇)' : '${(v * 100).toInt()}%'),
               ],
             ),
           ),
@@ -601,14 +693,20 @@ class AdhanAudioCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.volume_up_rounded,
+              service.volume == 0.0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
               size: 15,
-              color: isDark ? AppColors.goldLight : AppColors.goldDark,
+              color: service.volume == 0.0
+                  ? Colors.redAccent
+                  : (isDark ? AppColors.goldLight : AppColors.goldDark),
             ),
             const SizedBox(width: 5),
             Text(
-              '${(service.volume * 100).toInt()}%',
-              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+              service.volume == 0.0 ? 'صامت 🔇' : '${(service.volume * 100).toInt()}%',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: service.volume == 0.0 ? Colors.redAccent : null,
+              ),
             ),
             const SizedBox(width: 2),
             const Icon(Icons.expand_more_rounded, size: 16, color: Colors.grey),

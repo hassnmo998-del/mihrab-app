@@ -225,6 +225,20 @@ class QuranService {
     return _quranPages?[pageNumber];
   }
 
+  /// Returns the complete QuranAyah data for a given Surah and Ayah number.
+  static QuranAyah? getAyah(int surahNumber, int ayahNumber) {
+    final pageNum = getPageForAyah(surahNumber, ayahNumber);
+    if (pageNum == null) return null;
+    final page = getPage(pageNum);
+    if (page == null) return null;
+    for (final a in page.ayahs) {
+      if (a.surahNumber == surahNumber && a.ayahNumberInSurah == ayahNumber) {
+        return a;
+      }
+    }
+    return null;
+  }
+
   /// Returns the start page for a given Surah number.
   static int getSurahStartPage(int surahNumber) {
     return _surahStartPages?[surahNumber] ?? 1;

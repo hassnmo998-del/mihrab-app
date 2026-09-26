@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:adhan/adhan.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/adhan_sound.dart';
 import 'adhan_data.dart';
+import 'app_notification_service.dart';
+import 'background_audio.dart';
 
 /// Represents Android & System Permission Status for reliable Adhan firing.
 class AdhanPermissionsStatus {
@@ -55,7 +59,7 @@ class CurrentPrayerState {
 
 /// Core singleton service managing Adhan playback, 110+ audio catalog,
 /// live Iqama countdown tracking, and strict Android background permission checks.
-class AdhanService {
+class AdhanService implements BackgroundAudioSource {
   AdhanService._();
   static final AdhanService instance = AdhanService._();
 
@@ -64,25 +68,47 @@ class AdhanService {
   AudioPlayer get _player {
     if (_playerInstance == null) {
       final p = AudioPlayer();
+      unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+
       p.onPlayerStateChanged.listen((state) {
         final isPlaying = state == PlayerState.playing;
         isPlayingNotifier.value = isPlaying;
-        if (!isPlaying && state != PlayerState.paused) {
-          currentPlayingSoundNotifier.value = null;
-          positionNotifier.value = Duration.zero;
-          liveFiringPrayerNotifier.value = null;
+        if (state == PlayerState.playing) {
+          isBufferingNotifier.value = false;
+        } else if (state == PlayerState.completed) {
+          _onPlaybackFinished();
         }
       });
+
+      p.onPlayerComplete.listen((_) {
+        _onPlaybackFinished();
+      });
+
       p.onPositionChanged.listen((pos) {
         positionNotifier.value = pos;
+        if (pos > Duration.zero) {
+          isBufferingNotifier.value = false;
+        }
       });
+
       p.onDurationChanged.listen((dur) {
         durationNotifier.value = dur;
         isBufferingNotifier.value = false;
       });
+
       _playerInstance = p;
     }
     return _playerInstance!;
+  }
+
+  void _onPlaybackFinished() {
+    isPlayingNotifier.value = false;
+    isBufferingNotifier.value = false;
+    currentPlayingSoundNotifier.value = null;
+    liveFiringPrayerNotifier.value = null;
+    positionNotifier.value = Duration.zero;
+    BackgroundAudio.release(this);
+    unawaited(refreshStickyNotification());
   }
 
   // Notifiers
@@ -101,6 +127,9 @@ class AdhanService {
   // Live Firing Alert (prayer name currently sounding, or null)
   final ValueNotifier<String?> liveFiringPrayerNotifier =
       ValueNotifier<String?>(null);
+
+  bool get isLiveFiring => liveFiringPrayerNotifier.value != null;
+  bool get isPlaying => isPlayingNotifier.value;
 
   // Per-prayer enable map
   final Map<String, bool> _prayerEnabledMap = {
@@ -129,6 +158,8 @@ class AdhanService {
 
   Timer? _tickerTimer;
   String? _lastFiredPrayerKey;
+  int _notificationTickCounter = 0;
+  PrayerCountdownPhase? _lastPhase;
 
   bool _initialized = false;
 
@@ -136,18 +167,37 @@ class AdhanService {
     if (_initialized) return;
     _initialized = true;
 
+    // Pre-initialize player
+    _player;
+
     // Load persisted settings
     await _loadSettings();
+    unawaited(refreshStickyNotification());
 
-    // Start background second-by-second ticker for prayer arrival
+    // Register hardware volume keys handler (Volume Down / Mute silences Adhan immediately)
     if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
+      HardwareKeyboard.instance.addHandler(_handleKeyEvent);
       _startTicker();
     }
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.audioVolumeDown ||
+          event.logicalKey == LogicalKeyboardKey.audioVolumeMute) {
+        if (liveFiringPrayerNotifier.value != null || isPlayingNotifier.value) {
+          silenceAdhan();
+          return true; // consumed
+        }
+      }
+    }
+    return false;
   }
 
   void updateLocation(double lat, double lng) {
     _latitude = lat;
     _longitude = lng;
+    unawaited(refreshStickyNotification());
   }
 
   double get latitude => _latitude;
@@ -171,9 +221,11 @@ class AdhanService {
     _iqamaMinutesMap[prayerName] = minutes;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('iqama_min_$prayerName', minutes);
+    unawaited(refreshStickyNotification());
   }
 
   Future<void> setVolume(double vol) async {
+    final oldVol = _volume;
     _volume = vol.clamp(0.0, 1.0);
     try {
       if (_playerInstance != null) {
@@ -182,18 +234,36 @@ class AdhanService {
     } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('adhan_volume', _volume);
+
+    // If Adhan is currently firing or playing, and user reduced the volume or muted it -> silence immediately!
+    if ((liveFiringPrayerNotifier.value != null || isPlayingNotifier.value) &&
+        (_volume == 0.0 || _volume < oldVol)) {
+      await silenceAdhan();
+    }
+  }
+
+  /// Silences the Adhan immediately (used by volume-down, mute buttons, and silence overlay)
+  Future<void> silenceAdhan() async {
+    liveFiringPrayerNotifier.value = null;
+    isPlayingNotifier.value = false;
+    currentPlayingSoundNotifier.value = null;
+    positionNotifier.value = Duration.zero;
+    await stop();
+    unawaited(refreshStickyNotification());
   }
 
   Future<void> setSelectedSound(AdhanSound sound) async {
     selectedSoundNotifier.value = sound;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('adhan_selected_sound_id', sound.id);
+    unawaited(refreshStickyNotification());
   }
 
   Future<void> setAdhanEnabled(bool enabled) async {
     isEnabledNotifier.value = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('adhan_master_enabled', enabled);
+    unawaited(refreshStickyNotification());
   }
 
   /// Check detailed permissions on Android
@@ -282,66 +352,162 @@ class AdhanService {
   // --- Audio Preview & Controls ---
 
   Future<void> playPreview(AdhanSound sound) async {
+    // If clicking on current playing sound, toggle pause
     if (currentPlayingSoundNotifier.value?.id == sound.id &&
         isPlayingNotifier.value) {
       await pause();
       return;
     }
 
+    // If clicking on paused sound, resume
+    if (currentPlayingSoundNotifier.value?.id == sound.id &&
+        !isPlayingNotifier.value &&
+        positionNotifier.value > Duration.zero) {
+      await resume();
+      return;
+    }
+
     try {
-      isBufferingNotifier.value = true;
-      currentPlayingSoundNotifier.value = sound;
       await _player.stop();
-      await _player.setVolume(_volume);
-      await _player.setSourceUrl(sound.audioUrl);
-      await _player.resume();
-    } catch (e) {
-      isBufferingNotifier.value = false;
+      currentPlayingSoundNotifier.value = sound;
+      isBufferingNotifier.value = true;
       isPlayingNotifier.value = false;
-      currentPlayingSoundNotifier.value = null;
+      positionNotifier.value = Duration.zero;
+      durationNotifier.value = Duration(seconds: sound.durationSeconds);
+
+      await _player.setVolume(_volume);
+      await _player.play(UrlSource(sound.audioUrl));
+
+      try {
+        unawaited(BackgroundAudio.claim(this));
+      } catch (_) {}
+      _publishMediaSession(sound, isLive: false);
+    } catch (e) {
+      debugPrint('⚠️ Error in AdhanService.playPreview: $e');
+      _onPlaybackFinished();
     }
   }
 
   Future<void> playLiveAdhan(String prayerName) async {
     final sound = selectedSoundNotifier.value;
     try {
+      await _player.stop();
       liveFiringPrayerNotifier.value = prayerName;
       currentPlayingSoundNotifier.value = sound;
       isBufferingNotifier.value = true;
-      await _player.stop();
+      isPlayingNotifier.value = false;
+      positionNotifier.value = Duration.zero;
+      durationNotifier.value = Duration(seconds: sound.durationSeconds);
+
       await _player.setVolume(_volume);
-      await _player.setSourceUrl(sound.audioUrl);
-      await _player.resume();
-    } catch (_) {
-      isBufferingNotifier.value = false;
+      await _player.play(UrlSource(sound.audioUrl));
+
+      try {
+        unawaited(BackgroundAudio.claim(this));
+      } catch (_) {}
+      _publishMediaSession(sound, isLive: true, prayerName: prayerName);
+      unawaited(refreshStickyNotification());
+    } catch (e) {
+      debugPrint('⚠️ Error in AdhanService.playLiveAdhan: $e');
+      _onPlaybackFinished();
     }
   }
 
+  @override
+  Future<void> play() => resume();
+
+  @override
   Future<void> pause() async {
     try {
       await _playerInstance?.pause();
+      isPlayingNotifier.value = false;
+      final sound = currentPlayingSoundNotifier.value;
+      if (sound != null) {
+        BackgroundAudio.publish(
+          this,
+          item: _buildMediaItem(
+            sound,
+            isLive: liveFiringPrayerNotifier.value != null,
+            prayerName: liveFiringPrayerNotifier.value,
+          ),
+          playing: false,
+          buffering: false,
+          position: positionNotifier.value,
+        );
+      }
     } catch (_) {}
   }
 
   Future<void> resume() async {
     try {
       await _playerInstance?.resume();
+      isPlayingNotifier.value = true;
+      final sound = currentPlayingSoundNotifier.value;
+      if (sound != null) {
+        _publishMediaSession(
+          sound,
+          isLive: liveFiringPrayerNotifier.value != null,
+          prayerName: liveFiringPrayerNotifier.value,
+        );
+      }
     } catch (_) {}
   }
 
+  @override
   Future<void> stop() async {
     try {
       await _playerInstance?.stop();
     } catch (_) {}
-    currentPlayingSoundNotifier.value = null;
-    liveFiringPrayerNotifier.value = null;
-    positionNotifier.value = Duration.zero;
+    _onPlaybackFinished();
   }
 
+  @override
   Future<void> seek(Duration pos) async {
     try {
       await _playerInstance?.seek(pos);
+      positionNotifier.value = pos;
     } catch (_) {}
+  }
+
+  @override
+  Future<void> skipToNext() => Future.value();
+
+  @override
+  Future<void> skipToPrevious() => Future.value();
+
+  MediaItem _buildMediaItem(AdhanSound sound,
+      {bool isLive = false, String? prayerName}) {
+    return MediaItem(
+      id: sound.id,
+      title: isLive && prayerName != null ? 'أذان $prayerName' : sound.title,
+      artist: sound.muezzinOrLocation,
+      album: 'تطبيق محراب - الأذان الشريف',
+      duration: Duration(seconds: sound.durationSeconds),
+    );
+  }
+
+  void _publishMediaSession(AdhanSound sound,
+      {bool isLive = false, String? prayerName}) {
+    BackgroundAudio.publish(
+      this,
+      item: _buildMediaItem(sound, isLive: isLive, prayerName: prayerName),
+      playing: isPlayingNotifier.value,
+      buffering: isBufferingNotifier.value,
+      position: positionNotifier.value,
+      seekable: false,
+    );
+  }
+
+  @override
+  void syncMediaSession() {
+    final sound = currentPlayingSoundNotifier.value;
+    if (sound != null) {
+      _publishMediaSession(
+        sound,
+        isLive: liveFiringPrayerNotifier.value != null,
+        prayerName: liveFiringPrayerNotifier.value,
+      );
+    }
   }
 
   // --- Live Calculations & Iqama Tracking ---
@@ -485,10 +651,31 @@ class AdhanService {
     );
   }
 
+  /// تحديث شريط الإشعار الدائم لمواقيت الصلاة
+  Future<void> refreshStickyNotification() async {
+    try {
+      final state = getCurrentPrayerState();
+      final todaySchedule = calculateTodaySchedule(forDate: DateTime.now());
+      await AppNotificationService.instance.updateStickyPrayerNotification(
+        prayerState: state,
+        todaySchedule: todaySchedule,
+        muezzinName: selectedSoundNotifier.value.muezzinOrLocation,
+      );
+    } catch (_) {}
+  }
+
   void _startTicker() {
     _tickerTimer?.cancel();
     _tickerTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _checkPrayerArrival();
+
+      _notificationTickCounter++;
+      final currentState = getCurrentPrayerState();
+      if (_lastPhase != currentState.phase || _notificationTickCounter >= 30) {
+        _lastPhase = currentState.phase;
+        _notificationTickCounter = 0;
+        unawaited(refreshStickyNotification());
+      }
     });
   }
 
@@ -548,9 +735,16 @@ class AdhanService {
   }
 
   void dispose() {
+    if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
+      HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    }
     _tickerTimer?.cancel();
+    _tickerTimer = null;
     try {
       _playerInstance?.dispose();
+      _playerInstance = null;
     } catch (_) {}
+    BackgroundAudio.release(this);
+    _initialized = false;
   }
 }

@@ -77,7 +77,18 @@ class QuranAudioService implements BackgroundAudioSource {
       _player = AudioPlayer();
       if (!kIsWeb && Platform.isAndroid) {
         // Keep the CPU awake so recitation continues with the screen locked.
-        unawaited(_player!.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+        // Audio focus and external interruptions are handled by AudioSession through BackgroundAudio.
+        unawaited(_player!.setAudioContext(
+          AudioContext(
+            android: const AudioContextAndroid(
+              isSpeakerphoneOn: false,
+              stayAwake: true,
+              contentType: AndroidContentType.music,
+              usageType: AndroidUsageType.media,
+              audioFocus: AndroidAudioFocus.none,
+            ),
+          ),
+        ).catchError((_) {}));
       }
       _attach(_player!);
     }
@@ -348,6 +359,7 @@ class QuranAudioService implements BackgroundAudioSource {
     unawaited(BackgroundAudio.claim(this));
     _publish(tag);
     positionNotifier.value = Duration.zero;
+    durationNotifier.value = Duration.zero;
     isPlayingNotifier.value = true;
     // Only show the loading spinner when a load is actually slow, not on every ayah change.
     _bufferingTimer?.cancel();
@@ -449,7 +461,16 @@ class QuranAudioService implements BackgroundAudioSource {
   // Playback Controls
   // =========================================================================
 
+  Future<void> togglePlayPause() async {
+    if (isPlayingNotifier.value) {
+      await pause();
+    } else {
+      await resume();
+    }
+  }
+
   Future<void> resume() async {
+    BackgroundAudio.onUserPlaybackAction();
     if (activeTagNotifier.value == null || _queue.isEmpty) return;
     if (!_sourceReady) return _playCurrent(); // not loaded yet, released, or failed
     unawaited(BackgroundAudio.claim(this));
@@ -464,6 +485,7 @@ class QuranAudioService implements BackgroundAudioSource {
 
   @override
   Future<void> pause() async {
+    BackgroundAudio.onUserPlaybackAction();
     isPlayingNotifier.value = false;
     try {
       await _player?.pause();
@@ -474,6 +496,7 @@ class QuranAudioService implements BackgroundAudioSource {
 
   @override
   Future<void> stop() async {
+    BackgroundAudio.onUserPlaybackAction();
     _generation++;
     _bufferingTimer?.cancel();
     _passesDone = 0;
@@ -551,13 +574,21 @@ class QuranAudioService implements BackgroundAudioSource {
     final tag = activeTagNotifier.value;
     if (tag == null) return;
     final duration = durationNotifier.value;
+    final ayahStr = QuranService.toArabicDigits(tag.ayahNumber);
+    final pageStr = QuranService.toArabicDigits(tag.pageNumber);
+    final reciterName = reciterNotifier.value.nameArabic;
+
     BackgroundAudio.publish(
       this,
       item: MediaItem(
         id: 'quran:${reciterNotifier.value.id}:${tag.key}',
-        title: 'سورة ${tag.surahName} · الآية ${tag.ayahNumber}',
-        artist: reciterNotifier.value.nameArabic,
-        album: 'القرآن الكريم',
+        title: 'سورة ${tag.surahName} • آية $ayahStr',
+        artist: reciterName,
+        album: 'مصحف مِحْرَاب الشريف - صفحة $pageStr',
+        displayTitle: 'سورة ${tag.surahName}',
+        displaySubtitle: 'الآية $ayahStr • $reciterName',
+        displayDescription: 'مصحف مِحْرَاب الشريف • صفحة $pageStr',
+        artUri: BackgroundAudio.cachedArtworkUri,
         duration: duration > Duration.zero ? duration : null,
       ),
       playing: isPlayingNotifier.value,

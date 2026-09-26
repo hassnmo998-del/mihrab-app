@@ -18,6 +18,9 @@ class QuranReciter {
     this.quality = '128kbps',
   });
 
+  /// الاسم باللغة العربية
+  String get arabicName => nameArabic;
+
   /// Builds the direct audio URL for a specific Ayah (Surah: 1-114, Ayah: 1-286).
   /// EveryAyah CDN convention: {subfolder}/{surah3digits}{ayah3digits}.mp3
   String getAyahAudioUrl(int surahNumber, int ayahNumberInSurah) {

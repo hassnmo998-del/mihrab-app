@@ -5,12 +5,16 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'update_config.dart';
+import 'app_notification_service.dart';
+import '../core/navigation/navigator_key.dart';
+import '../widgets/update_dialog.dart';
 
 // ─────────────────────────────────────────────
 // UpdateInfo — نموذج بيانات الإصدار الجديد
@@ -46,7 +50,7 @@ class UpdateInfo {
     final List<dynamic> assets = json['assets'] as List<dynamic>? ?? [];
 
     return UpdateInfo(
-      version: (json['tag_name'] as String? ?? '').replaceFirst('v', ''),
+      version: AppUpdateService.cleanVersion(json['tag_name'] as String? ?? ''),
       downloadUrlWindows: _extractAssetUrl(assets, ['windows', '.exe', '.msi']),
       downloadUrlAndroid: _extractAssetUrl(assets, ['android', '.apk']),
       releaseNotes: json['body'] as String? ?? '',
@@ -92,19 +96,59 @@ class AppUpdateService extends ChangeNotifier {
   AppUpdateService._internal();
   static final AppUpdateService instance = AppUpdateService._internal();
 
+  /// تنظيف رقم الإصدار من البادئات (v / V) واللواحق (+build / -beta)
+  static String cleanVersion(String v) {
+    var s = v.trim();
+    if (s.startsWith('v') || s.startsWith('V')) {
+      s = s.substring(1).trim();
+    }
+    if (s.contains('+')) {
+      s = s.split('+')[0].trim();
+    }
+    if (s.contains('-')) {
+      s = s.split('-')[0].trim();
+    }
+    return s;
+  }
+
   // ── الإصدار الحالي للتطبيق ─────────────────
   static String _packageVersion = '';
-  static String get currentVersion => _packageVersion;
+  static String get currentVersion => _packageVersion.isNotEmpty ? _packageVersion : kCurrentAppVersion;
 
   /// تُقرأ مرة واحدة عند الإقلاع من PackageInfo
   static Future<void> init() async {
-    if (_packageVersion.isNotEmpty) return;
-    try {
-      final info = await PackageInfo.fromPlatform();
-      _packageVersion = info.version;
-    } catch (_) {
-      _packageVersion = '1.0.1';
+    if (_packageVersion.isEmpty) {
+      try {
+        final info = await PackageInfo.fromPlatform();
+        final cleaned = cleanVersion(info.version);
+        _packageVersion = cleaned.isNotEmpty ? cleaned : kCurrentAppVersion;
+      } catch (_) {
+        _packageVersion = kCurrentAppVersion;
+      }
     }
+    // مسح أي خيار سابق لتجاهل التحديثات
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_dismissedVersionKey);
+
+      // تنظيف أي ملف تحديث قديم تم تنزيله إن كان الإصدار الحالي مساوياً له أو أحدث منه
+      final savedVer = prefs.getString(_downloadedVersionKey);
+      if (savedVer != null) {
+        final cur = Semver.parse(_packageVersion);
+        final sav = Semver.parse(savedVer);
+        if (!sav.isStrictlyNewerThan(cur)) {
+          final savedPath = prefs.getString(_downloadedPathKey);
+          if (savedPath != null) {
+            try {
+              final f = File(savedPath);
+              if (await f.exists()) await f.delete();
+            } catch (_) {}
+          }
+          await prefs.remove(_downloadedPathKey);
+          await prefs.remove(_downloadedVersionKey);
+        }
+      }
+    } catch (_) {}
   }
 
   // ── مفاتيح SharedPreferences ───────────────
@@ -161,11 +205,28 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   // ══════════════════════════════════════════════
-  // 1. التحقق من وجود إصدار أحدث
+  // 1. التحقق من وجود إصدار أحدث وعرض الحوار
   // ══════════════════════════════════════════════
+
+  /// يتحقق من وجود تحديث، وإذا وُجد يظهر نافذة التحديث فوراً في السياق الحالي
+  Future<UpdateInfo?> checkAndPromptUpdate({BuildContext? context}) async {
+    final info = await checkForUpdate();
+    if (info != null) {
+      final targetContext = context ?? appNavigatorKey.currentContext;
+      if (targetContext != null && targetContext.mounted) {
+        UpdateDialog.show(targetContext, info, this);
+      }
+    }
+    return info;
+  }
 
   Future<UpdateInfo?> checkForUpdate({bool ignoreDismissed = true}) async {
     if (_packageVersion.isEmpty) await init();
+
+    // تجنب الفحص المزدوج إذا كان الفحص جارياً حالياً
+    if (state == SilentUpdateState.checking) {
+      return latestInfo;
+    }
 
     _setState(SilentUpdateState.checking, msg: 'جارٍ التحقق من الخادم...');
 
@@ -185,20 +246,17 @@ class AppUpdateService extends ChangeNotifier {
         return null;
       }
 
-      if (!ignoreDismissed && await isVersionDismissed(info.version)) {
-        _setState(SilentUpdateState.idle, msg: '');
-        return null;
-      }
-
       // تحقق إن كان الملف مُنزلاً مسبقاً وجاهزاً
       final savedPath = await getSavedDownloadedFilePath(info.version);
       if (savedPath != null) {
         downloadedFilePath = savedPath;
         _setState(SilentUpdateState.readyToInstall, msg: 'التحديث جاهز للتثبيت بنقرة واحدة.');
+        AppNotificationService.instance.showUpdateReadyNotification(info);
         return info;
       }
 
       _setState(SilentUpdateState.updateAvailable, msg: 'يتوفر إصدار جديد: v${info.version}');
+      AppNotificationService.instance.showUpdateAvailableNotification(info);
       return info;
     } catch (e) {
       if (kDebugMode) print('[AppUpdateService] خطأ في فحص التحديث: $e');
@@ -254,6 +312,7 @@ class AppUpdateService extends ChangeNotifier {
       await prefs.setString(_downloadedVersionKey, info.version);
 
       _setState(SilentUpdateState.readyToInstall, msg: 'اكتمل التنزيل بنجاح! جاهز للتثبيت.');
+      AppNotificationService.instance.showUpdateReadyNotification(info);
     } catch (e) {
       if (_cancelToken?.isCancelled ?? false) {
         _setState(SilentUpdateState.paused, msg: 'تم إيقاف التنزيل مؤقتاً');
@@ -415,7 +474,7 @@ class AppUpdateService extends ChangeNotifier {
   Future<void> checkAndDownloadSilently({
     void Function(UpdateInfo info)? onReadyToInstall,
   }) async {
-    final info = await checkForUpdate(ignoreDismissed: false);
+    final info = await checkForUpdate();
     if (info != null && state != SilentUpdateState.readyToInstall) {
       await startDownload(info);
       if (state == SilentUpdateState.readyToInstall) {
@@ -425,7 +484,7 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   // ══════════════════════════════════════════════
-  // 4. المساعدات وتجاهل الإصدارات
+  // 4. المساعدات
   // ══════════════════════════════════════════════
 
   Future<String?> getSavedDownloadedFilePath(String version) async {
@@ -439,13 +498,11 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   Future<void> dismissVersion(String version) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_dismissedVersionKey, version);
+    // التحديثات أصبحت إجبارية العرض؛ لا يمكن حجب التحديثات نهائياً
   }
 
   Future<bool> isVersionDismissed(String version) async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_dismissedVersionKey) == version;
+    return false;
   }
 
   void startPeriodicSilentCheck({
@@ -471,25 +528,91 @@ class AppUpdateService extends ChangeNotifier {
     super.dispose();
   }
 
+  /// مقارنة دقيقة تحدد إن كان [latest] أحدث قطعياً من [current].
+  /// تُهمل بادئة 'v' وتتعامل مع لاحقة البناء '+build' بدقة لتفادي أي بلاغات خاطئة.
   bool isNewerVersion(String latest, String current) {
     try {
-      final l = _parseSemver(latest);
-      final c = _parseSemver(current);
-      for (int i = 0; i < 3; i++) {
-        if (l[i] > c[i]) return true;
-        if (l[i] < c[i]) return false;
-      }
-      return false;
+      final l = Semver.parse(latest);
+      final c = Semver.parse(current);
+      return l.isStrictlyNewerThan(c);
     } catch (_) {
-      return latest != current;
+      return false;
     }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Semver — محلل ومقارن دقيق لإصدارات التطبيق
+// ─────────────────────────────────────────────
+
+class Semver implements Comparable<Semver> {
+  final int major;
+  final int minor;
+  final int patch;
+  final int build;
+
+  const Semver({
+    required this.major,
+    required this.minor,
+    required this.patch,
+    this.build = 0,
+  });
+
+  factory Semver.parse(String raw) {
+    var s = raw.trim();
+    if (s.startsWith('v') || s.startsWith('V')) {
+      s = s.substring(1).trim();
+    }
+    int buildNum = 0;
+    if (s.contains('+')) {
+      final plusParts = s.split('+');
+      s = plusParts[0].trim();
+      if (plusParts.length > 1) {
+        buildNum = int.tryParse(plusParts[1].trim()) ?? 0;
+      }
+    }
+    if (s.contains('-')) {
+      s = s.split('-')[0].trim();
+    }
+    final dotParts = s.split('.');
+    final major = dotParts.isNotEmpty ? (int.tryParse(dotParts[0].trim()) ?? 0) : 0;
+    final minor = dotParts.length > 1 ? (int.tryParse(dotParts[1].trim()) ?? 0) : 0;
+    final patch = dotParts.length > 2 ? (int.tryParse(dotParts[2].trim()) ?? 0) : 0;
+
+    return Semver(
+      major: major,
+      minor: minor,
+      patch: patch,
+      build: buildNum,
+    );
   }
 
-  List<int> _parseSemver(String v) {
-    final parts = v.split('.');
-    while (parts.length < 3) {
-      parts.add('0');
+  @override
+  int compareTo(Semver other) {
+    if (major != other.major) return major.compareTo(other.major);
+    if (minor != other.minor) return minor.compareTo(other.minor);
+    if (patch != other.patch) return patch.compareTo(other.patch);
+    if (build > 0 && other.build > 0 && build != other.build) {
+      return build.compareTo(other.build);
     }
-    return parts.map((p) => int.tryParse(p) ?? 0).toList();
+    return 0;
   }
+
+  /// يتحقق مما إذا كان هذا الإصدار أحدث قطعياً من الإصدار الآخر.
+  bool isStrictlyNewerThan(Semver other) {
+    if (major > other.major) return true;
+    if (major < other.major) return false;
+    if (minor > other.minor) return true;
+    if (minor < other.minor) return false;
+    if (patch > other.patch) return true;
+    if (patch < other.patch) return false;
+    // إذا كانت الأرقام الرئيسية متطابقة تماماً (مثل 1.0.3 و 1.0.3)
+    if (build > 0 && other.build > 0) {
+      return build > other.build;
+    }
+    return false;
+  }
+
+  @override
+  String toString() => '$major.$minor.$patch${build > 0 ? '+$build' : ''}';
 }

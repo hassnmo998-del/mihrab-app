@@ -53,15 +53,17 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     super.initState();
     _currentPage = widget.initialPage.clamp(1, 604);
     _pageController = PageController(initialPage: _currentPage - 1);
-    // Auto page-flip when audio advances to next page
+    // Auto page-flip when audio advances or plays
     QuranAudioService.instance.activePageNotifier.addListener(_onActivePageChanged);
     QuranAudioService.instance.activeAyahNotifier.addListener(_onActiveAyahChanged);
+    QuranAudioService.instance.isPlayingNotifier.addListener(_onIsPlayingChanged);
   }
 
   @override
   void dispose() {
     QuranAudioService.instance.activePageNotifier.removeListener(_onActivePageChanged);
     QuranAudioService.instance.activeAyahNotifier.removeListener(_onActiveAyahChanged);
+    QuranAudioService.instance.isPlayingNotifier.removeListener(_onIsPlayingChanged);
     _pageController.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -69,19 +71,48 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
 
   void _onActiveAyahChanged() {
     if (_highlightKey != null && mounted) setState(() => _highlightKey = null);
+    _syncAudioPageIfNeeded();
   }
 
   void _onActivePageChanged() {
-    final audioPage = QuranAudioService.instance.activePageNotifier.value;
-    if (audioPage != null && audioPage != _currentPage && mounted) {
-      _goToPage(audioPage);
+    _syncAudioPageIfNeeded();
+  }
+
+  void _onIsPlayingChanged() {
+    if (QuranAudioService.instance.isPlayingNotifier.value) {
+      _syncAudioPageIfNeeded();
+    }
+  }
+
+  /// يغصب الانتقال فوراً للصفحة التي تُتلى آياتها طالما الصوت يعمل
+  void _syncAudioPageIfNeeded() {
+    if (!mounted) return;
+    if (!QuranAudioService.instance.isPlayingNotifier.value) return;
+
+    final tag = QuranAudioService.instance.activeTagNotifier.value;
+    final page = tag?.pageNumber ?? QuranAudioService.instance.activePageNotifier.value;
+    if (page != null && page != _currentPage) {
+      _goToPage(page);
     }
   }
 
   void _goToPage(int page) {
     final clamped = page.clamp(1, 604);
+    if (_currentPage == clamped) return;
     setState(() => _currentPage = clamped);
-    _pageController.jumpToPage(clamped - 1);
+    if (_pageController.hasClients) {
+      final cur = _pageController.page?.round() ?? (_currentPage - 1);
+      final diff = (clamped - 1 - cur).abs();
+      if (diff == 1) {
+        _pageController.animateToPage(
+          clamped - 1,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeInOutCubic,
+        );
+      } else {
+        _pageController.jumpToPage(clamped - 1);
+      }
+    }
   }
 
   String _idleTitle() {
@@ -316,126 +347,6 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     );
   }
 
-  /// شريط الحزب والتجويد المنفصل — ختام الشاشة من تحت
-  Widget _buildHizbTajweedBar(bool isDark) {
-    final pageData = QuranService.getPage(_currentPage);
-    final hizbNum = pageData != null ? (((pageData.hizbQuarter - 1) ~/ 4) + 1) : 1;
-    final quarterNum = pageData != null ? (((pageData.hizbQuarter - 1) % 4) + 1) : 1;
-    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : const Color(0xFFFFFDF8),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.35), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // الحزب
-          Text(
-            'الحزب $hizbNum',
-            style: GoogleFonts.amiri(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: gold,
-            ),
-          ),
-
-          // أحكام التجويد في المنتصف
-          _buildTajweedToggle(isDark, _isTajweedMode),
-
-          // الربع
-          Text(
-            'الربع $quarterNum',
-            style: GoogleFonts.amiri(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: gold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// زر تفعيل وتبديل أحكام التجويد مع دليل الألوان
-  Widget _buildTajweedToggle(bool isDark, bool isOn) {
-    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
-    return InkWell(
-      onTap: () => setState(() => _isTajweedMode = !_isTajweedMode),
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 200),
-        alignment: Alignment.topCenter,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-          decoration: BoxDecoration(
-            color: AppColors.gold.withValues(alpha: isOn ? 0.16 : 0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: isOn
-              ? Wrap(
-                  alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 10,
-                  runSpacing: 2,
-                  children: [
-                    Icon(Icons.palette_rounded, size: 13, color: gold),
-                    _legendItem(const Color(0xFFDC2626), 'مد لازم ومتصل', isDark),
-                    _legendItem(const Color(0xFFEA580C), 'مد جائز وعارض', isDark),
-                    _legendItem(const Color(0xFF059669), 'غنة وإخفاء وإدغام', isDark),
-                    _legendItem(const Color(0xFF0284C7), 'قلقلة', isDark),
-                    _legendItem(const Color(0xFFD97706), 'إقلاب', isDark),
-                    _legendItem(isDark ? Colors.white38 : Colors.black38, 'لا يُلفظ', isDark),
-                  ],
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.palette_outlined, size: 13, color: gold),
-                    const SizedBox(width: 5),
-                    Text(
-                      'أحكام التجويد',
-                      style: GoogleFonts.amiri(fontWeight: FontWeight.bold, fontSize: 12, color: gold),
-                    ),
-                  ],
-                ),
-        ),
-      ),
-    );
-  }
-
-  Widget _legendItem(Color color, String label, bool isDark) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.amiri(
-            fontSize: 11.5,
-            fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white70 : Colors.black87,
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -455,6 +366,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
           isDark: isDark,
           idleTitle: _idleTitle(),
           onStart: _startFromCurrentPage,
+          currentPage: _currentPage,
         ),
         SizedBox(height: isMobile ? 5 : 8),
 
@@ -489,6 +401,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
                       onBookmark: () => _bookmarkPage(pageNum),
                       isBookmarked: widget.bookmarkedPage == pageNum,
                       highlightKey: _highlightKey,
+                      onToggleTajweed: () => setState(() => _isTajweedMode = !_isTajweedMode),
                     );
                   },
                 ),
@@ -501,10 +414,6 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
 
         // شريط التقدم لتصفح الصفحات 1..604 (شريط التقدم تبع الصفحات السفلي)
         _buildBottomSlider(isDark),
-        SizedBox(height: isMobile ? 4 : 6),
-
-        // شريط الحزب والتجويد المنفصل (ختام الشاشة من تحت)
-        _buildHizbTajweedBar(isDark),
       ],
     );
   }
@@ -533,6 +442,7 @@ class _MushafPageCard extends StatefulWidget {
   final VoidCallback onZoomOut;
   final VoidCallback onBookmark;
   final bool isBookmarked;
+  final VoidCallback onToggleTajweed;
 
   /// Ayah picked from search results (`surah:ayah`), highlighted like the playing ayah.
   final String? highlightKey;
@@ -549,6 +459,7 @@ class _MushafPageCard extends StatefulWidget {
     required this.onZoomOut,
     required this.onBookmark,
     required this.isBookmarked,
+    required this.onToggleTajweed,
     this.highlightKey,
   });
 
@@ -912,6 +823,10 @@ class _MushafPageCardState extends State<_MushafPageCard> {
               ),
             ),
           ),
+          const SizedBox(height: 4),
+
+          // Mushaf Page Bottom Footer (نفس ستايل الهيدر العلوي تماماً)
+          _buildFooter(page, isDark),
         ],
       ),
     );
@@ -990,6 +905,147 @@ class _MushafPageCardState extends State<_MushafPageCard> {
           child: Icon(icon, size: 15, color: isDark ? AppColors.goldLight : AppColors.goldDark),
         ),
       ),
+    );
+  }
+
+  /// Mushaf Page Bottom Footer — styled exactly like _buildHeader
+  Widget _buildFooter(QuranPage page, bool isDark) {
+    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
+    final hizbNum = (((page.hizbQuarter - 1) ~/ 4) + 1);
+    final quarterNum = (((page.hizbQuarter - 1) % 4) + 1);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.gold.withValues(alpha: 0.3), width: 1),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    'الحزب $hizbNum',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.amiri(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: gold,
+                    ),
+                  ),
+                ),
+              ),
+              _buildTajweedChip(isDark),
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Text(
+                    'الربع $quarterNum',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.amiri(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: gold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (widget.isTajweedMode) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 2),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  _legendItem(const Color(0xFFDC2626), 'مد لازم ومتصل', isDark),
+                  _legendItem(const Color(0xFFEA580C), 'مد جائز وعارض', isDark),
+                  _legendItem(const Color(0xFF059669), 'غنة وإخفاء وإدغام', isDark),
+                  _legendItem(const Color(0xFF0284C7), 'قلقلة', isDark),
+                  _legendItem(const Color(0xFFD97706), 'إقلاب', isDark),
+                  _legendItem(isDark ? Colors.white38 : Colors.black38, 'لا يُلفظ', isDark),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTajweedChip(bool isDark) {
+    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
+    final isOn = widget.isTajweedMode;
+    return Tooltip(
+      message: isOn ? 'إخفاء ألوان ودليل التجويد' : 'تفعيل ألوان أحكام التجويد',
+      child: InkWell(
+        onTap: widget.onToggleTajweed,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+          decoration: BoxDecoration(
+            color: AppColors.gold.withValues(alpha: isOn ? 0.22 : 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isOn ? AppColors.goldDark : AppColors.gold.withValues(alpha: 0.25),
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isOn ? Icons.palette_rounded : Icons.palette_outlined,
+                size: 14,
+                color: gold,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'أحكام التجويد',
+                style: GoogleFonts.amiri(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: gold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _legendItem(Color color, String label, bool isDark) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: GoogleFonts.amiri(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 }

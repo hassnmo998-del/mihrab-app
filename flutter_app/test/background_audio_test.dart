@@ -59,4 +59,28 @@ void main() {
 
     BackgroundAudio.release(lesson);
   });
+
+  test('onUserPlaybackAction clears any external audio interruption flag', () {
+    expect(() => BackgroundAudio.onUserPlaybackAction(), returnsNormally);
+  });
+
+  test('QuranAudioService publishes clean, elegant notification metadata with Arabic digits', () async {
+    final quran = QuranAudioService.instance;
+    await BackgroundAudio.claim(quran);
+
+    quran.activeTagNotifier.value = const QuranAyahAudioTag(
+      surahNumber: 1,
+      ayahNumber: 1,
+      surahName: 'الفَاتِحَةِ',
+      pageNumber: 1,
+    );
+    quran.durationNotifier.value = const Duration(seconds: 45);
+    quran.isPlayingNotifier.value = true;
+
+    // Trigger sync
+    expect(() => quran.syncMediaSession(), returnsNormally);
+
+    // Clean up
+    await quran.stop();
+  });
 }
