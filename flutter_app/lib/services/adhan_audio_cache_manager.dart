@@ -133,6 +133,14 @@ class AdhanAudioCacheManager {
 
   /// Gets playable Source for audioplayers: prioritizes local file or asset
   Source getPlayableSource(AdhanSound sound) {
+    // On web (iPhone PWA), the local filesystem is unavailable — stream directly
+    if (kIsWeb) {
+      if (sound.id == defaultSoundId) {
+        return AssetSource('audio/default_adhan.mp3');
+      }
+      return UrlSource(sound.audioUrl);
+    }
+
     final localPath = getLocalAudioFilePath(sound.id);
     if (localPath != null) {
       return DeviceFileSource(localPath);

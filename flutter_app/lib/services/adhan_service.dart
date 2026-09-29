@@ -73,7 +73,9 @@ class AdhanService implements BackgroundAudioSource {
   AudioPlayer get _player {
     if (_playerInstance == null) {
       final p = AudioPlayer();
-      unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+      if (!kIsWeb) {
+        unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+      }
 
       p.onPlayerStateChanged.listen((state) {
         final isPlaying = state == PlayerState.playing;
@@ -463,10 +465,12 @@ class AdhanService implements BackgroundAudioSource {
       final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
       await _player.play(source);
 
-      try {
-        unawaited(BackgroundAudio.claim(this));
-      } catch (_) {}
-      _publishMediaSession(sound, isLive: false);
+      if (!kIsWeb) {
+        try {
+          unawaited(BackgroundAudio.claim(this));
+        } catch (_) {}
+        _publishMediaSession(sound, isLive: false);
+      }
     } catch (e) {
       debugPrint('⚠️ Error in AdhanService.playPreview: $e');
       _onPlaybackFinished();
