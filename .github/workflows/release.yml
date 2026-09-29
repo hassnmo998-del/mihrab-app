@@ -144,9 +144,25 @@ jobs:
     needs: [build-windows, build-android]
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
 
       - run: ls -la windows-installer/ android-apk/
+
+      # إعداد وصف الإصدار وقراءته من RELEASE_NOTES.md لعرضه داخل نافذة التحديث في التطبيق
+      - name: Prepare Release Notes
+        run: |
+          if [ -s "RELEASE_NOTES.md" ]; then
+            echo "Using RELEASE_NOTES.md"
+          else
+            TAG_MSG=$(git tag -l --format='%(contents)' "${{ github.ref_name }}")
+            if [ -n "$TAG_MSG" ]; then
+              echo "$TAG_MSG" > RELEASE_NOTES.md
+            else
+              echo "✨ إصدار جديد من تطبيق محراب (${{ github.ref_name }}) يتضمن تحسينات عامة ومزايا محدثة." > RELEASE_NOTES.md
+            fi
+          fi
 
       # أسماء الملفات تحمل "windows" و"android"، وعليها يعتمد التطبيق في التقاط
       # رابط منصّته من قائمة المرفقات (AppUpdateService._extractAssetUrl).
@@ -156,7 +172,7 @@ jobs:
           files: |
             windows-installer/*.exe
             android-apk/*.apk
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
 

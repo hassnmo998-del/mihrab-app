@@ -34,8 +34,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     if (info == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('أنت تستخدم أحدث إصدار من التطبيق حالياً ✅'),
+        SnackBar(
+          content: Text('أنت تستخدم أحدث إصدار من التطبيق حالياً (${AppUpdateService.currentVersion}) ✅'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -424,7 +424,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
-              ] else if (state == SilentUpdateState.updateAvailable && latest != null) ...[
+              ] else if (state == SilentUpdateState.updateAvailable &&
+                  latest != null &&
+                  service.isNewerVersion(latest.version, AppUpdateService.currentVersion)) ...[
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(

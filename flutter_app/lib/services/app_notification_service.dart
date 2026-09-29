@@ -1,6 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -62,7 +62,8 @@ class AppNotificationService {
           // 3. نقر إشعارات التحديث
           if (payload == 'update_available' || payload == 'update_ready') {
             final latest = AppUpdateService.instance.latestInfo;
-            if (latest != null) {
+            if (latest != null &&
+                AppUpdateService.instance.isNewerVersion(latest.version, AppUpdateService.currentVersion)) {
               final ctx = appNavigatorKey.currentContext;
               if (ctx != null && ctx.mounted) {
                 UpdateDialog.show(ctx, latest, AppUpdateService.instance);
@@ -168,16 +169,9 @@ class AppNotificationService {
     } else {
       await checkPermissionStatus();
       if (isPermissionGrantedNotifier.value) {
-        await AdhanService.instance.refreshStickyNotification();
+        await AdhanService.instance.refreshStickyNotification(force: true);
       }
     }
-  }
-
-  String _formatTimeArabic(DateTime dt) {
-    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final min = dt.minute.toString().padLeft(2, '0');
-    final period = dt.hour >= 12 ? 'م' : 'ص';
-    return '${hour.toString().padLeft(2, '0')}:$min $period';
   }
 
   /// إلغاء كرت الإشعار الدائم
@@ -191,123 +185,22 @@ class AppNotificationService {
     } catch (_) {}
   }
 
-  /// تحديث كرت شريط الإشعارات الدائم مطابقاً لكرت شاشة التطبيق تماماً بتصميم مخصص (Custom RemoteViews)
-  Future<void> updateStickyPrayerNotification({
-    required CurrentPrayerState prayerState,
-    required List<Map<String, dynamic>> todaySchedule,
-    String? liveFiringPrayer,
-    String? muezzinName,
-  }) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+  /// يرسل جدول المواقيت القادمة إلى شريط الإشعار الدائم في أندرويد
+  /// (PrayerNotificationManager.kt). بعدها يعدّ الشريط وينتقل بين الأذان والإقامة وحده،
+  /// والتطبيق مغلق، ويعود بعد إعادة تشغيل الهاتف. يعيد true إن وصل الجدول.
+  Future<bool> syncStickyPrayerNotification(List<Map<String, dynamic>> timeline) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
     if (!_isInitialized) await init();
-    if (!isStickyEnabledNotifier.value) return;
-    if (!isPermissionGrantedNotifier.value) return;
-
+    if (!isStickyEnabledNotifier.value) return false;
     try {
-      final isLive = liveFiringPrayer != null;
-      final isIqama = prayerState.phase == PrayerCountdownPhase.betweenAdhanAndIqama;
-
-      DateTime targetTime;
-      String badgeText;
-      String subtitleText;
-      String adhanTimeStr;
-      String iqamaTimeStr;
-      String smallTimesSummary;
-
-      if (isLive) {
-        targetTime = DateTime.now();
-        badgeText = 'يصدح الآن أذان $liveFiringPrayer 🕌';
-        subtitleText = 'بصوت الشيخ: ${muezzinName ?? "المؤذن"}';
-        adhanTimeStr = 'يصدح الآن';
-        iqamaTimeStr = 'إسكات 🔇';
-        smallTimesSummary = 'أذان $liveFiringPrayer يصدح الآن 🕌';
-      } else if (isIqama) {
-        targetTime = prayerState.iqamaTime ?? DateTime.now();
-        final pName = prayerState.prayerName;
-        badgeText = 'حان الآن وقت أذان $pName 🕌';
-        subtitleText = 'الوقت المتبقي لرفع إقامة الصلاة';
-        adhanTimeStr = _formatTimeArabic(prayerState.prayerTime);
-        iqamaTimeStr = _formatTimeArabic(targetTime);
-        smallTimesSummary = 'أذان $pName • الإقامة: $iqamaTimeStr';
-      } else {
-        final nextName = prayerState.nextPrayerName;
-        final nextTime = prayerState.nextPrayerTime;
-        final prayerInfo = todaySchedule.firstWhere(
-          (p) => p['name'] == nextName,
-          orElse: () => {'iqamaMinutes': 15},
-        );
-        final iqamaMin = (prayerInfo['iqamaMinutes'] as int?) ?? 15;
-        final iqamaTime = nextTime.add(Duration(minutes: iqamaMin));
-
-        targetTime = nextTime;
-        badgeText = 'الصلاة القادمة: $nextName 🌙';
-        subtitleText = 'الوقت المتبقي لرفع الأذان';
-        adhanTimeStr = _formatTimeArabic(nextTime);
-        iqamaTimeStr = _formatTimeArabic(iqamaTime);
-        smallTimesSummary = 'الأذان: $adhanTimeStr • الإقامة: $iqamaTimeStr';
-      }
-
-      // 1. المحاولة أولاً عبر واجهة RemoteViews المخصصة والمطابقة لكرت التطبيق
-      try {
-        await _customNotificationChannel.invokeMethod('showCustomPrayerNotification', {
-          'targetEpochMillis': targetTime.millisecondsSinceEpoch,
-          'isIqamaPhase': isIqama,
-          'isLiveFiring': isLive,
-          'adhanTimeStr': adhanTimeStr,
-          'iqamaTimeStr': iqamaTimeStr,
-          'badgeText': badgeText,
-          'subtitleText': subtitleText,
-          'smallTimesSummary': smallTimesSummary,
-        });
-        return;
-      } catch (nativeErr) {
-        debugPrint('⚠️ [AppNotificationService] Custom RemoteViews fallback: $nativeErr');
-      }
-
-      // 2. خطة احتياطية في حال تعذر الإشعار المخصص (Fallback)
-      final canCountDown = !isLive && targetTime.isAfter(DateTime.now());
-      final androidDetails = AndroidNotificationDetails(
-        prayerTrackerChannelId,
-        prayerTrackerChannelName,
-        channelDescription:
-            'إشعار دائم وثابت يعرض الصلاة القادمة والوقت المتبقي للأذان والإقامة',
-        importance: Importance.low,
-        priority: Priority.low,
-        ongoing: true,
-        autoCancel: false,
-        onlyAlertOnce: true,
-        showWhen: true,
-        when: targetTime.millisecondsSinceEpoch,
-        usesChronometer: canCountDown,
-        chronometerCountDown: canCountDown,
-        category: AndroidNotificationCategory.status,
-        icon: '@mipmap/ic_launcher',
-        color: const Color(0xFF047857),
-        actions: [
-          const AndroidNotificationAction(
-            'open_prayer_times',
-            'فتح محراب 🕌',
-            showsUserInterface: true,
-          ),
-          if (isLive)
-            const AndroidNotificationAction(
-              'silence_adhan',
-              'إسكات الأذان 🔇',
-            ),
-        ],
-      );
-
-      final notifDetails = NotificationDetails(android: androidDetails);
-
-      await _notificationsPlugin.show(
-        id: prayerTrackerNotificationId,
-        title: badgeText,
-        body: '$smallTimesSummary\n$subtitleText',
-        notificationDetails: notifDetails,
-        payload: 'open_prayer_times',
-      );
+      await _customNotificationChannel.invokeMethod('syncPrayerNotification', {
+        'timeline': jsonEncode(timeline),
+        'enabled': true,
+      });
+      return true;
     } catch (e) {
-      debugPrint('⚠️ [AppNotificationService] updateStickyPrayerNotification error: $e');
+      debugPrint('⚠️ [AppNotificationService] syncStickyPrayerNotification error: $e');
+      return false;
     }
   }
 

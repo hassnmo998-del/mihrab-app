@@ -27,19 +27,20 @@ class HijriDateHelper {
     'ذو الحجة',
   ];
 
+  // أسماء الأشهر كما تُقال في بلاد الشام (كانون الثاني… كانون الأول)
   static const List<String> gregorianMonths = [
-    'يناير',
-    'فبراير',
-    'مارس',
-    'أبريل',
-    'مايو',
-    'يونيو',
-    'يوليو',
-    'أغسطس',
-    'سبتمبر',
-    'أكتوبر',
-    'نوفمبر',
-    'ديسمبر',
+    'كانون الثاني',
+    'شباط',
+    'آذار',
+    'نيسان',
+    'أيار',
+    'حزيران',
+    'تموز',
+    'آب',
+    'أيلول',
+    'تشرين الأول',
+    'تشرين الثاني',
+    'كانون الأول',
   ];
 
   static const List<String> weekDays = [
@@ -119,7 +120,7 @@ class HijriDateHelper {
     return '$dayName، $dayStr $monthName $yearStr$suffix';
   }
 
-  /// Formats Gregorian date in Arabic (e.g., "الإثنين، ٢١ سبتمبر ٢٠٢٦ م")
+  /// Formats Gregorian date in Arabic (e.g., "الإثنين، ٢١ أيلول ٢٠٢٦ م")
   static String formatGregorian(DateTime date, {bool useArabicDigits = true, bool includeSuffix = true}) {
     final dayName = getWeekdayName(date);
     final monthName = gregorianMonths[date.month - 1];

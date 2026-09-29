@@ -45,36 +45,42 @@ class MainActivity : AudioServiceActivity() {
                     result.success(pendingAction)
                     pendingAction = null
                 }
-                "showCustomPrayerNotification" -> {
+                // جدول الأسبوعين القادمين لشريط مواقيت الصلاة (يعمل بعدها وحده دون التطبيق)
+                "syncPrayerNotification" -> {
                     val args = call.arguments as? Map<*, *>
-                    if (args != null) {
-                        val targetEpoch = (args["targetEpochMillis"] as? Number)?.toLong() ?: 0L
-                        val isIqama = args["isIqamaPhase"] as? Boolean ?: false
-                        val isLive = args["isLiveFiring"] as? Boolean ?: false
-                        val adhanTime = args["adhanTimeStr"] as? String ?: ""
-                        val iqamaTime = args["iqamaTimeStr"] as? String ?: ""
-                        val badge = args["badgeText"] as? String ?: ""
-                        val subtitle = args["subtitleText"] as? String ?: ""
-                        val smallTimes = args["smallTimesSummary"] as? String ?: ""
-
-                        PrayerNotificationManager.showCustomNotification(
-                            context = this,
-                            targetEpochMillis = targetEpoch,
-                            isIqamaPhase = isIqama,
-                            isLiveFiring = isLive,
-                            adhanTimeStr = adhanTime,
-                            iqamaTimeStr = iqamaTime,
-                            badgeText = badge,
-                            subtitleText = subtitle,
-                            smallTimesSummary = smallTimes
-                        )
+                    val timeline = args?.get("timeline") as? String
+                    if (timeline != null) {
+                        val enabled = args["enabled"] as? Boolean ?: true
+                        PrayerNotificationManager.sync(this, timeline, enabled)
                         result.success(true)
                     } else {
-                        result.error("INVALID_ARGS", "Arguments must not be null", null)
+                        result.error("INVALID_ARGS", "timeline must be a JSON string", null)
                     }
                 }
                 "cancelCustomPrayerNotification" -> {
-                    PrayerNotificationManager.cancelNotification(this)
+                    PrayerNotificationManager.disable(this)
+                    result.success(true)
+                }
+                "schedulePrayerAlarms" -> {
+                    val alarms = call.arguments as? List<*>
+                    if (alarms != null) {
+                        for (item in alarms) {
+                            val map = item as? Map<*, *> ?: continue
+                            val name = map["name"] as? String ?: continue
+                            val time = (map["time"] as? Number)?.toLong() ?: continue
+                            AdhanAlarmManager.schedulePrayerAlarm(this, name, time)
+                        }
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGS", "Alarms list must not be null", null)
+                    }
+                }
+                "cancelPrayerAlarms" -> {
+                    AdhanAlarmManager.cancelAllAlarms(this)
+                    result.success(true)
+                }
+                "silenceNativeAdhan" -> {
+                    AdhanAlarmReceiver.stopAdhan(this)
                     result.success(true)
                 }
                 else -> result.notImplemented()

@@ -273,7 +273,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
   /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث أينما كان المستخدم إن وُجد إصدار جديد
   Future<void> _checkUpdateOnLaunch() async {
     final info = await AppUpdateService.instance.checkForUpdate();
-    if (info == null) return;
+    if (info == null || !AppUpdateService.instance.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
+      return;
+    }
 
     final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
     if (targetContext != null && targetContext.mounted) {
@@ -283,6 +285,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
 
   /// يظهر نافذة التحديث مع إشعار عند اكتمال تنزيل التحديث في الخلفية
   void _showInstallSnackBar(UpdateInfo info) {
+    if (!AppUpdateService.instance.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
+      return;
+    }
     final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
     if (targetContext != null && targetContext.mounted) {
       UpdateDialog.show(targetContext, info, AppUpdateService.instance);
@@ -477,7 +482,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     final data = context.read<DataService>();
 
     // إذا كان الجهاز محفوظاً كمصادَق، ننتقل فوراً بدون طلب بيانات
-    if (data.currentSession?.role == 'super_admin') {
+    if (data.isSuperAdminAuthenticated) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const SuperAdminScreen()));
       return;
     }

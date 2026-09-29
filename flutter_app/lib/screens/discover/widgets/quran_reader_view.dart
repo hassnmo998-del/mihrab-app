@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../presentation/widgets/unified_badge.dart';
 import '../../../services/quran_audio_service.dart';
 import '../../../services/quran_service.dart';
+import '../../../services/surah_story_service.dart';
+import '../../../services/tafsir_service.dart';
 import 'quran_audio_bar.dart';
 import 'quran_data_constants.dart';
 import 'quran_page_mushaf_view.dart';
@@ -62,6 +64,9 @@ class _QuranReaderViewState extends State<QuranReaderView> {
       await QuranService.ensureLoaded();
       if (mounted) setState(() => _isLoadingQuran = false);
     }
+    // Pre-warm Tafsir and Surah Stories in background
+    TafsirService.ensureLoaded();
+    SurahStoryService.ensureLoaded();
   }
 
   @override

@@ -114,18 +114,24 @@ class AppUpdateService extends ChangeNotifier {
   // ── الإصدار الحالي للتطبيق ─────────────────
   static String _packageVersion = '';
   static String get currentVersion => _packageVersion.isNotEmpty ? _packageVersion : kCurrentAppVersion;
+  static Completer<void>? _initCompleter;
 
   /// تُقرأ مرة واحدة عند الإقلاع من PackageInfo
   static Future<void> init() async {
-    if (_packageVersion.isEmpty) {
-      try {
-        final info = await PackageInfo.fromPlatform();
-        final cleaned = cleanVersion(info.version);
-        _packageVersion = cleaned.isNotEmpty ? cleaned : kCurrentAppVersion;
-      } catch (_) {
-        _packageVersion = kCurrentAppVersion;
-      }
+    if (_packageVersion.isNotEmpty) return;
+    if (_initCompleter != null) return _initCompleter!.future;
+
+    final completer = Completer<void>();
+    _initCompleter = completer;
+
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final cleaned = cleanVersion(info.version);
+      _packageVersion = cleaned.isNotEmpty ? cleaned : kCurrentAppVersion;
+    } catch (_) {
+      _packageVersion = kCurrentAppVersion;
     }
+
     // مسح أي خيار سابق لتجاهل التحديثات
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -134,7 +140,7 @@ class AppUpdateService extends ChangeNotifier {
       // تنظيف أي ملف تحديث قديم تم تنزيله إن كان الإصدار الحالي مساوياً له أو أحدث منه
       final savedVer = prefs.getString(_downloadedVersionKey);
       if (savedVer != null) {
-        final cur = Semver.parse(_packageVersion);
+        final cur = Semver.parse(currentVersion);
         final sav = Semver.parse(savedVer);
         if (!sav.isStrictlyNewerThan(cur)) {
           final savedPath = prefs.getString(_downloadedPathKey);
@@ -149,6 +155,8 @@ class AppUpdateService extends ChangeNotifier {
         }
       }
     } catch (_) {}
+
+    completer.complete();
   }
 
   // ── مفاتيح SharedPreferences ───────────────
@@ -208,16 +216,19 @@ class AppUpdateService extends ChangeNotifier {
   // 1. التحقق من وجود إصدار أحدث وعرض الحوار
   // ══════════════════════════════════════════════
 
+  Future<UpdateInfo?>? _inFlightCheck;
+
   /// يتحقق من وجود تحديث، وإذا وُجد يظهر نافذة التحديث فوراً في السياق الحالي
   Future<UpdateInfo?> checkAndPromptUpdate({BuildContext? context}) async {
     final info = await checkForUpdate();
-    if (info != null) {
+    if (info != null && isNewerVersion(info.version, currentVersion)) {
       final targetContext = context ?? appNavigatorKey.currentContext;
       if (targetContext != null && targetContext.mounted) {
         UpdateDialog.show(targetContext, info, this);
       }
+      return info;
     }
-    return info;
+    return null;
   }
 
   Future<UpdateInfo?> checkForUpdate({bool ignoreDismissed = true}) async {
@@ -225,11 +236,21 @@ class AppUpdateService extends ChangeNotifier {
     if (kIsWeb) return null;
     if (_packageVersion.isEmpty) await init();
 
-    // تجنب الفحص المزدوج إذا كان الفحص جارياً حالياً
-    if (state == SilentUpdateState.checking) {
-      return latestInfo;
+    // إذا كان هناك فحص جارٍ حالياً، ننتظر نفس النتيجة بدلاً من إرجاع بيانات قديمة أو تنفيذ طلب مكرر
+    if (_inFlightCheck != null) {
+      return await _inFlightCheck;
     }
 
+    final future = _performCheckForUpdate();
+    _inFlightCheck = future;
+    try {
+      return await future;
+    } finally {
+      _inFlightCheck = null;
+    }
+  }
+
+  Future<UpdateInfo?> _performCheckForUpdate() async {
     _setState(SilentUpdateState.checking, msg: 'جارٍ التحقق من الخادم...');
 
     try {
@@ -240,13 +261,16 @@ class AppUpdateService extends ChangeNotifier {
       }
 
       final info = UpdateInfo.fromJson(response.data as Map<String, dynamic>);
-      latestInfo = info;
 
-      final hasNewer = isNewerVersion(info.version, _packageVersion);
+      // المقارنة الصارمة مع الإصدار الحالي الفعلي المعتمد
+      final hasNewer = isNewerVersion(info.version, currentVersion);
       if (!hasNewer) {
+        latestInfo = null; // تفريغ أي كائن تحديث لضمان عدم حدوث أي بلاغ كاذب
         _setState(SilentUpdateState.idle, msg: 'التطبيق محدث لأحدث إصدار ($currentVersion) ✅');
         return null;
       }
+
+      latestInfo = info;
 
       // تحقق إن كان الملف مُنزلاً مسبقاً وجاهزاً
       final savedPath = await getSavedDownloadedFilePath(info.version);
@@ -419,7 +443,8 @@ class AppUpdateService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_downloadedPathKey);
     await prefs.remove(_downloadedVersionKey);
-    _setState(SilentUpdateState.updateAvailable, msg: 'تم إلغاء التنزيل');
+    final hasNewer = latestInfo != null && isNewerVersion(latestInfo!.version, currentVersion);
+    _setState(hasNewer ? SilentUpdateState.updateAvailable : SilentUpdateState.idle, msg: 'تم إلغاء التنزيل');
   }
 
   // ══════════════════════════════════════════════
@@ -490,6 +515,7 @@ class AppUpdateService extends ChangeNotifier {
   // ══════════════════════════════════════════════
 
   Future<String?> getSavedDownloadedFilePath(String version) async {
+    if (!isNewerVersion(version, currentVersion)) return null;
     final prefs = await SharedPreferences.getInstance();
     final savedVer = prefs.getString(_downloadedVersionKey);
     final savedPath = prefs.getString(_downloadedPathKey);
@@ -533,9 +559,26 @@ class AppUpdateService extends ChangeNotifier {
   /// مقارنة دقيقة تحدد إن كان [latest] أحدث قطعياً من [current].
   /// تُهمل بادئة 'v' وتتعامل مع لاحقة البناء '+build' بدقة لتفادي أي بلاغات خاطئة.
   bool isNewerVersion(String latest, String current) {
+    final rawLatest = latest.trim();
+    final effectiveCurrent = current.trim().isNotEmpty ? current.trim() : currentVersion;
+
+    if (rawLatest.isEmpty || effectiveCurrent.isEmpty) return false;
+
+    // تطابق تام للنصين (مع تجاهل بادئة v وحالة الأحرف والمسافات)
+    final normLatest = (rawLatest.startsWith('v') || rawLatest.startsWith('V'))
+        ? rawLatest.substring(1).trim()
+        : rawLatest;
+    final normCurrent = (effectiveCurrent.startsWith('v') || effectiveCurrent.startsWith('V'))
+        ? effectiveCurrent.substring(1).trim()
+        : effectiveCurrent;
+
+    if (normLatest.toLowerCase() == normCurrent.toLowerCase()) {
+      return false;
+    }
+
     try {
-      final l = Semver.parse(latest);
-      final c = Semver.parse(current);
+      final l = Semver.parse(rawLatest);
+      final c = Semver.parse(effectiveCurrent);
       return l.isStrictlyNewerThan(c);
     } catch (_) {
       return false;

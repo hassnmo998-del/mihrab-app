@@ -23,11 +23,26 @@ void main() {
       expect(service.isNewerVersion('1.0.3', '1.0.4'), isFalse);
       expect(service.isNewerVersion('1.0.2', '1.0.3+3'), isFalse);
 
+      // Version 1.0.4 specific checks (the exact issue reported by user)
+      expect(service.isNewerVersion('1.0.4', '1.0.4'), isFalse);
+      expect(service.isNewerVersion('v1.0.4', '1.0.4'), isFalse);
+      expect(service.isNewerVersion('1.0.4', '1.0.4+4'), isFalse);
+      expect(service.isNewerVersion('v1.0.4', '1.0.4+4'), isFalse);
+      expect(service.isNewerVersion('1.0.4+4', '1.0.4'), isFalse);
+      expect(service.isNewerVersion(' V1.0.4 ', '1.0.4+4'), isFalse);
+
+      // Empty or invalid strings must never report update available
+      expect(service.isNewerVersion('1.0.4', ''), isFalse);
+      expect(service.isNewerVersion('', '1.0.4'), isFalse);
+      expect(service.isNewerVersion('', ''), isFalse);
+
       // Truly newer versions MUST be true
       expect(service.isNewerVersion('1.0.4', '1.0.3'), isTrue);
       expect(service.isNewerVersion('1.0.4', '1.0.3+3'), isTrue);
       expect(service.isNewerVersion('v1.0.4', '1.0.3+3'), isTrue);
       expect(service.isNewerVersion('1.0.3+4', '1.0.3+3'), isTrue);
+      expect(service.isNewerVersion('1.0.5', '1.0.4'), isTrue);
+      expect(service.isNewerVersion('v1.0.5', '1.0.4+4'), isTrue);
     });
 
     test('Initial state of AppUpdateService', () {

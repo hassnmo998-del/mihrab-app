@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- الإشعار مطويّاً: الصلاة وموعدها، والعدّاد التنازلي. الاتجاه RTL ثابت مهما كانت لغة الجهاز. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/cardBackgroundSmall"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
+    android:layoutDirection="rtl"
     android:background="@drawable/bg_prayer_card_normal"
     android:paddingStart="14dp"
     android:paddingEnd="14dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
     android:gravity="center_vertical">
 
-    <!-- Right Side: Badge & Prayer Time Summary -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_weight="1"
@@ -19,32 +20,48 @@
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/smallBadgeText"
+            android:id="@+id/smallTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="الصلاة القادمة: الفجر 🌙"
+            android:text="أذان العصر"
             android:textColor="#FFFFFF"
-            android:textSize="12.5sp"
-            android:textStyle="bold" />
+            android:textSize="13.5sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
 
         <TextView
-            android:id="@+id/smallTimesSummary"
+            android:id="@+id/smallDetail"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="الأذان: 05:03 ص • الإقامة: 05:28 ص"
-            android:textColor="#CCFFFFFF"
-            android:textSize="10.5sp" />
+            android:layout_marginTop="1dp"
+            android:text="الأذان 3:48 م • الإقامة 4:08 م"
+            android:textColor="#DDFFFFFF"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
     </LinearLayout>
 
-    <!-- Left Side: Large Chronometer countdown -->
     <Chronometer
-        android:id="@+id/smallCountdownChronometer"
+        android:id="@+id/smallCountdown"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layoutDirection="ltr"
+        android:textDirection="ltr"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:textStyle="bold"
-        android:typeface="monospace"
-        android:gravity="end|center_vertical" />
+        android:typeface="monospace" />
+
+    <!-- أندرويد 6 وأقدم: ساعة الموعد بدل العدّاد -->
+    <TextView
+        android:id="@+id/smallTargetTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 </LinearLayout>

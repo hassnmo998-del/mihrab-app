@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:adhan/adhan.dart';
 import 'package:audio_service/audio_service.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/adhan_sound.dart';
+import 'adhan_audio_cache_manager.dart';
 import 'adhan_data.dart';
 import 'app_notification_service.dart';
 import 'background_audio.dart';
@@ -62,6 +64,9 @@ class CurrentPrayerState {
 class AdhanService implements BackgroundAudioSource {
   AdhanService._();
   static final AdhanService instance = AdhanService._();
+
+  static const MethodChannel _customNotificationChannel =
+      MethodChannel('com.masjed.mihrab/custom_prayer_notification');
 
   // Audio Player for Preview & Live Adhan (lazily initialized)
   AudioPlayer? _playerInstance;
@@ -167,12 +172,32 @@ class AdhanService implements BackgroundAudioSource {
     if (_initialized) return;
     _initialized = true;
 
+    // Pre-initialize offline audio cache manager
+    await AdhanAudioCacheManager.instance.init();
+
     // Pre-initialize player
     _player;
 
     // Load persisted settings
     await _loadSettings();
     unawaited(refreshStickyNotification());
+    unawaited(rescheduleNativeAlarms());
+
+    // Listen to native Android actions (Silence, Live firing start, Completion)
+    if (!kIsWeb && Platform.isAndroid && !Platform.environment.containsKey('FLUTTER_TEST')) {
+      _customNotificationChannel.setMethodCallHandler((call) async {
+        if (call.method == 'silenceAdhan') {
+          await silenceAdhan();
+        } else if (call.method == 'onAdhanStarted') {
+          final prayerName = call.arguments as String? ?? 'الصلاة';
+          liveFiringPrayerNotifier.value = prayerName;
+          isPlayingNotifier.value = true;
+          unawaited(refreshStickyNotification());
+        } else if (call.method == 'onAdhanCompleted') {
+          _onPlaybackFinished();
+        }
+      });
+    }
 
     // Register hardware volume keys handler (Volume Down / Mute silences Adhan immediately)
     if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
@@ -198,6 +223,7 @@ class AdhanService implements BackgroundAudioSource {
     _latitude = lat;
     _longitude = lng;
     unawaited(refreshStickyNotification());
+    unawaited(rescheduleNativeAlarms());
   }
 
   double get latitude => _latitude;
@@ -211,6 +237,7 @@ class AdhanService implements BackgroundAudioSource {
     _prayerEnabledMap[prayerName] = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('adhan_prayer_$prayerName', enabled);
+    unawaited(rescheduleNativeAlarms());
   }
 
   int getIqamaMinutes(String prayerName) {
@@ -242,13 +269,18 @@ class AdhanService implements BackgroundAudioSource {
     }
   }
 
-  /// Silences the Adhan immediately (used by volume-down, mute buttons, and silence overlay)
+  /// Silences the Adhan immediately across Flutter player and native Android player
   Future<void> silenceAdhan() async {
     liveFiringPrayerNotifier.value = null;
     isPlayingNotifier.value = false;
     currentPlayingSoundNotifier.value = null;
     positionNotifier.value = Duration.zero;
     await stop();
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        await _customNotificationChannel.invokeMethod('silenceNativeAdhan');
+      } catch (_) {}
+    }
     unawaited(refreshStickyNotification());
   }
 
@@ -256,7 +288,17 @@ class AdhanService implements BackgroundAudioSource {
     selectedSoundNotifier.value = sound;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('adhan_selected_sound_id', sound.id);
+
+    // Store local file path for Android native player
+    final localPath = AdhanAudioCacheManager.instance.getLocalAudioFilePath(sound.id);
+    if (localPath != null) {
+      await prefs.setString('adhan_selected_sound_path', localPath);
+    } else {
+      await prefs.remove('adhan_selected_sound_path');
+    }
+
     unawaited(refreshStickyNotification());
+    unawaited(rescheduleNativeAlarms());
   }
 
   Future<void> setAdhanEnabled(bool enabled) async {
@@ -264,6 +306,48 @@ class AdhanService implements BackgroundAudioSource {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('adhan_master_enabled', enabled);
     unawaited(refreshStickyNotification());
+    unawaited(rescheduleNativeAlarms());
+  }
+
+  /// Synchronizes calculated upcoming prayer times with Android AlarmManager exact alarms
+  Future<void> rescheduleNativeAlarms() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      final now = DateTime.now();
+      final todaySchedule = calculateTodaySchedule(forDate: now);
+      final tomSchedule = calculateTodaySchedule(
+          forDate: now.add(const Duration(days: 1)));
+
+      final allPrayers = [...todaySchedule, ...tomSchedule];
+      final activeAlarms = <Map<String, dynamic>>[];
+
+      for (final p in allPrayers) {
+        final name = p['name'] as String;
+        if (name == 'الشروق') continue;
+        final time = p['time'] as DateTime;
+        if (time.isAfter(now)) {
+          if (isPrayerAdhanEnabled(name)) {
+            activeAlarms.add({
+              'name': name,
+              'time': time.millisecondsSinceEpoch,
+            });
+          }
+        }
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('adhan_cached_schedule_json', jsonEncode(activeAlarms));
+
+      if (isEnabledNotifier.value) {
+        await _customNotificationChannel.invokeMethod('schedulePrayerAlarms', activeAlarms);
+        debugPrint('⏰ [AdhanService] Synced ${activeAlarms.length} exact alarms with Android AlarmManager');
+      } else {
+        await _customNotificationChannel.invokeMethod('cancelPrayerAlarms');
+        debugPrint('🚫 [AdhanService] Master adhan disabled, cancelled native alarms');
+      }
+    } catch (e) {
+      debugPrint('⚠️ [AdhanService] Error syncing native alarms: $e');
+    }
   }
 
   /// Check detailed permissions on Android
@@ -376,7 +460,8 @@ class AdhanService implements BackgroundAudioSource {
       durationNotifier.value = Duration(seconds: sound.durationSeconds);
 
       await _player.setVolume(_volume);
-      await _player.play(UrlSource(sound.audioUrl));
+      final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
+      await _player.play(source);
 
       try {
         unawaited(BackgroundAudio.claim(this));
@@ -400,7 +485,8 @@ class AdhanService implements BackgroundAudioSource {
       durationNotifier.value = Duration(seconds: sound.durationSeconds);
 
       await _player.setVolume(_volume);
-      await _player.play(UrlSource(sound.audioUrl));
+      final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
+      await _player.play(source);
 
       try {
         unawaited(BackgroundAudio.claim(this));
@@ -651,16 +737,42 @@ class AdhanService implements BackgroundAudioSource {
     );
   }
 
-  /// تحديث شريط الإشعار الدائم لمواقيت الصلاة
-  Future<void> refreshStickyNotification() async {
+  /// مواقيت الأيام القادمة لشريط الإشعار: لكل حدث لحظة الأذان، ولحظة الإقامة (0 للشروق).
+  List<Map<String, dynamic>> buildNotificationTimeline({int days = 14}) {
+    final now = DateTime.now();
+    final timeline = <Map<String, dynamic>>[];
+    for (var d = 0; d < days; d++) {
+      // DateTime(y, m, d + n) لا Duration(days: n): يبقى منتصف الليل صحيحاً عند تغيّر التوقيت الصيفي
+      final day = DateTime(now.year, now.month, now.day + d);
+      for (final p in calculateTodaySchedule(forDate: day)) {
+        final adhan = p['time'] as DateTime;
+        final iqamaMinutes = (p['iqamaMinutes'] as int?) ?? 0;
+        final hasIqama = p['hasIqama'] == true && iqamaMinutes > 0;
+        timeline.add({
+          'name': p['name'],
+          'adhan': adhan.millisecondsSinceEpoch,
+          'iqama': hasIqama
+              ? adhan.add(Duration(minutes: iqamaMinutes)).millisecondsSinceEpoch
+              : 0,
+        });
+      }
+    }
+    return timeline;
+  }
+
+  String? _stickySignature;
+
+  /// يرسل جدول الأسبوعين القادمين إلى شريط الإشعار الدائم. الشريط في أندرويد يعدّ وينتقل
+  /// بين الأذان والإقامة وحده، فلا يُعاد الإرسال إلا حين يتغيّر شيء: اليوم، الموقع، الإقامة.
+  Future<void> refreshStickyNotification({bool force = false}) async {
     try {
-      final state = getCurrentPrayerState();
-      final todaySchedule = calculateTodaySchedule(forDate: DateTime.now());
-      await AppNotificationService.instance.updateStickyPrayerNotification(
-        prayerState: state,
-        todaySchedule: todaySchedule,
-        muezzinName: selectedSoundNotifier.value.muezzinOrLocation,
-      );
+      final now = DateTime.now();
+      final signature =
+          '${now.year}-${now.month}-${now.day}|$_latitude|$_longitude|$_iqamaMinutesMap';
+      if (!force && signature == _stickySignature) return;
+      final sent = await AppNotificationService.instance
+          .syncStickyPrayerNotification(buildNotificationTimeline());
+      if (sent) _stickySignature = signature;
     } catch (_) {}
   }
 
@@ -685,6 +797,7 @@ class AdhanService implements BackgroundAudioSource {
   }
 
   void _checkPrayerArrival() {
+    if (liveFiringPrayerNotifier.value != null) return;
     final now = DateTime.now();
     final todaySchedule = calculateTodaySchedule(forDate: now);
 
@@ -696,8 +809,8 @@ class AdhanService implements BackgroundAudioSource {
       final pTime = p['time'] as DateTime;
       final diff = now.difference(pTime);
 
-      // Check if prayer time is right now (within 0..3 seconds)
-      if (diff.inSeconds >= 0 && diff.inSeconds <= 3) {
+      // Check if prayer time arrived in the last 15 seconds (wider window for foreground apps)
+      if (diff.inSeconds >= 0 && diff.inSeconds <= 15) {
         final key = '${now.year}-${now.month}-${now.day}_$pName';
         if (_lastFiredPrayerKey != key) {
           _lastFiredPrayerKey = key;
@@ -721,6 +834,12 @@ class AdhanService implements BackgroundAudioSource {
 
       final soundId = prefs.getString('adhan_selected_sound_id');
       selectedSoundNotifier.value = AdhanData.getById(soundId);
+
+      // Ensure local audio file path is stored for Android native player
+      final localPath = AdhanAudioCacheManager.instance.getLocalAudioFilePath(selectedSoundNotifier.value.id);
+      if (localPath != null) {
+        await prefs.setString('adhan_selected_sound_path', localPath);
+      }
 
       _volume = prefs.getDouble('adhan_volume') ?? 1.0;
 

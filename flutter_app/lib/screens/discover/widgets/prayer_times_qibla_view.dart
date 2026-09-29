@@ -10,6 +10,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../presentation/widgets/unified_badge.dart';
 import '../../../services/adhan_service.dart';
+import 'adhan_activation_floating_banner.dart';
 import 'adhan_audio_card.dart';
 
 /// Accurate Prayer Times & Live Dynamic Qibla Compass
@@ -39,6 +40,10 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
   // Kaaba coordinates (Mecca)
   static const double _meccaLat = 21.4225;
   static const double _meccaLng = 39.8262;
+
+  // Al-Aqsa Mosque coordinates (Jerusalem)
+  static const double _aqsaLat = 31.7761;
+  static const double _aqsaLng = 35.2358;
 
   bool get _isMobile =>
       !kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS);
@@ -150,6 +155,7 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
     final double userLng = _currentPosition?.longitude ?? AdhanService.instance.longitude;
     final double qiblaBearing = _calculateQiblaBearing(userLat, userLng);
     final double distanceToMeccaKm = Geolocator.distanceBetween(userLat, userLng, _meccaLat, _meccaLng) / 1000.0;
+    final double distanceToAqsaKm = Geolocator.distanceBetween(userLat, userLng, _aqsaLat, _aqsaLng) / 1000.0;
 
     // Effective heading from sensor on mobile
     final double activeHeading = _deviceHeading ?? 0.0;
@@ -241,6 +247,9 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
 
             // Adhan Audio & Controls Card (Quran Audio Bar Style)
             AdhanAudioCard(isDark: isDark),
+
+            // Elderly-friendly simple floating activation banner
+            AdhanActivationFloatingBanner(isDark: isDark),
 
             // Countdown Hero Card (Dynamic Adhan & Iqama Countdown)
             Container(
@@ -632,6 +641,11 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
 
                     Text(
                       'المسافة المباشرة إلى مكة المكرمة: ${distanceToMeccaKm.toStringAsFixed(0)} كم',
+                      style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : AppColors.obsidianEspresso),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'المسافة المباشرة إلى المسجد الأقصى: ${distanceToAqsaKm.toStringAsFixed(0)} كم',
                       style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : AppColors.obsidianEspresso),
                     ),
                     const SizedBox(height: 4),

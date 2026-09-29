@@ -27,6 +27,10 @@ class UpdateDialog extends StatefulWidget {
     UpdateInfo info,
     AppUpdateService service,
   ) async {
+    // صمام أمان قاطع وحاسم: لا تفتح نافذة التحديث إطلاقاً إذا لم يكن الإصدار أحدث قطعياً من الإصدار المثبت
+    if (!service.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
+      return;
+    }
     if (isShowing) return;
     isShowing = true;
     try {
@@ -160,8 +164,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
     );
   }
 
+  String _formattedNotes(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return '';
+    // إذا كان الوصف مجرد رابط تغييرات تلقائي من جيت هاب دون نص مخصص
+    if (text.contains('Full Changelog') && (text.startsWith('**Full Changelog**') || text.startsWith('Full Changelog'))) {
+      return '• تحسينات عامة في الأداء واستقرار التطبيق.\n• إصلاحات برمجية وتحديثات شاملة.';
+    }
+    // إزالة علامات الماركداون العريضة والترويسات ليظهر النص العربي بشكل مريح
+    text = text.replaceAll(RegExp(r'^\s*#+\s*', multiLine: true), '');
+    text = text.replaceAll('**', '');
+    text = text.replaceAll('__', '');
+    return text.trim();
+  }
+
   Widget _buildReleaseNotes() {
-    if (widget.info.releaseNotes.isEmpty) return const SizedBox.shrink();
+    final notes = _formattedNotes(widget.info.releaseNotes);
+    if (notes.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,7 +199,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(12),
             child: Text(
-              widget.info.releaseNotes,
+              notes,
               style: const TextStyle(fontSize: 12.5, height: 1.6),
             ),
           ),

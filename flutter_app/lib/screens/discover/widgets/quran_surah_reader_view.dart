@@ -2,10 +2,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../data/quran_data.dart';
 import '../../../services/quran_audio_service.dart';
 import '../../../services/quran_service.dart';
+import 'ayah_gesture_recognizer.dart';
 import 'quran_audio_bar.dart';
+import 'quran_ayah_tafsir_sheet.dart';
 import 'quran_data_constants.dart';
+import 'quran_surah_story_view.dart';
 
 /// Classic Full-Surah Continuous Scroll Reader with Tajweed & Bookmark integration.
 class QuranSurahReaderView extends StatefulWidget {
@@ -64,6 +68,41 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
     QuranAudioService.instance.playAyah(surahNum, ayahNum);
   }
 
+  void _openAyahTafsir(int surahNum, String surahName, int ayahNum) {
+    final surahInfo = quranSurahsInfo.firstWhere(
+      (s) => s.number == surahNum,
+      orElse: () => SurahInfo(number: surahNum, name: surahName, ayahCount: 7, startJuz: 1),
+    );
+    QuranAyahTafsirSheet.show(
+      context: context,
+      surahNumber: surahNum,
+      surahName: surahName,
+      initialAyahNumber: ayahNum,
+      totalAyahs: surahInfo.ayahCount,
+      isDark: widget.isDark,
+    );
+  }
+
+  Future<void> _openSurahStory(int surahNum) async {
+    final newSurahNum = await QuranSurahStoryView.open(
+      context: context,
+      initialSurahNumber: surahNum,
+      isDark: widget.isDark,
+    );
+    if (newSurahNum != null && mounted && newSurahNum != surahNum) {
+      final info = quranSurahsInfo.firstWhere(
+        (s) => s.number == newSurahNum,
+        orElse: () => SurahInfo(number: newSurahNum, name: '', ayahCount: 7, startJuz: 1),
+      );
+      widget.onOpenSurah({
+        'number': newSurahNum,
+        'name': info.name,
+        'verses': info.ayahCount,
+        'juz': info.startJuz,
+      });
+    }
+  }
+
   void _clearRecognizers() {
     for (final r in _recognizers) {
       r.dispose();
@@ -93,8 +132,9 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
           : null;
 
       if (_isTajweedMode) {
-        final tapRec = TapGestureRecognizer()
-          ..onTap = () => _tapAyah(surahNum, ayahNum);
+        final tapRec = AyahTapAndLongPressGestureRecognizer();
+        tapRec.onTap = () => _tapAyah(surahNum, ayahNum);
+        tapRec.onLongPress = () => _openAyahTafsir(surahNum, surahName, ayahNum);
         _recognizers.add(tapRec);
 
         final tajweedChildren = QuranService.buildTajweedSpans(
@@ -114,8 +154,9 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
           }).toList(),
         ));
       } else {
-        final tapRec = TapGestureRecognizer()
-          ..onTap = () => _tapAyah(surahNum, ayahNum);
+        final tapRec = AyahTapAndLongPressGestureRecognizer();
+        tapRec.onTap = () => _tapAyah(surahNum, ayahNum);
+        tapRec.onLongPress = () => _openAyahTafsir(surahNum, surahName, ayahNum);
         _recognizers.add(tapRec);
 
         spans.add(TextSpan(
@@ -131,9 +172,10 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
         ));
       }
 
-      // Ayah ornament ﴿n﴾ — instant tap
-      final ornamentTap = TapGestureRecognizer()
-        ..onTap = () => _tapAyah(surahNum, ayahNum);
+      // Ayah ornament ﴿n﴾ — tap for audio + long press for tafsir
+      final ornamentTap = AyahTapAndLongPressGestureRecognizer();
+      ornamentTap.onTap = () => _tapAyah(surahNum, ayahNum);
+      ornamentTap.onLongPress = () => _openAyahTafsir(surahNum, surahName, ayahNum);
       _recognizers.add(ornamentTap);
 
       spans.add(TextSpan(
@@ -233,6 +275,14 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
                 ),
                 tooltip: 'حفظ علامة القراءة',
                 onPressed: () => widget.onSaveBookmark(surahNum, surahName, 1),
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.auto_stories_rounded,
+                  color: AppColors.gold,
+                ),
+                tooltip: 'قصة السورة ومقاصدها',
+                onPressed: () => _openSurahStory(surahNum),
               ),
             ],
           ),

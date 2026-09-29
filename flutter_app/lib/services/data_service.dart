@@ -1321,6 +1321,8 @@ class DataService extends ChangeNotifier {
 
   bool hasRole(String role) => _authSessionRepo.hasRole(role);
 
+  bool get isSuperAdminAuthenticated => _localDataSource.isSuperAdminAuthenticated;
+
   void disconnectRole(String role) {
     if (role == 'super_admin') {
       _localDataSource.isSuperAdminAuthenticated = false;
@@ -1647,11 +1649,169 @@ class DataService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void deleteMosque(String mosqueId) {
-    recordDeletedId(mosqueId);
-    _mosquesRepo.deleteMosque(mosqueId);
+  /// يحذف الجامع بالكامل وبشكل نظيف ونهائي مع كافة متعلقاته (الشيوخ، الحلقات،
+  /// الطلاب، السجلات، الفعاليات، المسابقات، المكافآت، الجلسات المحفوظة)
+  /// محلياً وسحابياً مع تسجيل شواهد الحذف لمنع أي عودة أو تعليق للبيانات.
+  Future<void> deleteMosqueCompletely(String mosqueId) async {
+    final mosque = getMosqueById(mosqueId);
+    if (mosque == null) return;
+
+    final mosqueAccessCode = mosque.accessCode;
+    final mosqueName = mosque.name;
+
+    // 1. جمع معرّفات كافة الكيانات المرتبطة بالمسجد
+    final sheikhsToDelete = _localDataSource.sheikhs.where((s) => s.mosqueId == mosqueId).toList();
+    final sheikhIds = sheikhsToDelete.map((s) => s.id).toSet();
+
+    final halaqatToDelete = _localDataSource.halaqat.where((h) => h.mosqueId == mosqueId).toList();
+    final halaqaIds = halaqatToDelete.map((h) => h.id).toSet();
+
+    final studentsToDelete = _localDataSource.students.where(
+      (st) => st.mosqueId == mosqueId || halaqaIds.contains(st.halaqaId),
+    ).toList();
+    final studentIds = studentsToDelete.map((st) => st.id).toSet();
+
+    final eventsToDelete = _localDataSource.communityEvents.where((e) => e.mosqueId == mosqueId).toList();
+    final eventIds = eventsToDelete.map((e) => e.id).toSet();
+
+    final competitionsToDelete = _localDataSource.competitions.where((c) => c.mosqueId == mosqueId).toList();
+    final competitionIds = competitionsToDelete.map((c) => c.id).toSet();
+
+    final rewardsToDelete = _localDataSource.rewards.where((r) => r.mosqueId == mosqueId).toList();
+    final rewardIds = rewardsToDelete.map((r) => r.id).toSet();
+
+    final coursesToDelete = _localDataSource.intensiveCourses.where((c) => c.mosqueId == mosqueId).toList();
+    final courseIds = coursesToDelete.map((c) => c.id).toSet();
+
+    final tripsToDelete = _localDataSource.trips.where((t) => t.mosqueId == mosqueId).toList();
+    final tripIds = tripsToDelete.map((t) => t.id).toSet();
+
+    final tracksToDelete = _localDataSource.recitationTracks.where((t) => t.mosqueId == mosqueId).toList();
+    final trackIds = tracksToDelete.map((t) => t.id).toSet();
+
+    // 2. تسجيل شواهد الحذف (Tombstones) لكافة المعرفات لمنع المزامنة السحابية من إعادة إحيائها
+    final allDeletedIds = <String>{
+      mosqueId,
+      ...sheikhIds,
+      ...halaqaIds,
+      ...studentIds,
+      ...eventIds,
+      ...competitionIds,
+      ...rewardIds,
+      ...courseIds,
+      ...tripIds,
+      ...trackIds,
+    };
+    for (final id in allDeletedIds) {
+      recordDeletedId(id);
+    }
+
+    // 3. حذف كافة الكيانات من الذاكرة المحلية
+    _localDataSource.mosques.removeWhere((m) => m.id == mosqueId);
+    _localDataSource.sheikhs.removeWhere((s) => sheikhIds.contains(s.id));
+    _localDataSource.halaqat.removeWhere((h) => halaqaIds.contains(h.id));
+    _localDataSource.students.removeWhere((st) => studentIds.contains(st.id));
+    _localDataSource.communityEvents.removeWhere((e) => eventIds.contains(e.id));
+    _localDataSource.eventQuestions.removeWhere((q) => eventIds.contains(q.eventId));
+    _localDataSource.competitions.removeWhere((c) => competitionIds.contains(c.id));
+    _localDataSource.rewards.removeWhere((r) => rewardIds.contains(r.id));
+    _localDataSource.redemptions.removeWhere(
+      (red) => rewardIds.contains(red.rewardId) || studentIds.contains(red.studentId),
+    );
+    _localDataSource.intensiveCourses.removeWhere((c) => courseIds.contains(c.id));
+    _localDataSource.trips.removeWhere((t) => tripIds.contains(t.id));
+    _localDataSource.memorizationRecords.removeWhere(
+      (rec) => studentIds.contains(rec.studentId) || halaqaIds.contains(rec.halaqaId),
+    );
+    _localDataSource.attendanceRecords.removeWhere(
+      (att) => studentIds.contains(att.studentId) || halaqaIds.contains(att.halaqaId),
+    );
+    _localDataSource.pointsLogs.removeWhere((pl) => studentIds.contains(pl.studentId));
+    _localDataSource.messages.removeWhere(
+      (msg) => studentIds.contains(msg.studentId) || halaqaIds.contains(msg.halaqaId),
+    );
+    _localDataSource.subjectRecitationRecords.removeWhere((srr) => studentIds.contains(srr.studentId));
+    _localDataSource.recitationTracks.removeWhere((rt) => rt.mosqueId == mosqueId);
+
+    // تنظيف سجل استخدام الأكواد في حال كان المسجد مسجلاً فيه
+    _localDataSource.tokenUsageHistory.removeWhere(
+      (h) => h['mosqueAccessCode'] == mosqueAccessCode || h['mosqueName'] == mosqueName,
+    );
+
+    // 4. معالجة ارتباطات الفرع النسائي والمسجد الأب
+    final parentId = mosque.parentMosqueId;
+    if (parentId != null && parentId.isNotEmpty) {
+      final pIdx = _localDataSource.mosques.indexWhere((m) => m.id == parentId);
+      if (pIdx != -1 && _localDataSource.mosques[pIdx].womenBranchId == mosqueId) {
+        final released = _localDataSource.mosques[pIdx].copyWith(
+          clearWomenBranch: true,
+          clearWomenAccessCode: true,
+        );
+        _localDataSource.mosques[pIdx] = released;
+      }
+    }
+    final womenBranchId = mosque.womenBranchId;
+    if (womenBranchId != null && womenBranchId.isNotEmpty) {
+      final wIdx = _localDataSource.mosques.indexWhere((m) => m.id == womenBranchId);
+      if (wIdx != -1) {
+        final released = _localDataSource.mosques[wIdx].copyWith(
+          parentMosqueId: '',
+        );
+        _localDataSource.mosques[wIdx] = released;
+      }
+    }
+
+    // 5. تصفير الجلسات المحفوظة أو الجلسة النشطة الخاصة بالمسجد
+    _localDataSource.savedSessions.removeWhere(
+      (s) => s.mosqueId == mosqueId ||
+             (s.studentId != null && studentIds.contains(s.studentId)) ||
+             (s.sheikhId != null && sheikhIds.contains(s.sheikhId)),
+    );
+    if (_localDataSource.currentSession?.mosqueId == mosqueId ||
+        studentIds.contains(_localDataSource.currentSession?.studentId) ||
+        sheikhIds.contains(_localDataSource.currentSession?.sheikhId)) {
+      _localDataSource.currentSession = _localDataSource.savedSessions.isNotEmpty
+          ? _localDataSource.savedSessions.last
+          : null;
+    }
+    if (_localDataSource.activeStudentId != null &&
+        studentIds.contains(_localDataSource.activeStudentId)) {
+      _localDataSource.activeStudentId = null;
+    }
+
+    // 6. الحفظ الفوري في التخزين المحلي
+    await _localDataSource.saveToStorage();
+
+    // 7. الحذف السحابي من Supabase
+    final client = _remoteDataSource.client;
+    if (client != null) {
+      try {
+        await client.from('mosques').delete().eq('id', mosqueId);
+      } catch (e) {
+        debugPrint('⚠️ خطأ حذف المسجد سحابياً: $e');
+      }
+      if (mosqueAccessCode.isNotEmpty) {
+        try {
+          await client.from('registration_tokens').delete().eq('mosque_access_code', mosqueAccessCode);
+        } catch (_) {}
+      }
+    }
+
+    // إدراج الحذف في طابور المزامنة للطوارئ (إن كان بدون إنترنت)
+    _syncQueueManager.queueSync(
+      table: 'mosques',
+      action: 'delete',
+      data: {},
+      id: mosqueId,
+      remoteDataSource: _remoteDataSource,
+    );
+
     _authSessionRepo.validateActiveSessions();
     notifyListeners();
+  }
+
+  void deleteMosque(String mosqueId) {
+    unawaited(deleteMosqueCompletely(mosqueId));
   }
 
 
@@ -3015,51 +3175,63 @@ class DataService extends ChangeNotifier {
     }
   }
 
-  /// يستعيد جلسة المشرف العام عند الإقلاع.
-  ///
-  /// العلامة المحلية وحدها لا تكفي: لا بد من جلسة Supabase صالحة ومحفوظة على
-  /// الجهاز. بهذا يعمل التطبيق دون إنترنت بعد أول دخول، دون أن تتحول العلامة
-  /// المحلية إلى باب خلفي يُفتح بتعديل التخزين المحلي.
+  /// يستعيد جلسة المشرف العام عند الإقلاع ويثبت بقاءها دائماً على هذا الجهاز.
+  /// طالما تمت المصادقة بنجاح مسبقاً، تظل الصلاحية محفوظة ومفعلة للأبد،
+  /// ولا تُجرَّد إلا إذا قام المطور شخصياً بحذف السجل من جدول super_admins في الباك إند
+  /// أو عند تسجيل الخروج اليدوي من اللوحة.
   Future<void> restoreSuperAdminSessionIfNeeded() async {
-    // نراقب تغيّر حالة المصادقة دائماً: هو ما يُسقط العلامة عند تسجيل خروج
-    // حقيقي، وما يُفعّل الجلسة إن تأخر استرجاعها أو تأخر تجديد التوكن.
     _watchSuperAdminAuthState();
 
     if (!_localDataSource.isSuperAdminAuthenticated) return;
 
-    // الانتظار ضروري: استرجاع الجلسة المحفوظة يجري في الخلفية بعد
-    // `Supabase.initialize()`، وقراءة `currentSession` قبله تُرجع null دائماً
-    await _remoteDataSource.waitForSessionRestore();
-
-    if (_remoteDataSource.client?.auth.currentSession == null) {
-      // لا نُسقط العلامة هنا: الغياب قد يكون انقطاع إنترنت أو تأخر تجديد،
-      // وإسقاطها يعني إجبار المشرف على تسجيل دخول جديد بلا سبب.
-      // الإسقاط يتم حصراً عند حدث تسجيل خروج مؤكَّد من الخادم.
-      debugPrint('ℹ️ لم تُسترجع جلسة المشرف العام بعد؛ سيُفعّل الدخول حال توفرها');
-      return;
-    }
-
+    // تفعيل الجلسة فوراً بدون تأخير اعتماداً على التوثيق الدائم للجهاز
     _activateSuperAdminSession();
     notifyListeners();
+
+    // التحقق السحابي في الخلفية: فقط إذا كان الاتصال متاحاً، نتأكد أن الصلاحية لم تُجرّد من الباك إند
+    unawaited(_verifyBackendSuperAdminStatus());
+  }
+
+  /// يتحقق سحابياً في الخلفية من بقاء صلاحية المشرف العام في جدول super_admins.
+  /// لا يسقط التوثيق أبداً بسبب انقطاع الإنترنت أو انتهاء التوكن المؤقت،
+  /// بل فقط وفقط إذا استجاب السيرفر صراحة بأن المستخدم لم يعد موجوداً في جدول المشرفين.
+  Future<void> _verifyBackendSuperAdminStatus() async {
+    final client = _remoteDataSource.client;
+    if (client == null) return;
+
+    try {
+      await _remoteDataSource.waitForSessionRestore(timeout: const Duration(seconds: 4));
+      final user = client.auth.currentUser;
+      if (user == null) {
+        // انقطاع إنترنت أو توكن مؤقت يحتاج تجديد، نحافظ على التوثيق كما هو
+        return;
+      }
+
+      final isStillSuper = await _verifySuperAdminRole(client, user.id);
+      if (!isStillSuper) {
+        // المطور قام شخصياً بتجريد المستخدم من جدول super_admins بالباك إند
+        debugPrint('⛔ تم تجريد صلاحية المشرف العام من الباك إند (قاعدة البيانات)');
+        _localDataSource.isSuperAdminAuthenticated = false;
+        await _localDataSource.saveToStorage();
+        _authSessionRepo.disconnectRole('super_admin');
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('ℹ️ تعذر التحقق من صلاحية المشرف العام في الباك إند: $e');
+    }
   }
 
   StreamSubscription<AuthState>? _superAdminAuthSub;
 
   /// يربط جلسة المشرف العام بحالة المصادقة الحقيقية طوال عمر التطبيق.
-  ///
-  /// بهذا تُفعَّل الجلسة متى توفّرت (استرجاع متأخر أو تجديد توكن بعد عودة
-  /// الإنترنت)، وتُسقط العلامة المحلية عند تسجيل خروج مؤكَّد فقط.
   void _watchSuperAdminAuthState() {
     final client = _remoteDataSource.client;
     if (client == null || _superAdminAuthSub != null) return;
 
     _superAdminAuthSub = client.auth.onAuthStateChange.listen((state) {
+      // لا نسقط التوثيق المحلي إطلاقاً عند حدث signedOut التلقائي، لأن التوكن ينتهي كل ساعة
+      // وأي انقطاع إنترنت يطلق signedOut. التجريد يتم يدوياً عبر disconnectRole أو تجريد الباك إند.
       if (state.event == AuthChangeEvent.signedOut) {
-        if (!_localDataSource.isSuperAdminAuthenticated) return;
-        _localDataSource.isSuperAdminAuthenticated = false;
-        _localDataSource.saveToStorage();
-        _authSessionRepo.disconnectRole('super_admin');
-        notifyListeners();
         return;
       }
 

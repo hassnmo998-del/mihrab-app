@@ -83,6 +83,31 @@
                 <action android:name="com.masjed.mihrab.ACTION_SILENCE_ADHAN" />
             </intent-filter>
         </receiver>
+
+        <!-- مستلم منبهات الأذان الدقيقة في الخلفية والشاشة مقفلة (AlarmManager) -->
+        <receiver
+            android:name=".AdhanAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.masjed.mihrab.ACTION_PRAYER_ALARM" />
+                <action android:name="com.masjed.mihrab.ACTION_SILENCE_ADHAN" />
+            </intent-filter>
+        </receiver>
+
+        <!-- مستلم إعادة جدولة تنبيهات الأذان عند إعادة تشغيل الهاتف أو تغيير التوقيت -->
+        <receiver
+            android:name=".AdhanBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- بعض الهواتف (شاومي، HTC) تعلن الإقلاع السريع بهذا الاسم -->
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <!-- بعد تحديث التطبيق: يعود شريط مواقيت الصلاة دون انتظار فتحه -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

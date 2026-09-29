@@ -2,10 +2,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../data/quran_data.dart';
 import '../../../services/quran_audio_service.dart';
 import '../../../services/quran_search_service.dart';
 import '../../../services/quran_service.dart';
+import 'ayah_gesture_recognizer.dart';
 import 'quran_audio_bar.dart';
+import 'quran_ayah_tafsir_sheet.dart';
+import 'quran_surah_story_view.dart';
 
 /// Authentic Page-by-Page Madinah Mushaf Viewer (604 Pages).
 /// Features RTL swipe, Tajweed letter-joining, Surah headers, and page bookmarking.
@@ -161,6 +165,18 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
       firstAyah?.surahName ?? 'الفاتحة',
       firstAyah?.ayahNumberInSurah ?? 1,
     );
+  }
+
+  Future<void> _openSurahStory(int surahNum) async {
+    final newSurah = await QuranSurahStoryView.open(
+      context: context,
+      initialSurahNumber: surahNum,
+      isDark: widget.isDark,
+    );
+    if (newSurah != null && mounted) {
+      final startPage = QuranService.getSurahStartPage(newSurah);
+      _goToPage(startPage);
+    }
   }
 
   void _zoom(double delta) {
@@ -402,6 +418,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
                       isBookmarked: widget.bookmarkedPage == pageNum,
                       highlightKey: _highlightKey,
                       onToggleTajweed: () => setState(() => _isTajweedMode = !_isTajweedMode),
+                      onOpenSurahStory: _openSurahStory,
                     );
                   },
                 ),
@@ -443,6 +460,7 @@ class _MushafPageCard extends StatefulWidget {
   final VoidCallback onBookmark;
   final bool isBookmarked;
   final VoidCallback onToggleTajweed;
+  final void Function(int surahNum)? onOpenSurahStory;
 
   /// Ayah picked from search results (`surah:ayah`), highlighted like the playing ayah.
   final String? highlightKey;
@@ -460,6 +478,7 @@ class _MushafPageCard extends StatefulWidget {
     required this.onBookmark,
     required this.isBookmarked,
     required this.onToggleTajweed,
+    this.onOpenSurahStory,
     this.highlightKey,
   });
 
@@ -477,6 +496,21 @@ class _MushafPageCardState extends State<_MushafPageCard> {
 
   /// ScrollController لحفظ موضع التمرير عند إعادة البناء
   final ScrollController _scrollController = ScrollController();
+
+  void _openAyahTafsir(int surahNum, String surahName, int ayahNum) {
+    final surahInfo = quranSurahsInfo.firstWhere(
+      (s) => s.number == surahNum,
+      orElse: () => SurahInfo(number: surahNum, name: surahName, ayahCount: 7, startJuz: 1),
+    );
+    QuranAyahTafsirSheet.show(
+      context: context,
+      surahNumber: surahNum,
+      surahName: surahName,
+      initialAyahNumber: ayahNum,
+      totalAyahs: surahInfo.ayahCount,
+      isDark: widget.isDark,
+    );
+  }
 
   @override
   void initState() {
@@ -627,14 +661,15 @@ class _MushafPageCardState extends State<_MushafPageCard> {
       ));
 
       if (isTajweedMode) {
-        // Tajweed mode — wrap each span with backgroundColor + instant tap
+        // Tajweed mode — tap for audio + long press for tafsir
         final tajweedChildren = QuranService.buildTajweedSpans(
           a.tajweedText,
           fontSize: fontSize,
           isDark: isDark,
         );
-        final tapRec = TapGestureRecognizer()
-          ..onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+        final tapRec = AyahTapAndLongPressGestureRecognizer();
+        tapRec.onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+        tapRec.onLongPress = () => _openAyahTafsir(a.surahNumber, a.surahName, a.ayahNumberInSurah);
         _recognizers.add(tapRec);
 
         spans.add(TextSpan(
@@ -649,9 +684,10 @@ class _MushafPageCardState extends State<_MushafPageCard> {
           }).toList(),
         ));
       } else {
-        // Normal Uthmani mode — instant highlight + async audio
-        final tapRec = TapGestureRecognizer()
-          ..onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+        // Normal Uthmani mode — tap for audio + long press for tafsir
+        final tapRec = AyahTapAndLongPressGestureRecognizer();
+        tapRec.onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+        tapRec.onLongPress = () => _openAyahTafsir(a.surahNumber, a.surahName, a.ayahNumberInSurah);
         _recognizers.add(tapRec);
 
         spans.add(TextSpan(
@@ -667,9 +703,10 @@ class _MushafPageCardState extends State<_MushafPageCard> {
         ));
       }
 
-      // Ayah ornament ﴿١﴾ — same instant behaviour
-      final ornamentTap = TapGestureRecognizer()
-        ..onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+      // Ayah ornament ﴿١﴾ — tap for audio + long press for tafsir
+      final ornamentTap = AyahTapAndLongPressGestureRecognizer();
+      ornamentTap.onTap = () => _tapAyah(a.surahNumber, a.ayahNumberInSurah, pageNumber: page.pageNumber);
+      ornamentTap.onLongPress = () => _openAyahTafsir(a.surahNumber, a.surahName, a.ayahNumberInSurah);
       _recognizers.add(ornamentTap);
 
       spans.add(TextSpan(
@@ -868,6 +905,16 @@ class _MushafPageCardState extends State<_MushafPageCard> {
             widget.onBookmark,
             isDark,
             active: widget.isBookmarked,
+          ),
+          const SizedBox(width: 5),
+          _headerChip(
+            Icons.auto_stories_rounded,
+            'قصة السورة ومقاصدها',
+            () {
+              final surahNum = page.surahNumbers.isNotEmpty ? page.surahNumbers.first : 1;
+              widget.onOpenSurahStory?.call(surahNum);
+            },
+            isDark,
           ),
           Expanded(
             child: Align(

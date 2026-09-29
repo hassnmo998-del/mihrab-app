@@ -1,157 +1,294 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- الإشعار موسّعاً: الصلاة، العدّاد الكبير، موعدا الأذان والإقامة، ومواقيت اليوم الستة. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/cardBackground"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:layoutDirection="rtl"
     android:background="@drawable/bg_prayer_card_normal"
-    android:paddingStart="14dp"
-    android:paddingEnd="14dp"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
     android:gravity="center_horizontal">
 
-    <!-- Top Badge (Pill Capsule) -->
     <LinearLayout
-        android:id="@+id/badgeLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:background="@drawable/bg_badge_capsule"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:gravity="center">
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp">
 
         <TextView
-            android:id="@+id/badgeText"
+            android:id="@+id/bigTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="الصلاة القادمة: الفجر 🌙"
+            android:text="أذان العصر"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:gravity="center" />
+            android:textSize="13sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Center Countdown Chronometer -->
     <Chronometer
-        android:id="@+id/countdownChronometer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:textColor="#FFFFFF"
-        android:textSize="34sp"
-        android:textStyle="bold"
-        android:typeface="monospace"
-        android:gravity="center" />
-
-    <!-- Subtitle: e.g. "الوقت المتبقي لرفع الأذان" -->
-    <TextView
-        android:id="@+id/countdownSubtitle"
+        android:id="@+id/bigCountdown"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:text="الوقت المتبقي لرفع الأذان"
-        android:textColor="#CCFFFFFF"
-        android:textSize="11sp"
-        android:gravity="center" />
+        android:layoutDirection="ltr"
+        android:textDirection="ltr"
+        android:textColor="#FFFFFF"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:typeface="monospace" />
 
-    <!-- Two-column info chips row -->
-    <LinearLayout
-        android:id="@+id/chipsRow"
-        android:layout_width="match_parent"
+    <!-- أندرويد 6 وأقدم: ساعة الموعد بدل العدّاد -->
+    <TextView
+        android:id="@+id/bigTargetTime"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp"
-        android:gravity="center">
+        android:layout_marginTop="2dp"
+        android:textColor="#FFFFFF"
+        android:textSize="26sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
-        <!-- Right chip: Adhan Time -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/bg_time_chip"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="5dp"
-            android:paddingBottom="5dp"
-            android:layout_marginEnd="4dp"
-            android:gravity="center">
+    <TextView
+        android:id="@+id/countdownLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="متبقٍ لأذان العصر"
+        android:textColor="#DDFFFFFF"
+        android:textSize="11.5sp" />
 
-            <TextView
-                android:id="@+id/chipAdhanLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="موعد الأذان 🕌"
-                android:textColor="#E0FFFFFF"
-                android:textSize="10.5sp" />
+    <TextView
+        android:id="@+id/bigDetail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:text="الأذان 3:48 م • الإقامة 4:08 م"
+        android:textColor="#FFFFFF"
+        android:textSize="12.5sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end" />
 
-            <TextView
-                android:id="@+id/chipAdhanTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
-                android:text="05:03 ص"
-                android:textColor="#FFFFFF"
-                android:textSize="12.5sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- Left chip: Iqama Time -->
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/bg_time_chip"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="5dp"
-            android:paddingBottom="5dp"
-            android:layout_marginStart="4dp"
-            android:gravity="center">
-
-            <TextView
-                android:id="@+id/chipIqamaLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="الإقامة المتوقعة ⏳"
-                android:textColor="#E0FFFFFF"
-                android:textSize="10.5sp" />
-
-            <TextView
-                android:id="@+id/chipIqamaTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
-                android:text="05:28 ص"
-                android:textColor="#FFFFFF"
-                android:textSize="12.5sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Live Adhan Silence Button (Visible only when Adhan is sounding) -->
     <LinearLayout
-        android:id="@+id/liveSilenceContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:gravity="center"
-        android:visibility="gone">
+        android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/btnSilenceAdhan"
-            android:layout_width="match_parent"
-            android:layout_height="34dp"
-            android:background="@drawable/bg_silence_btn"
-            android:text="إسكات الأذان فوراً 🔇"
-            android:textColor="#DC2626"
-            android:textSize="12.5sp"
-            android:textStyle="bold"
-            android:gravity="center" />
+        <LinearLayout
+            android:id="@+id/cell0"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="0dp"
+            android:layout_marginEnd="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell0Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="الفجر"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell0Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="5:05"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cell1"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell1Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="الشروق"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell1Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="6:28"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cell2"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell2Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="الظهر"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell2Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="12:26"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cell3"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell3Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="العصر"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell3Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="3:48"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cell4"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell4Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="المغرب"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell4Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="6:22"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/cell5"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="0dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:background="@drawable/bg_time_chip">
+
+            <TextView
+                android:id="@+id/cell5Name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="العشاء"
+                android:textColor="#FFFFFF"
+                android:textSize="10.5sp"
+                android:maxLines="1" />
+
+            <TextView
+                android:id="@+id/cell5Time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="7:40"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textDirection="ltr"
+                android:maxLines="1" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
