@@ -38,20 +38,44 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Fetch Latest Release Binaries for Direct CDN Hosting
+      # كل تنزيل من الإصدار يُحسب في عدد التحميلات المعروض على الموقع، فنحفظ الملفين
+      # مرة واحدة لكل إصدار (مفتاح: الوسم ومعرّفات الملفين) بدل تنزيلهما مع كل نشر.
+      - name: Latest release binaries (cache key)
+        id: bins
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p temp_downloads
-          gh release download --repo "${{ github.repository }}" --pattern "*.apk" --pattern "*.exe" --dir temp_downloads --clobber
+          ids=$(gh release view --repo "${{ github.repository }}" --json tagName,assets \
+            -q '.tagName + "-" + ([.assets[] | select(.name | test("\\.(apk|exe)$")) | .id] | join("-"))')
+          case "$ids" in
+            *-?*-?*) echo "key=release-binaries-$ids" >> "$GITHUB_OUTPUT" ;;
+            *) echo "key=release-binaries-nocache-${{ github.run_id }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Cached release binaries
+        id: bins-cache
+        uses: actions/cache@v4
+        with:
+          path: release_bins
+          key: ${{ steps.bins.outputs.key }}
+
+      - name: Fetch Latest Release Binaries for Direct CDN Hosting
+        if: steps.bins-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release_bins
+          gh release download --repo "${{ github.repository }}" --pattern "*.apk" --pattern "*.exe" --dir release_bins --clobber
+
+      - name: Place binaries on the site
+        run: |
           mkdir -p website/downloads
-          for f in temp_downloads/*.apk; do
+          for f in release_bins/*.apk; do
             [ -f "$f" ] && cp "$f" website/downloads/mihrab-android.apk
           done
-          for f in temp_downloads/*.exe; do
+          for f in release_bins/*.exe; do
             [ -f "$f" ] && cp "$f" website/downloads/mihrab-windows.exe
           done
-          rm -rf temp_downloads
           ls -lh website/downloads/
 
       # نسخة الآيفون (web.yml يرفقها بالإصدار). بعد إصدار جديد قد يسبق النشرُ بناءَها
