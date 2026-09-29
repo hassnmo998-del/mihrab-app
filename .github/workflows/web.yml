@@ -1,0 +1,71 @@
+name: 📱 Build iPhone (Web) App
+
+# نسخة الآيفون تطبيق ويب يُضاف من Safari إلى الشاشة الرئيسية، ويُنشر على الموقع تحت /app/.
+# تُبنى بعد كل إصدار (فتطابق أندرويد وويندوز)، وتُرفق بالإصدار باسم mihrab-web.zip،
+# ثم يُعاد نشر الموقع ليأخذها. لا ترفع هذه الخطوة أي تحديث لأندرويد أو ويندوز.
+on:
+  workflow_run:
+    workflows: ["🚀 Build & Release Mihrab App"]
+    types: [completed]
+  # تعديل غلاف الويب نفسه (الأيقونات، دليل الإضافة، سكربت البناء) يعيد البناء لآخر إصدار
+  push:
+    branches: [main]
+    paths:
+      - 'flutter_app/web/**'
+      - 'flutter_app/tool/build_web.sh'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # رفع mihrab-web.zip إلى الإصدار
+  actions: write    # تشغيل نشر الموقع بعد البناء
+
+concurrency:
+  group: web-build
+  cancel-in-progress: false
+
+env:
+  # يجب أن تبقى مطابقة لـ release.yml
+  FLUTTER_VERSION: '3.38.5'
+
+jobs:
+  build-web:
+    name: 📱 Build Web
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      # بعد إصدار: نفس الالتزام الذي بُني منه أندرويد وويندوز. غير ذلك: الالتزام المدفوع.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+
+      - name: Install dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+
+      - name: Build web
+        working-directory: flutter_app
+        env:
+          MIHRAB_FALLBACK_FONTS: '1'
+        run: bash tool/build_web.sh
+
+      - name: Attach to the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+          (cd flutter_app/build/web && zip -qr "$GITHUB_WORKSPACE/mihrab-web.zip" .)
+          ls -lh mihrab-web.zip
+          gh release upload "$tag" mihrab-web.zip --repo "${{ github.repository }}" --clobber
+          echo "📱 mihrab-web.zip → $tag"
+
+      - name: Redeploy the website
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref main

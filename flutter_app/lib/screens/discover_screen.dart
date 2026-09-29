@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
@@ -2187,6 +2188,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 icon: const Icon(Icons.file_open_rounded, size: 20),
                 label: Text('اختيار ملف من الجهاز (حتى ${MediaLimits.maxFileMbLabel} ميغابايت)'),
                 onPressed: () async {
+                  // الرفع ينسخ الملف إلى طابور على القرص؛ المتصفح (نسخة الآيفون) لا يكتب ملفات
+                  if (kIsWeb) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('رفع الملفات متاح من تطبيق أندرويد أو ويندوز')),
+                    );
+                    return;
+                  }
                   try {
                     final result = await FilePicker.pickFiles(
                       type: FileType.any,

@@ -130,6 +130,13 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
   }
 
   Future<void> _startRecording() async {
+    // التسجيل يكتب ملفاً على الجهاز ثم يرفعه؛ المتصفح (نسخة الآيفون) لا يكتب ملفات
+    if (PlatformUtils.isWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تسجيل الدروس متاح من تطبيق أندرويد أو ويندوز')),
+      );
+      return;
+    }
     try {
       if (await _audioRecorder.hasPermission()) {
         final dir = await getApplicationDocumentsDirectory();

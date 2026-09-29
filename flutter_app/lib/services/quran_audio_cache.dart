@@ -49,6 +49,8 @@ class QuranAudioCache {
 
   Future<Directory?> _dir() async {
     if (_root != null) return _root;
+    // المتصفح (نسخة الآيفون) بلا قرص: التلاوة تُشغَّل من الرابط، ويخزّنها المتصفح نفسه
+    if (kIsWeb) return null;
     try {
       final base = await getApplicationCacheDirectory();
       _root = Directory('${base.path}${Platform.pathSeparator}quran_audio');

@@ -54,6 +54,39 @@ jobs:
           rm -rf temp_downloads
           ls -lh website/downloads/
 
+      # نسخة الآيفون (web.yml يرفقها بالإصدار). بعد إصدار جديد قد يسبق النشرُ بناءَها
+      # ببضع دقائق، فنأخذ أحدث إصدار يحملها ويعيد web.yml النشر حين ينتهي.
+      - name: Fetch the iPhone (web) app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="${{ github.repository }}"
+          web_tag=""
+          for t in $(gh release list --repo "$repo" --limit 30 --exclude-drafts --json tagName -q '.[].tagName'); do
+            if gh release view "$t" --repo "$repo" --json assets -q '.assets[].name' | grep -qx 'mihrab-web.zip'; then
+              web_tag="$t"; break
+            fi
+          done
+          if [ -n "$web_tag" ]; then
+            gh release download "$web_tag" --repo "$repo" --pattern mihrab-web.zip --dir temp_web --clobber
+            mkdir -p website/app
+            unzip -q temp_web/mihrab-web.zip -d website/app
+            rm -rf temp_web
+            echo "📱 website/app ← $web_tag"
+          else
+            echo "::warning::No release carries mihrab-web.zip yet; deploying without /app/"
+          fi
+
+      # رقم آخر إصدار وعدد التحميلات لحظة النشر: تعرضهما الصفحة فوراً دون انتظار GitHub API
+      - name: Write site data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases?per_page=100" > temp_releases.json
+          node .github/scripts/site-data.js temp_releases.json > website/site-data.json
+          rm temp_releases.json
+          cat website/site-data.json
+
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v3
         with:

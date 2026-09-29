@@ -118,6 +118,7 @@ class ProfileImagePicker extends StatelessWidget {
       if (url.startsWith('http://') || url.startsWith('https://')) {
         return NetworkImage(url);
       }
+      if (kIsWeb) return null; // مسار ملف على جهاز آخر
       return FileImage(File(url));
     }
     return null;
@@ -175,7 +176,8 @@ class ProfileImagePicker extends StatelessWidget {
                   : null,
             ),
           ),
-          if (isEditable)
+          // الصورة تُحفظ ملفاً على الجهاز نفسه، والمتصفح (نسخة الآيفون) لا يحفظ ملفات
+          if (isEditable && !kIsWeb)
             Positioned(
               bottom: 0,
               left: 0,

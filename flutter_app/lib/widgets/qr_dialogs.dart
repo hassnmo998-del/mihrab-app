@@ -785,6 +785,22 @@ class _UnifiedQrActionsRowState extends State<UnifiedQrActionsRow> {
           final image = await boundary.toImage(pixelRatio: 3.0);
           final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
           if (byteData != null) {
+            final safeCode = widget.code.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+            // المتصفح (نسخة الآيفون) لا يكتب ملفات: نشارك الصورة من الذاكرة مباشرة
+            if (kIsWeb) {
+              await Share.shareXFiles(
+                [
+                  XFile.fromData(
+                    byteData.buffer.asUint8List(),
+                    mimeType: 'image/png',
+                    name: 'qr_card_$safeCode.png',
+                  ),
+                ],
+                text: fullText,
+              );
+              return;
+            }
+
             Directory? targetDir;
             try {
               if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
@@ -795,7 +811,6 @@ class _UnifiedQrActionsRowState extends State<UnifiedQrActionsRow> {
 
             final sep = Platform.isWindows ? '\\' : '/';
             final timestamp = DateTime.now().millisecondsSinceEpoch;
-            final safeCode = widget.code.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
             var fullPath = '${targetDir.path}$sep' 'qr_card_${safeCode}_$timestamp.png';
             if (Platform.isWindows) {
               fullPath = fullPath.replaceAll('/', '\\');
@@ -868,6 +883,19 @@ class _UnifiedQrActionsRowState extends State<UnifiedQrActionsRow> {
             final image = await boundary.toImage(pixelRatio: 3.0);
             final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
             if (byteData != null) {
+              final safeCode = widget.code.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+              // المتصفح (نسخة الآيفون): «حفظ الصورة» من نافذة المشاركة بدل الكتابة على القرص
+              if (kIsWeb) {
+                await Share.shareXFiles([
+                  XFile.fromData(
+                    byteData.buffer.asUint8List(),
+                    mimeType: 'image/png',
+                    name: 'qr_card_${safeCode}_print.png',
+                  ),
+                ]);
+                return;
+              }
+
               Directory? targetDir;
               try {
                 if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
@@ -878,7 +906,6 @@ class _UnifiedQrActionsRowState extends State<UnifiedQrActionsRow> {
 
               final sep = Platform.isWindows ? '\\' : '/';
               final timestamp = DateTime.now().millisecondsSinceEpoch;
-              final safeCode = widget.code.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
               var fullPath = '${targetDir.path}$sep' 'qr_card_${safeCode}_print_$timestamp.png';
               if (Platform.isWindows) {
                 fullPath = fullPath.replaceAll('/', '\\');

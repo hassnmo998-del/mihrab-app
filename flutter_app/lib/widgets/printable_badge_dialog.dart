@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -99,6 +100,16 @@ class _PrintableBadgeDialogState extends State<PrintableBadgeDialog> {
       }
 
       final pngBytes = byteData.buffer.asUint8List();
+
+      // المتصفح (نسخة الآيفون) لا يكتب ملفات: نشارك الصورة من الذاكرة مباشرة
+      if (kIsWeb) {
+        final safeCode = widget.code.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+        await Share.shareXFiles(
+          [XFile.fromData(pngBytes, mimeType: 'image/png', name: 'badge_$safeCode.png')],
+          text: _shareMessage,
+        );
+        return;
+      }
 
       Directory? targetDir;
       try {
@@ -408,6 +419,17 @@ class _PrintableBadgeDialogState extends State<PrintableBadgeDialog> {
                             final image = await boundary.toImage(pixelRatio: 3.0);
                             final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
                             if (byteData != null) {
+                              // المتصفح (نسخة الآيفون): «حفظ الصورة» من نافذة المشاركة
+                              if (kIsWeb) {
+                                await Share.shareXFiles([
+                                  XFile.fromData(
+                                    byteData.buffer.asUint8List(),
+                                    mimeType: 'image/png',
+                                    name: 'badge_${widget.code}_print.png',
+                                  ),
+                                ]);
+                                return;
+                              }
                               Directory? targetDir;
                               try {
                                 if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
@@ -150,6 +151,29 @@ class AppFileLauncher {
     var clean = pathOrUrl.trim();
     if (clean.isEmpty) {
       _showFeedback(context, 'لا يوجد مسار أو رابط صالح للفتح', isError: true);
+      return;
+    }
+
+    // المتصفح (نسخة الآيفون): لا تنزيل إلى القرص؛ يفتح الرابط نفسه ويتولى Safari الملف
+    if (kIsWeb) {
+      if (TelegramMediaResolver.isRef(clean)) {
+        final result = await TelegramMediaResolver.resolveResult(clean);
+        if (result.url == null) {
+          if (context.mounted) {
+            _showFeedback(context, TelegramMediaResolver.failureMessage(result.error), isError: true);
+          }
+          return;
+        }
+        clean = result.url!;
+      }
+      if (clean.startsWith('http://') || clean.startsWith('https://')) {
+        final opened = await _launchWebUrl(clean);
+        if (!opened && context.mounted) {
+          _showFeedback(context, 'تعذر فتح الرابط: $clean', isError: true);
+        }
+      } else if (context.mounted) {
+        _showFeedback(context, 'هذا الملف محفوظ على جهاز آخر', isError: true);
+      }
       return;
     }
 

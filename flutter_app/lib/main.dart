@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:mobile_scanner/mobile_scanner.dart' show MobileScannerPlatform;
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/di/injection.dart';
@@ -64,6 +65,11 @@ void main() async {
     }
     return false;
   };
+
+  // نسخة الويب: قارئ الـ QR يحمّل مكتبته من موقعنا (web/zxing) لا من unpkg.com
+  if (kIsWeb) {
+    MobileScannerPlatform.instance.setBarcodeLibraryScriptUrl('zxing/zxing-0.19.1.min.js');
+  }
 
   // تهيئة حقن التبعيات
   await initInjection();
@@ -251,8 +257,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     // استمع لـ F11 و Escape عالمياً بدون الحاجة لـ focus
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
-    // ── فحص التحديثات عند الإطلاق ─────────────────────────
-    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+    // ── فحص التحديثات عند الإطلاق (الويب يتحدث وحده) ─────────
+    if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
       // نؤخر ثانية واحدة حتى تستقر الواجهة الرئيسية أولاً
       _updateLaunchTimer = Timer(const Duration(milliseconds: 1000), _checkUpdateOnLaunch);
 

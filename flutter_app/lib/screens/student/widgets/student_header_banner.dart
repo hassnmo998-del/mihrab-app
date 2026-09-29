@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
@@ -26,6 +27,7 @@ class StudentHeaderBanner extends StatelessWidget {
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       return NetworkImage(trimmed);
     }
+    if (kIsWeb) return null; // لا ملفات محلية في المتصفح
     return FileImage(File(trimmed));
   }
 

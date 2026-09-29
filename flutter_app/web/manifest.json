@@ -1,12 +1,16 @@
 {
-    "name": "منصة محراب",
-    "short_name": "منصة محراب",
-    "start_url": ".",
+    "id": "./",
+    "name": "محراب",
+    "short_name": "محراب",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#FAF6F0",
+    "theme_color": "#FAF6F0",
+    "description": "منصة محراب الذكية لإدارة حلقات تحفيظ القرآن والفعاليات المجتمعية",
+    "lang": "ar",
+    "dir": "rtl",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {
@@ -30,6 +34,11 @@
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
+        },
+        {
+            "src": "icons/apple-touch-icon.png",
+            "sizes": "180x180",
+            "type": "image/png"
         }
     ]
 }

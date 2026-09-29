@@ -221,6 +221,8 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   Future<UpdateInfo?> checkForUpdate({bool ignoreDismissed = true}) async {
+    // نسخة الويب (الآيفون) تتحدث وحدها مع كل فتح: لا ملف تحديث ولا مثبّت
+    if (kIsWeb) return null;
     if (_packageVersion.isEmpty) await init();
 
     // تجنب الفحص المزدوج إذا كان الفحص جارياً حالياً

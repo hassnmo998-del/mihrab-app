@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 
@@ -61,7 +62,8 @@ class AppUserAvatar extends StatelessWidget {
     bool isLocalFile = false;
     File? localFile;
 
-    if (hasValidUrl) {
+    // مسار ملف على جهاز ما لا يعني شيئاً في المتصفح (نسخة الويب): تظهر الأحرف الأولى
+    if (hasValidUrl && !kIsWeb) {
       final trimmed = imageUrl!.trim();
       if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
         localFile = File(trimmed);
