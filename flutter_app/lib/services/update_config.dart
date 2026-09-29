@@ -11,4 +11,4 @@ const String kGithubRepoOwner = 'hassnmo998-del';
 const String kGithubRepoName  = 'mihrab-app';
 
 /// رقم الإصدار الحالي للتطبيق (مطابق لـ pubspec.yaml)
-const String kCurrentAppVersion = '1.0.5';
+const String kCurrentAppVersion = '1.0.6';

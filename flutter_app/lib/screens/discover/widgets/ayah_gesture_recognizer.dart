@@ -31,15 +31,27 @@ class AyahTapAndLongPressGestureRecognizer extends TapGestureRecognizer {
     });
   }
 
+  // A finger that travels is scrolling, not pressing. Checked in handleEvent rather than
+  // handleTapMove: once the move passes the slop the tap recognizer rejects itself
+  // without ever calling handleTapMove.
   @override
-  void handleTapMove({required PointerMoveEvent move}) {
-    if (_downPosition != null) {
-      final delta = (move.position - _downPosition!).distance;
-      if (delta > kTouchSlop) {
-        _longPressTimer?.cancel();
-      }
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent &&
+        _downPosition != null &&
+        (event.position - _downPosition!).distance > kTouchSlop) {
+      _longPressTimer?.cancel();
     }
-    super.handleTapMove(move: move);
+    super.handleEvent(event);
+  }
+
+  // The page's scroll (or the mushaf's page swipe) won this touch. A quick scroll wins
+  // before the tap-down deadline, and then handleTapCancel is never called, so the
+  // timer must stop here or the Tafsir opens by itself mid-scroll.
+  @override
+  void rejectGesture(int pointer) {
+    _longPressTimer?.cancel();
+    _longPressFired = false;
+    super.rejectGesture(pointer);
   }
 
   @override
