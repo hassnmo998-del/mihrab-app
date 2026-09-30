@@ -441,7 +441,8 @@ class AdhanService implements BackgroundAudioSource {
     // If clicking on current playing sound, toggle pause
     if (currentPlayingSoundNotifier.value?.id == sound.id &&
         isPlayingNotifier.value) {
-      await pause();
+      await _playerInstance?.pause();
+      isPlayingNotifier.value = false;
       return;
     }
 
@@ -449,12 +450,16 @@ class AdhanService implements BackgroundAudioSource {
     if (currentPlayingSoundNotifier.value?.id == sound.id &&
         !isPlayingNotifier.value &&
         positionNotifier.value > Duration.zero) {
-      await resume();
+      await _playerInstance?.resume();
+      isPlayingNotifier.value = true;
       return;
     }
 
     try {
-      await _player.stop();
+      // Stop only the local player — do NOT touch BackgroundAudio so we
+      // don't kick out the Quran reciter or register a foreground media
+      // session for a simple preview clip.
+      await _playerInstance?.stop();
       currentPlayingSoundNotifier.value = sound;
       isBufferingNotifier.value = true;
       isPlayingNotifier.value = false;
@@ -464,13 +469,10 @@ class AdhanService implements BackgroundAudioSource {
       await _player.setVolume(_volume);
       final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
       await _player.play(source);
-
-      if (!kIsWeb) {
-        try {
-          unawaited(BackgroundAudio.claim(this));
-        } catch (_) {}
-        _publishMediaSession(sound, isLive: false);
-      }
+      // Preview intentionally has NO BackgroundAudio.claim → stops when
+      // the user leaves the app (correct behaviour for a preview clip).
+      // Only the live Adhan fires with BackgroundAudio so it can continue
+      // in the background.
     } catch (e) {
       debugPrint('⚠️ Error in AdhanService.playPreview: $e');
       _onPlaybackFinished();
@@ -683,7 +685,11 @@ class AdhanService implements BackgroundAudioSource {
         final iqamaTime = pTime.add(Duration(minutes: iqamaMin));
         // If current time is between Adhan and Iqama
         if (now.isAfter(pTime) && now.isBefore(iqamaTime)) {
-          final remainingToIqama = iqamaTime.difference(now);
+          final rawRemaining = iqamaTime.difference(now);
+          // Clamp to zero — avoids negative display if system clock ticks
+          // past the target between UI frames.
+          final remainingToIqama =
+              rawRemaining.isNegative ? Duration.zero : rawRemaining;
           // Next prayer will be the one after this
           String nextPName = 'الشروق';
           DateTime nextPTime = todaySchedule[1]['time'] as DateTime;
@@ -711,31 +717,35 @@ class AdhanService implements BackgroundAudioSource {
       }
     }
 
-    // 2. Otherwise we are counting down to the upcoming prayer Adhan
+    // 2. Otherwise we are counting down to the upcoming prayer Adhan.
+    //    Skip prayers whose Iqama window has already passed so we never
+    //    show a negative countdown for a prayer that ended moments ago.
     for (int i = 0; i < todaySchedule.length; i++) {
       final p = todaySchedule[i];
       final pTime = p['time'] as DateTime;
       if (pTime.isAfter(now)) {
+        final rawRemaining = pTime.difference(now);
         return CurrentPrayerState(
           prayerName: p['name'] as String,
           prayerTime: pTime,
           phase: PrayerCountdownPhase.beforeAdhan,
-          remaining: pTime.difference(now),
+          remaining: rawRemaining.isNegative ? Duration.zero : rawRemaining,
           nextPrayerName: p['name'] as String,
           nextPrayerTime: pTime,
         );
       }
     }
 
-    // 3. Past Isha -> Tomorrow's Fajr
+    // 3. Past Isha → Tomorrow's Fajr
     final tomSchedule =
         calculateTodaySchedule(forDate: now.add(const Duration(days: 1)));
     final tomorrowFajr = tomSchedule.first['time'] as DateTime;
+    final rawRemaining = tomorrowFajr.difference(now);
     return CurrentPrayerState(
       prayerName: 'الفجر (غداً)',
       prayerTime: tomorrowFajr,
       phase: PrayerCountdownPhase.beforeAdhan,
-      remaining: tomorrowFajr.difference(now),
+      remaining: rawRemaining.isNegative ? Duration.zero : rawRemaining,
       nextPrayerName: 'الفجر (غداً)',
       nextPrayerTime: tomorrowFajr,
     );

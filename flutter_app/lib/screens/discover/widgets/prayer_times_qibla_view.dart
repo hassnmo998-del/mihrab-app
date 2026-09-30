@@ -135,6 +135,21 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
     return (initialBearing * (180.0 / math.pi) + 360.0) % 360.0;
   }
 
+  /// Formats a countdown [Duration] clamped to zero so it never shows
+  /// negative digits if the clock ticks past the target between frames.
+  String _formatRemaining(Duration d, {required bool iqamaPhase}) {
+    final safe = d.isNegative ? Duration.zero : d;
+    if (iqamaPhase) {
+      final mm = safe.inMinutes.toString().padLeft(2, '0');
+      final ss = (safe.inSeconds % 60).toString().padLeft(2, '0');
+      return '$mm:$ss';
+    }
+    final hh = safe.inHours.toString().padLeft(2, '0');
+    final mm = (safe.inMinutes % 60).toString().padLeft(2, '0');
+    final ss = (safe.inSeconds % 60).toString().padLeft(2, '0');
+    return '$hh:$mm:$ss';
+  }
+
   IconData _getPrayerIcon(String name) {
     if (name.contains('الفجر')) return Icons.nights_stay_outlined;
     if (name.contains('الشروق')) return Icons.wb_twilight_rounded;
@@ -294,9 +309,7 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    isIqamaPhase
-                        ? '${prayerState.remaining.inMinutes.toString().padLeft(2, '0')}:${(prayerState.remaining.inSeconds % 60).toString().padLeft(2, '0')}'
-                        : '${prayerState.remaining.inHours.toString().padLeft(2, '0')}:${(prayerState.remaining.inMinutes % 60).toString().padLeft(2, '0')}:${(prayerState.remaining.inSeconds % 60).toString().padLeft(2, '0')}',
+                    _formatRemaining(prayerState.remaining, iqamaPhase: isIqamaPhase),
                     style: const TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 42,
