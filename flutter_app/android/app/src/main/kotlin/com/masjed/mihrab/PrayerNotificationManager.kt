@@ -19,9 +19,11 @@ import java.util.Calendar
  *
  * يعمل وحده دون Flutter: التطبيق يرسل جدول الأسبوعين القادمين (أذان وإقامة كل صلاة)
  * عبر [sync]، وهنا نحسب المرحلة الحالية (قبل الأذان / بين الأذان والإقامة)، ونعرض عدّاداً
- * تنازلياً، ونضبط منبّهاً دقيقاً على لحظة انتهائه فيُعاد الرسم بالمرحلة التالية. لذلك لا
- * يتجاوز العدّاد الصفر إلى السالب ولا يعلق حين يُغلق التطبيق، ويعود بعد إعادة التشغيل
- * ([AdhanBootReceiver]) وحين يمسحه المستخدم (deleteIntent).
+ * تنازلياً، ونضبط منبّهات دقيقة متعددة على لحظة انتهائه فيُعاد الرسم بالمرحلة التالية.
+ *
+ * لمنع ظهور عدّاد سالب إذا أخّر نظام التشغيل أو مصنّع الجهاز المنبّه (Doze, OEM battery
+ * killers)، تُضبط ثلاثة منبّهات بديلة ومنبّه حارس (watchdog) دوري كل 5 دقائق.
+ * يعود بعد إعادة التشغيل ([AdhanBootReceiver]) وحين يمسحه المستخدم (deleteIntent).
  */
 object PrayerNotificationManager {
     const val CHANNEL_ID = "mihrab_prayer_tracker"
@@ -33,6 +35,9 @@ object PrayerNotificationManager {
     private const val KEY_ENABLED = "enabled"
     private const val REQUEST_REFRESH_ALARM = 3001
     private const val REQUEST_REPOST = 3002
+    private const val REQUEST_REFRESH_BACKUP_30 = 3003
+    private const val REQUEST_REFRESH_BACKUP_120 = 3004
+    private const val REQUEST_WATCHDOG = 3005
     private const val SUNRISE = "الشروق"
 
     private data class PrayerEvent(val name: String, val adhan: Long, val iqama: Long) {
@@ -51,15 +56,15 @@ object PrayerNotificationManager {
     /** يوقف الشريط: لا يعود بعد إعادة التشغيل حتى يُفعَّل من التطبيق. */
     fun disable(context: Context) {
         prefs(context).edit().putBoolean(KEY_ENABLED, false).apply()
-        cancelRefreshAlarm(context)
+        cancelAllAlarms(context)
         notificationManager(context).cancel(NOTIFICATION_ID)
     }
 
-    /** يرسم الإشعار بحسب اللحظة الحالية ويضبط منبّه التحديث التالي. */
+    /** يرسم الإشعار بحسب اللحظة الحالية ويضبط منبّهات التحديث التالي. */
     fun refresh(context: Context) {
         val prefs = prefs(context)
         if (!prefs.getBoolean(KEY_ENABLED, false)) {
-            cancelRefreshAlarm(context)
+            cancelAllAlarms(context)
             notificationManager(context).cancel(NOTIFICATION_ID)
             return
         }
@@ -75,7 +80,7 @@ object PrayerNotificationManager {
         if (inIqama == null && upcoming == null) {
             // انتهى الجدول (لم يُفتح التطبيق منذ أسبوعين): رسالة ثابتة بلا عدّاد
             post(context, staleNotification(context))
-            cancelRefreshAlarm(context)
+            cancelAllAlarms(context)
             return
         }
 
@@ -86,7 +91,7 @@ object PrayerNotificationManager {
         val day = events.filter { sameDay(it.adhan, current.adhan) }
 
         post(context, buildNotification(context, current, isIqama, target, after, day, now))
-        scheduleRefresh(context, target)
+        scheduleRefreshAlarms(context, target)
     }
 
     // ─── الرسم ────────────────────────────────────────────────────────────
@@ -136,9 +141,11 @@ object PrayerNotificationManager {
         big.setTextViewText(R.id.countdownLabel, countdownLabel)
         big.setTextViewText(R.id.bigDetail, detail)
 
-        // العدّاد: ينتهي عند [target] تماماً، ومنبّه التحديث يستبدله بالمرحلة التالية لحظتها
-        val remaining = (target - now).coerceAtLeast(0)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        // العدّاد: ينتهي عند [target] تماماً، ومنبّهات التحديث تستبدله بالمرحلة التالية لحظتها.
+        // إذا مضى الموعد (remaining ≤ 0) — نعرض وقت الموعد نصّاً ثابتاً بدل Chronometer
+        // لمنع ظهور أرقام سالبة أثناء انتظار المنبّه.
+        val remaining = target - now
+        if (remaining > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             val base = SystemClock.elapsedRealtime() + remaining
             for ((views, id) in listOf(small to R.id.smallCountdown, big to R.id.bigCountdown)) {
                 views.setChronometerCountDown(id, true)
@@ -148,11 +155,14 @@ object PrayerNotificationManager {
             small.setViewVisibility(R.id.smallTargetTime, View.GONE)
             big.setViewVisibility(R.id.bigTargetTime, View.GONE)
         } else {
-            // أندرويد 6 وأقدم لا يعدّ تنازلياً: نعرض ساعة الموعد بدل العدّاد
-            small.setViewVisibility(R.id.smallCountdown, View.GONE)
-            big.setViewVisibility(R.id.bigCountdown, View.GONE)
-            small.setTextViewText(R.id.smallTargetTime, time(target))
-            big.setTextViewText(R.id.bigTargetTime, time(target))
+            // الموعد مضى أو أندرويد 6 وأقدم: نصّ ثابت بدل العدّاد
+            for ((views, id) in listOf(small to R.id.smallCountdown, big to R.id.bigCountdown)) {
+                views.setChronometer(id, SystemClock.elapsedRealtime(), null, false)
+                views.setViewVisibility(id, View.GONE)
+            }
+            val label = if (remaining <= 0) "حان الآن" else time(target)
+            small.setTextViewText(R.id.smallTargetTime, label)
+            big.setTextViewText(R.id.bigTargetTime, label)
             small.setViewVisibility(R.id.smallTargetTime, View.VISIBLE)
             big.setViewVisibility(R.id.bigTargetTime, View.VISIBLE)
         }
@@ -238,41 +248,95 @@ object PrayerNotificationManager {
         }
     }
 
-    // ─── منبّه التحديث ────────────────────────────────────────────────────
+    // ─── منبّهات التحديث (متعددة لمقاومة Doze / OEM battery killers) ──────
 
-    private fun refreshIntent(context: Context, flags: Int): PendingIntent? =
-        PendingIntent.getBroadcast(
-            context,
-            REQUEST_REFRESH_ALARM,
-            Intent(context, PrayerNotificationReceiver::class.java).setAction(ACTION_REFRESH),
-            flags or PendingIntent.FLAG_IMMUTABLE
-        )
-
-    private fun scheduleRefresh(context: Context, atMillis: Long) {
+    /**
+     * يضبط عدة منبّهات مستقلة لضمان انتقال الشريط للمرحلة التالية حتى لو أخّر
+     * Doze أو مصنّع الجهاز بعضها:
+     *   1. المنبّه الرئيسي: ثانية بعد الموعد
+     *   2. احتياطي أول: 30 ثانية بعد الموعد
+     *   3. احتياطي ثانٍ: دقيقتان بعد الموعد
+     *   4. حارس دوري (watchdog): كل 5 دقائق — يُعاد ضبطه كل مرة يعمل refresh
+     *
+     * كل منبّه له request code مختلف فلا يُلغي سابقه، ويستعمل FLAG_UPDATE_CURRENT
+     * فالمنبّه الأحدث يحلّ محلّ أي منبّه سابق لنفس الـ code.
+     */
+    private fun scheduleRefreshAlarms(context: Context, targetMillis: Long) {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val pending = refreshIntent(context, PendingIntent.FLAG_UPDATE_CURRENT) ?: return
-        // ثانية بعد الموعد كي تُحسب المرحلة التالية لا الحالية
-        val at = atMillis + 1000
+        val now = System.currentTimeMillis()
+
+        // 1. الرئيسي: ثانية بعد الموعد
+        scheduleOneAlarm(context, alarms,
+            (targetMillis + 1_000).coerceAtLeast(now + 500),
+            REQUEST_REFRESH_ALARM)
+
+        // 2. احتياطي: 30 ثانية بعد الموعد (يلحق تأخيرات Doze القصيرة)
+        scheduleOneAlarm(context, alarms,
+            (targetMillis + 30_000).coerceAtLeast(now + 30_000),
+            REQUEST_REFRESH_BACKUP_30)
+
+        // 3. احتياطي: دقيقتان بعد الموعد (يلحق Battery Killers العنيفة)
+        scheduleOneAlarm(context, alarms,
+            (targetMillis + 120_000).coerceAtLeast(now + 60_000),
+            REQUEST_REFRESH_BACKUP_120)
+
+        // 4. حارس دوري: 5 دقائق من الآن — يلتقط أي حالة غير متوقعة
+        scheduleOneAlarm(context, alarms,
+            now + 300_000,
+            REQUEST_WATCHDOG)
+    }
+
+    private fun scheduleOneAlarm(
+        context: Context,
+        alarms: AlarmManager,
+        atMillis: Long,
+        requestCode: Int
+    ) {
+        val pending = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, PrayerNotificationReceiver::class.java).setAction(ACTION_REFRESH),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         try {
-            val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()
+            val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                alarms.canScheduleExactAlarms()
             when {
                 exactAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
-                    alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
-                exactAllowed -> alarms.setExact(AlarmManager.RTC_WAKEUP, at, pending)
+                    alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending)
+                exactAllowed ->
+                    alarms.setExact(AlarmManager.RTC_WAKEUP, atMillis, pending)
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
-                    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
-                else -> alarms.set(AlarmManager.RTC_WAKEUP, at, pending)
+                    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pending)
+                else ->
+                    alarms.set(AlarmManager.RTC_WAKEUP, atMillis, pending)
             }
         } catch (e: SecurityException) {
-            alarms.set(AlarmManager.RTC_WAKEUP, at, pending)
+            try {
+                alarms.set(AlarmManager.RTC_WAKEUP, atMillis, pending)
+            } catch (_: Exception) {}
         }
     }
 
-    private fun cancelRefreshAlarm(context: Context) {
+    /** يلغي جميع المنبّهات (الرئيسي + الاحتياطيات + الحارس). */
+    private fun cancelAllAlarms(context: Context) {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        refreshIntent(context, PendingIntent.FLAG_NO_CREATE)?.let {
-            alarms.cancel(it)
-            it.cancel()
+        for (code in listOf(
+            REQUEST_REFRESH_ALARM,
+            REQUEST_REFRESH_BACKUP_30,
+            REQUEST_REFRESH_BACKUP_120,
+            REQUEST_WATCHDOG
+        )) {
+            val pending = PendingIntent.getBroadcast(
+                context,
+                code,
+                Intent(context, PrayerNotificationReceiver::class.java).setAction(ACTION_REFRESH),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            pending?.let {
+                alarms.cancel(it)
+                it.cancel()
+            }
         }
     }
 

@@ -22,7 +22,7 @@ import 'package:path_provider/path_provider.dart';
 import 'discover/widgets/prayer_times_qibla_view.dart';
 import 'discover/widgets/mosque_donations_view.dart';
 import 'discover/widgets/islamic_zad_hub_view.dart';
-import 'discover/widgets/islamic_media_hub_view.dart';
+// import 'discover/widgets/islamic_media_hub_view.dart';
 
 class DiscoverScreen extends StatefulWidget {
   final VoidCallback onOpenScanner;
