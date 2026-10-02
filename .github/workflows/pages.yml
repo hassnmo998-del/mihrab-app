@@ -78,6 +78,22 @@ jobs:
           done
           ls -lh website/downloads/
 
+      # وصف آخر إصدار للتحديث داخل التطبيق (الرقم، الملاحظات، حجم كل ملف وبصمته).
+      # يُنشر مع الملفين في النشرة نفسها، فلا يصف التطبيقَ ملفٌ لم يصل الموقع بعد.
+      # إن تعذّر توليده يُنشر الموقع بدونه والتطبيق يرجع إلى GitHub API.
+      - name: Write the in-app update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/latest" > temp_latest.json
+          if node .github/scripts/update-manifest.js temp_latest.json website/downloads > website/update.json; then
+            head -c 400 website/update.json; echo
+          else
+            rm -f website/update.json
+            echo "::warning::update.json not written; the app will use the GitHub API"
+          fi
+          rm -f temp_latest.json
+
       # نسخة الآيفون (web.yml يرفقها بالإصدار). بعد إصدار جديد قد يسبق النشرُ بناءَها
       # ببضع دقائق، فنأخذ أحدث إصدار يحملها ويعيد web.yml النشر حين ينتهي.
       - name: Fetch the iPhone (web) app

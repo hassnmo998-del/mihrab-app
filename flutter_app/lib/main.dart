@@ -16,6 +16,7 @@ import 'presentation/blocs/blocs.dart';
 import 'screens/settings_screen.dart';
 import 'services/data_service.dart';
 import 'services/app_update_service.dart';
+import 'services/update/update_background.dart';
 import 'services/app_notification_service.dart';
 import 'services/adhan_service.dart';
 import 'widgets/update_dialog.dart';
@@ -83,6 +84,12 @@ void main() async {
     AppNotificationService.instance.init(),
     dataService.init(),
   ]);
+
+  // تحديث ضُغط عليه ولم يكتمل (أُغلق التطبيق، أُعيد تشغيل الجهاز): يُستكمل الآن بلا سؤال
+  if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
+    unawaited(UpdateBackground.initialize());
+    unawaited(AppUpdateService.instance.resumePendingUpdate());
+  }
 
   // الأذان يُجدول من بداية التشغيل، لا عند فتح تبويب المواقيت فقط
   if (!kIsWeb) {
@@ -269,20 +276,25 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       // نؤخر ثانية واحدة حتى تستقر الواجهة الرئيسية أولاً
       _updateLaunchTimer = Timer(const Duration(milliseconds: 1000), _checkUpdateOnLaunch);
 
-      // فحص دوري كل 6 ساعات
+      // فحص دوري كل 6 ساعات: يعرض النافذة إن صدر إصدار، ولا ينزّل شيئاً بلا طلب
       AppUpdateService.instance.startPeriodicSilentCheck(
         interval: const Duration(hours: 6),
-        onReadyToInstall: _showInstallSnackBar,
+        onUpdateFound: (_) => _checkUpdateOnLaunch(),
       );
+      // تنزيل اكتمل والتطبيق مفتوح: نافذة التثبيت فوراً
+      AppUpdateService.instance.onReadyToInstall = _showInstallSnackBar;
     }
   }
 
-  /// فحص التحديث عند فتح التطبيق وعرض نافذة التحديث أينما كان المستخدم إن وُجد إصدار جديد
+  /// فحص التحديث عند فتح التطبيق والعودة إليه، وعرض نافذة التحديث إن وُجد إصدار جديد.
+  /// تحديث قيد التنزيل لا تُعرض له نافذة: هو ماضٍ وحده، وتقدمه في الإعدادات.
   Future<void> _checkUpdateOnLaunch() async {
-    final info = await AppUpdateService.instance.checkForUpdate();
-    if (info == null || !AppUpdateService.instance.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
+    final service = AppUpdateService.instance;
+    final info = await service.checkForUpdate();
+    if (info == null || !service.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
       return;
     }
+    if (service.state == SilentUpdateState.downloading) return;
 
     final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
     if (targetContext != null && targetContext.mounted) {
@@ -322,6 +334,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
     windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
     AppUpdateService.instance.stopPeriodicCheck(); // إلغاء المؤقت الدوري
+    AppUpdateService.instance.onReadyToInstall = null;
     super.dispose();
   }
 

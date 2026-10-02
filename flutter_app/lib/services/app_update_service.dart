@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
@@ -13,103 +12,51 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'update_config.dart';
 import 'app_notification_service.dart';
+import 'update/update_background.dart';
+import 'update/update_feed.dart';
+import 'update/update_models.dart';
+import 'update/update_models.dart' as models;
+import 'update/update_session.dart';
 import '../core/navigation/navigator_key.dart';
 import '../widgets/update_dialog.dart';
 
-// ─────────────────────────────────────────────
-// UpdateInfo — نموذج بيانات الإصدار الجديد
-// ─────────────────────────────────────────────
-
-/// يحمل كل المعلومات المتعلقة بإصدار جديد تم جلبه من GitHub Releases.
-class UpdateInfo {
-  /// رقم الإصدار بصيغة semver مثل "1.0.1"
-  final String version;
-
-  /// رابط تنزيل ملف EXE لنظام Windows
-  final String? downloadUrlWindows;
-
-  /// رابط تنزيل ملف APK لنظام Android
-  final String? downloadUrlAndroid;
-
-  /// ملاحظات الإصدار (release notes)
-  final String releaseNotes;
-
-  /// تاريخ نشر الإصدار
-  final DateTime publishedAt;
-
-  const UpdateInfo({
-    required this.version,
-    this.downloadUrlWindows,
-    this.downloadUrlAndroid,
-    required this.releaseNotes,
-    required this.publishedAt,
-  });
-
-  /// بناء [UpdateInfo] من استجابة JSON الخاصة بـ GitHub Releases API.
-  factory UpdateInfo.fromJson(Map<String, dynamic> json) {
-    final List<dynamic> assets = json['assets'] as List<dynamic>? ?? [];
-
-    return UpdateInfo(
-      version: AppUpdateService.cleanVersion(json['tag_name'] as String? ?? ''),
-      downloadUrlWindows: _extractAssetUrl(assets, ['windows', '.exe', '.msi']),
-      downloadUrlAndroid: _extractAssetUrl(assets, ['android', '.apk']),
-      releaseNotes: json['body'] as String? ?? '',
-      publishedAt: DateTime.tryParse(json['published_at'] as String? ?? '') ?? DateTime.now(),
-    );
-  }
-
-  static String? _extractAssetUrl(List<dynamic> assets, List<String> keywords) {
-    for (final asset in assets) {
-      final name = (asset['name'] as String? ?? '').toLowerCase();
-      final browserDownloadUrl = asset['browser_download_url'] as String?;
-      if (browserDownloadUrl != null &&
-          keywords.any((kw) => name.contains(kw.toLowerCase()))) {
-        return browserDownloadUrl;
-      }
-    }
-    return null;
-  }
-}
+export 'update/update_models.dart' show Semver, UpdateAsset, UpdateInfo;
 
 // ─────────────────────────────────────────────
 // SilentUpdateState — حالات التحديث
 // ─────────────────────────────────────────────
 
 enum SilentUpdateState {
-  idle,            // خامل / لا يوجد شيء
+  idle,            // لا شيء
   checking,        // جارٍ التحقق من التحديثات
   updateAvailable, // يتوفر تحديث جديد
-  downloading,     // جارٍ التنزيل مع شريط تقدم ونسبة مئوية
-  paused,          // تم الإيقاف المؤقت (يمكن الاستئناف)
-  readyToInstall,  // اكتمل التنزيل وجاهز للتثبيت بنقرة واحدة
+  downloading,     // جارٍ التنزيل (ومنه: بانتظار عودة الاتصال)
+  readyToInstall,  // اكتمل التنزيل وجاهز للتثبيت
   installing,      // جارٍ فتح مثبت النظام
-  done,            // اكتملت العملية
-  error,           // حدث خطأ في الشبكة أو الملف
+  error,           // لا ملف لهذا الجهاز في الإصدار
 }
 
 // ─────────────────────────────────────────────
-// AppUpdateService — خدمة التحديث الذكية والمتقدمة
+// AppUpdateService — التحديث داخل التطبيق
 // ─────────────────────────────────────────────
 
+/// التحديث داخل التطبيق: الفحص، التنزيل، التثبيت.
+///
+/// من لحظة ضغط «تحديث» يصير التحديث مهمة محفوظة على القرص ([UpdateSession])
+/// لا تنتهي إلا بتثبيت الإصدار:
+///  - انقطاع الشبكة ليس فشلاً: يبقى التنزيل "قيد التنفيذ" وينتظر، ويكمل من آخر
+///    بايت حين يعود الاتصال.
+///  - إغلاق التطبيق أو إعادة تشغيل الجهاز لا يلغيها: [resumePendingUpdate]
+///    يكملها عند الفتح بلا سؤال، ومهمة الخلفية تكملها على أندرويد والتطبيق مغلق.
+///  - فحص التحديث أثناء تنزيل جارٍ لا يمسّ حالته، فلا تظهر نافذة «تحديث متاح»
+///    لتحديث هو قيد التنزيل أصلاً.
 class AppUpdateService extends ChangeNotifier {
   // ── Singleton ──────────────────────────────
   AppUpdateService._internal();
   static final AppUpdateService instance = AppUpdateService._internal();
 
   /// تنظيف رقم الإصدار من البادئات (v / V) واللواحق (+build / -beta)
-  static String cleanVersion(String v) {
-    var s = v.trim();
-    if (s.startsWith('v') || s.startsWith('V')) {
-      s = s.substring(1).trim();
-    }
-    if (s.contains('+')) {
-      s = s.split('+')[0].trim();
-    }
-    if (s.contains('-')) {
-      s = s.split('-')[0].trim();
-    }
-    return s;
-  }
+  static String cleanVersion(String v) => models.cleanVersion(v);
 
   // ── الإصدار الحالي للتطبيق ─────────────────
   static String _packageVersion = '';
@@ -132,56 +79,59 @@ class AppUpdateService extends ChangeNotifier {
       _packageVersion = kCurrentAppVersion;
     }
 
-    // مسح أي خيار سابق لتجاهل التحديثات
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_dismissedVersionKey);
-
-      // تنظيف أي ملف تحديث قديم تم تنزيله إن كان الإصدار الحالي مساوياً له أو أحدث منه
-      final savedVer = prefs.getString(_downloadedVersionKey);
-      if (savedVer != null) {
-        final cur = Semver.parse(currentVersion);
-        final sav = Semver.parse(savedVer);
-        if (!sav.isStrictlyNewerThan(cur)) {
-          final savedPath = prefs.getString(_downloadedPathKey);
-          if (savedPath != null) {
-            try {
-              final f = File(savedPath);
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
-          }
-          await prefs.remove(_downloadedPathKey);
-          await prefs.remove(_downloadedVersionKey);
-        }
-      }
-    } catch (_) {}
-
     completer.complete();
   }
 
-  // ── مفاتيح SharedPreferences ───────────────
-  static const String _dismissedVersionKey  = 'dismissed_update_version';
-  static const String _downloadedPathKey    = 'update_downloaded_path';
-  static const String _downloadedVersionKey = 'update_downloaded_version';
+  // ── مفاتيح SharedPreferences القديمة (تُنظَّف مرة) ───
+  static const String _legacyDownloadedPathKey = 'update_downloaded_path';
+  static const String _legacyDownloadedVersionKey = 'update_downloaded_version';
 
-  // ── روابط المخدم المباشر السريع (Fastly CDN) و GitHub API ───
-  static const String kCdnAndroidUrl =
-      'https://hassnmo998-del.github.io/mihrab-app/downloads/mihrab-android.apk';
-  static const String kCdnWindowsUrl =
-      'https://hassnmo998-del.github.io/mihrab-app/downloads/mihrab-windows.exe';
+  UpdateFeed _feed = UpdateFeed();
+  Future<Directory> Function() _updatesDir = _defaultUpdatesDir;
+  String? _platformOverride;
+  UpdateSession Function(Directory dir, String ownerId, UpdateFeed feed)? _sessionFactory;
 
-  static const String _apiUrl =
-      'https://api.github.com/repos/$kGithubRepoOwner/$kGithubRepoName/releases/latest';
+  static Future<Directory> _defaultUpdatesDir() async {
+    // مجلد دعم التطبيق لا المجلد المؤقت: النظام يمسح المؤقت متى ضاق التخزين
+    final base = await getApplicationSupportDirectory();
+    return Directory('${base.path}${Platform.pathSeparator}updates');
+  }
 
-  // ── عميل الشبكة ────────────────────────────
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 25),
-    receiveTimeout: const Duration(minutes: 20),
-    headers: {'Accept': 'application/vnd.github+json'},
-  ));
+  String get _platform => _platformOverride ?? (Platform.isWindows ? 'windows' : 'android');
 
-  CancelToken? _cancelToken;
+  @visibleForTesting
+  void debugConfigure({
+    UpdateFeed? feed,
+    Future<Directory> Function()? updatesDir,
+    String? platform,
+    String? currentVersion,
+    UpdateSession Function(Directory dir, String ownerId, UpdateFeed feed)? sessionFactory,
+  }) {
+    if (feed != null) _feed = feed;
+    if (sessionFactory != null) _sessionFactory = sessionFactory;
+    if (updatesDir != null) _updatesDir = updatesDir;
+    _platformOverride = platform ?? _platformOverride;
+    if (currentVersion != null) _packageVersion = currentVersion;
+    _session = null;
+    _resumeFuture = null;
+    _sessionRunning = false;
+    _stopRequested = false;
+    latestInfo = null;
+    state = SilentUpdateState.idle;
+    downloadProgress = 0;
+    receivedBytes = 0;
+    totalBytes = 0;
+    isWaitingForNetwork = false;
+    downloadedFilePath = null;
+  }
+
   Timer? _periodicTimer;
+  UpdateSession? _session;
+  bool _sessionRunning = false;
+  bool _stopRequested = false;
+  DateTime _lastProgressNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  UpdatePhase? _lastPhase;
+  String? _notifiedAvailableVersion;
 
   // ── الحالة التفاعلية ────────────────────────
   SilentUpdateState state = SilentUpdateState.idle;
@@ -193,6 +143,19 @@ class AppUpdateService extends ChangeNotifier {
   String statusMessage = '';
   String? errorMessage;
   String? downloadedFilePath;
+
+  /// التنزيل قائم لكن لا اتصال الآن؛ يُستكمل وحده حين يعود.
+  bool isWaitingForNetwork = false;
+
+  /// يُستدعى حين يكتمل تنزيل كان جارياً والتطبيق مفتوح.
+  void Function(UpdateInfo info)? onReadyToInstall;
+
+  /// هناك تحديث ضُغط عليه ولم يُثبَّت بعد (ينزّل أو جاهز).
+  bool get hasActiveUpdate =>
+      _sessionRunning ||
+      state == SilentUpdateState.downloading ||
+      state == SilentUpdateState.readyToInstall ||
+      state == SilentUpdateState.installing;
 
   // تنسيقات مساعدة للعرض العربي
   String get formattedProgress => '${(downloadProgress * 100).toInt()}%';
@@ -212,8 +175,63 @@ class AppUpdateService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<UpdateSession> _ensureSession() async {
+    final existing = _session;
+    if (existing != null) return existing;
+    final dir = await _updatesDir();
+    final ownerId = 'ui-$pid-${DateTime.now().microsecondsSinceEpoch}';
+    return _session ??= _sessionFactory?.call(dir, ownerId, _feed) ??
+        UpdateSession(dir: dir, ownerId: ownerId, feed: _feed);
+  }
+
   // ══════════════════════════════════════════════
-  // 1. التحقق من وجود إصدار أحدث وعرض الحوار
+  // 1. متابعة تحديث بدأ من قبل
+  // ══════════════════════════════════════════════
+
+  /// يُستدعى عند كل إقلاع: إن كان هناك تحديث ضُغط عليه ولم يُثبَّت، يكمله فوراً
+  /// بلا سؤال. وإن كان الإصدار قد ثُبِّت، ينظف ملفاته.
+  Future<void> resumePendingUpdate() => _resumeFuture ??= _resumePendingUpdate();
+
+  Future<void>? _resumeFuture;
+
+  Future<void> _resumePendingUpdate() async {
+    if (kIsWeb) return;
+    if (_packageVersion.isEmpty) await init();
+    try {
+      final session = await _ensureSession();
+      final job = session.readJob();
+      if (job == null) {
+        unawaited(_cleanupLegacyDownload());
+        return;
+      }
+      if (!isNewerVersion(job.version, currentVersion)) {
+        await UpdateBackground.cancel();
+        await session.clear();
+        return;
+      }
+      latestInfo = job.info;
+      _startSession();
+    } catch (e) {
+      if (kDebugMode) print('[AppUpdateService] resumePendingUpdate: $e');
+    }
+  }
+
+  /// ملف نزّلته النسخ السابقة في المجلد المؤقت.
+  Future<void> _cleanupLegacyDownload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final path = prefs.getString(_legacyDownloadedPathKey);
+      if (path != null) {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      }
+      await prefs.remove(_legacyDownloadedPathKey);
+      await prefs.remove(_legacyDownloadedVersionKey);
+    } catch (_) {}
+  }
+
+  // ══════════════════════════════════════════════
+  // 2. التحقق من وجود إصدار أحدث
   // ══════════════════════════════════════════════
 
   Future<UpdateInfo?>? _inFlightCheck;
@@ -236,7 +254,7 @@ class AppUpdateService extends ChangeNotifier {
     if (kIsWeb) return null;
     if (_packageVersion.isEmpty) await init();
 
-    // إذا كان هناك فحص جارٍ حالياً، ننتظر نفس النتيجة بدلاً من إرجاع بيانات قديمة أو تنفيذ طلب مكرر
+    // فحص جارٍ: ننتظر نتيجته بدل طلب مكرر
     if (_inFlightCheck != null) {
       return await _inFlightCheck;
     }
@@ -251,213 +269,196 @@ class AppUpdateService extends ChangeNotifier {
   }
 
   Future<UpdateInfo?> _performCheckForUpdate() async {
-    _setState(SilentUpdateState.checking, msg: 'جارٍ التحقق من الخادم...');
+    // متابعة تحديث سابق تسبق أي فحص: به نعرف إن كان هناك تنزيل قائم
+    if (_resumeFuture != null) await _resumeFuture;
 
+    // تحديث قيد التنزيل أو جاهز: حالته لا تُمسّ، ولا يعود "متاحاً" من جديد
+    final busy = hasActiveUpdate;
+    if (!busy) _setState(SilentUpdateState.checking, msg: 'جارٍ التحقق من الخادم...');
+
+    final UpdateInfo info;
     try {
-      final response = await _dio.get(_apiUrl);
-      if (response.statusCode != 200) {
-        _setState(SilentUpdateState.idle, msg: '');
-        return null;
-      }
-
-      final info = UpdateInfo.fromJson(response.data as Map<String, dynamic>);
-
-      // المقارنة الصارمة مع الإصدار الحالي الفعلي المعتمد
-      final hasNewer = isNewerVersion(info.version, currentVersion);
-      if (!hasNewer) {
-        latestInfo = null; // تفريغ أي كائن تحديث لضمان عدم حدوث أي بلاغ كاذب
-        _setState(SilentUpdateState.idle, msg: 'التطبيق محدث لأحدث إصدار ($currentVersion) ✅');
-        return null;
-      }
-
-      latestInfo = info;
-
-      // تحقق إن كان الملف مُنزلاً مسبقاً وجاهزاً
-      final savedPath = await getSavedDownloadedFilePath(info.version);
-      if (savedPath != null) {
-        downloadedFilePath = savedPath;
-        _setState(SilentUpdateState.readyToInstall, msg: 'التحديث جاهز للتثبيت بنقرة واحدة.');
-        AppNotificationService.instance.showUpdateReadyNotification(info);
-        return info;
-      }
-
-      _setState(SilentUpdateState.updateAvailable, msg: 'يتوفر إصدار جديد: v${info.version}');
-      AppNotificationService.instance.showUpdateAvailableNotification(info);
-      return info;
+      info = await _feed.fetchLatest();
     } catch (e) {
       if (kDebugMode) print('[AppUpdateService] خطأ في فحص التحديث: $e');
+      if (busy) return latestInfo;
       _setState(SilentUpdateState.idle, err: 'تعذر الاتصال بخادم التحديثات');
       return null;
     }
-  }
 
-  // ══════════════════════════════════════════════
-  // 2. التنزيل الحقيقي القابل للاستئناف والإيقاف
-  // ══════════════════════════════════════════════
+    if (!isNewerVersion(info.version, currentVersion)) {
+      if (busy) return latestInfo;
+      latestInfo = null; // لا بلاغ كاذب
+      _setState(SilentUpdateState.idle, msg: 'التطبيق محدث لأحدث إصدار ($currentVersion) ✅');
+      return null;
+    }
 
-  Future<void> startDownload(UpdateInfo info, {void Function(int received, int total)? onProgress}) async {
-    if (state == SilentUpdateState.downloading) return;
-
-    _cancelToken?.cancel('new_download_started');
-    _cancelToken = CancelToken();
+    if (busy) {
+      // صدر إصدار أحدث من الذي يُنزَّل: ننتقل إليه، فالمستخدم طلب التحديث أصلاً
+      final current = latestInfo;
+      if (current != null && isNewerVersion(info.version, current.version)) {
+        await startDownload(info);
+      }
+      return latestInfo;
+    }
 
     latestInfo = info;
-    errorMessage = null;
 
-    final dir = await getTemporaryDirectory();
-    final isWin = Platform.isWindows;
-    final ext = isWin ? 'exe' : 'apk';
-    final savePath = '${dir.path}/mihrab_update_${info.version}.$ext';
-    downloadedFilePath = savePath;
-
-    final primaryUrl = isWin ? kCdnWindowsUrl : kCdnAndroidUrl;
-    final fallbackUrl = isWin ? info.downloadUrlWindows : info.downloadUrlAndroid;
-
-    _setState(SilentUpdateState.downloading, msg: 'جارٍ الاتصال وبدء التنزيل...');
-
-    try {
-      try {
-        await _performResumableDownload(primaryUrl, savePath, onProgress);
-      } catch (e) {
-        if (_cancelToken?.isCancelled ?? false) rethrow;
-        if (fallbackUrl != null && fallbackUrl != primaryUrl) {
-          if (kDebugMode) print('[AppUpdateService] الانتقال إلى الرابط الاحتياطي: $fallbackUrl');
-          await _performResumableDownload(fallbackUrl, savePath, onProgress);
-        } else {
-          rethrow;
-        }
-      }
-
-      final file = File(savePath);
-      if (!await file.exists() || await file.length() < 100000) {
-        throw Exception('ملف التحديث غير مكتمل أو تالف');
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_downloadedPathKey, savePath);
-      await prefs.setString(_downloadedVersionKey, info.version);
-
-      _setState(SilentUpdateState.readyToInstall, msg: 'اكتمل التنزيل بنجاح! جاهز للتثبيت.');
-      AppNotificationService.instance.showUpdateReadyNotification(info);
-    } catch (e) {
-      if (_cancelToken?.isCancelled ?? false) {
-        _setState(SilentUpdateState.paused, msg: 'تم إيقاف التنزيل مؤقتاً');
-      } else {
-        if (kDebugMode) print('[AppUpdateService] خطأ أثناء التنزيل: $e');
-        _setState(SilentUpdateState.error, err: 'فشل التنزيل: تأكد من اتصال الإنترنت وحاول مجدداً');
+    // نُزّل من قبل وجاهز؟
+    final session = await _ensureSession();
+    final job = session.readJob();
+    if (job != null && job.version == info.version) {
+      final file = await session.readyFile();
+      if (file != null) {
+        downloadedFilePath = file.path;
+        _setState(SilentUpdateState.readyToInstall, msg: 'التحديث جاهز للتثبيت بنقرة واحدة.');
+        return info;
       }
     }
-  }
 
-  /// تنزيل حقيقي بدعم استئناف الأجزاء عبر HTTP Range Header
-  Future<void> _performResumableDownload(
-    String url,
-    String savePath,
-    void Function(int received, int total)? onProgress,
-  ) async {
-    final file = File(savePath);
-    int existingLength = 0;
-    if (await file.exists()) {
-      existingLength = await file.length();
+    _setState(SilentUpdateState.updateAvailable, msg: 'يتوفر إصدار جديد: v${info.version}');
+    if (_notifiedAvailableVersion != info.version) {
+      _notifiedAvailableVersion = info.version;
+      AppNotificationService.instance.showUpdateAvailableNotification(info);
     }
-
-    final headers = <String, dynamic>{};
-    if (existingLength > 0) {
-      headers['Range'] = 'bytes=$existingLength-';
-    }
-
-    final response = await _dio.get<ResponseBody>(
-      url,
-      options: Options(
-        responseType: ResponseType.stream,
-        headers: headers.isNotEmpty ? headers : null,
-        followRedirects: true,
-        validateStatus: (s) => s != null && (s == 200 || s == 206),
-      ),
-      cancelToken: _cancelToken,
-    );
-
-    final isPartial = response.statusCode == 206;
-    if (!isPartial) {
-      existingLength = 0;
-    }
-
-    final fileMode = (isPartial && existingLength > 0) ? FileMode.append : FileMode.write;
-    final sink = file.openWrite(mode: fileMode);
-
-    final responseLength = int.tryParse(response.headers.value(HttpHeaders.contentLengthHeader) ?? '') ?? 0;
-    final total = isPartial ? (existingLength + responseLength) : responseLength;
-    int received = existingLength;
-
-    totalBytes = total;
-    receivedBytes = received;
-    if (total > 0) {
-      downloadProgress = (received / total).clamp(0.0, 1.0);
-    }
-    notifyListeners();
-
-    try {
-      await for (final chunk in response.data!.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        receivedBytes = received;
-        if (total > 0) {
-          downloadProgress = (received / total).clamp(0.0, 1.0);
-        }
-        onProgress?.call(received, total);
-        notifyListeners();
-      }
-    } finally {
-      await sink.flush();
-      await sink.close();
-    }
-  }
-
-  /// إيقاف التنزيل مؤقتاً لحفظ التقدم
-  void pauseOrCancelDownload() {
-    if (state == SilentUpdateState.downloading) {
-      _cancelToken?.cancel('paused_by_user');
-      _setState(SilentUpdateState.paused, msg: 'تم إيقاف التنزيل مؤقتاً');
-    }
-  }
-
-  /// استئناف التنزيل من النقطة التي توقف عندها
-  Future<void> resumeDownload() async {
-    if (latestInfo != null) {
-      await startDownload(latestInfo!);
-    }
-  }
-
-  /// إلغاء التنزيل كلياً وحذف الملف المؤقت
-  Future<void> cancelDownload() async {
-    _cancelToken?.cancel('cancelled_by_user');
-    downloadProgress = 0.0;
-    receivedBytes = 0;
-    totalBytes = 0;
-    if (downloadedFilePath != null) {
-      try {
-        final f = File(downloadedFilePath!);
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_downloadedPathKey);
-    await prefs.remove(_downloadedVersionKey);
-    final hasNewer = latestInfo != null && isNewerVersion(latestInfo!.version, currentVersion);
-    _setState(hasNewer ? SilentUpdateState.updateAvailable : SilentUpdateState.idle, msg: 'تم إلغاء التنزيل');
+    return info;
   }
 
   // ══════════════════════════════════════════════
-  // 3. التثبيت الدقيق (Android & Windows)
+  // 3. التنزيل
+  // ══════════════════════════════════════════════
+
+  /// يبدأ تنزيل [info] ويحفظه كمهمة قائمة. يعود فوراً؛ التنزيل يستمر إلى أن
+  /// يكتمل مهما انقطع الاتصال أو أُغلق التطبيق.
+  Future<void> startDownload(UpdateInfo info, {void Function(int received, int total)? onProgress}) async {
+    if (kIsWeb) return;
+    final job = UpdateJob.forPlatform(info, _platform);
+    if (job == null) {
+      _setState(SilentUpdateState.error, err: 'هذا الإصدار لا يحمل ملف تثبيت لهذا الجهاز.');
+      return;
+    }
+
+    try {
+      final session = await _ensureSession();
+      final existing = session.readJob();
+      errorMessage = null;
+      if (existing == null || existing.signature != job.signature) {
+        // الجلسة الجارية (هنا أو في الخلفية) ترى المهمة تبدّلت فتنتقل إليها
+        await session.writeJob(job);
+        downloadProgress = 0;
+        receivedBytes = 0;
+        totalBytes = job.size;
+      }
+      // بعد كتابة المهمة لا قبلها: نبضة من التنزيل السابق تصل أثناء الكتابة
+      // تقارن بما على القرص، فلا تعيد الإصدار القديم إلى الواجهة
+      latestInfo = info;
+      _startSession();
+    } catch (e) {
+      if (kDebugMode) print('[AppUpdateService] startDownload: $e');
+      _setState(SilentUpdateState.error, err: 'تعذر بدء التنزيل: لا يمكن الكتابة في تخزين التطبيق.');
+    }
+  }
+
+  void _startSession() {
+    if (_sessionRunning) return;
+    _sessionRunning = true;
+    _stopRequested = false;
+    _setState(SilentUpdateState.downloading, msg: 'جارٍ تنزيل التحديث...');
+    unawaited(_runSession());
+  }
+
+  Future<void> _runSession() async {
+    final session = _session!;
+    try {
+      // مهمة الخلفية تبقي التنزيل حياً خارج التطبيق، وتكمله إن أُغلق
+      unawaited(UpdateBackground.ensureScheduled(session.dir.path));
+
+      final file = await session.run(onStatus: _onStatus, shouldStop: () => _stopRequested);
+      if (file != null) {
+        final job = session.readJob();
+        if (job != null) latestInfo = job.info;
+        downloadedFilePath = file.path;
+        downloadProgress = 1.0;
+        isWaitingForNetwork = false;
+        _setState(SilentUpdateState.readyToInstall, msg: 'اكتمل التنزيل بنجاح! جاهز للتثبيت.');
+        final info = latestInfo;
+        if (info != null) {
+          AppNotificationService.instance.showUpdateReadyNotification(info);
+          onReadyToInstall?.call(info);
+        }
+      } else if (!_stopRequested) {
+        // المهمة أُلغيت من خارج الجلسة
+        _setState(SilentUpdateState.idle, msg: '');
+      }
+    } catch (e) {
+      if (kDebugMode) print('[AppUpdateService] session: $e');
+    } finally {
+      _sessionRunning = false;
+    }
+  }
+
+  void _onStatus(UpdateStatus status) {
+    receivedBytes = status.received;
+    totalBytes = status.total;
+    downloadProgress = status.fraction;
+    isWaitingForNetwork = status.phase == UpdatePhase.waiting;
+    statusMessage = switch (status.phase) {
+      UpdatePhase.downloading => 'جارٍ تنزيل التحديث...',
+      UpdatePhase.waiting => 'بانتظار الاتصال بالإنترنت… يُستكمل التنزيل تلقائياً',
+      UpdatePhase.verifying => 'جارٍ التحقق من سلامة الملف...',
+      UpdatePhase.noSpace => 'لا توجد مساحة كافية على الجهاز. أفرغ بعض المساحة وسيُستكمل التنزيل.',
+      UpdatePhase.ready => 'اكتمل التنزيل بنجاح! جاهز للتثبيت.',
+    };
+    if (status.version != latestInfo?.version) {
+      final job = _session?.readJob();
+      if (job != null) latestInfo = job.info;
+    }
+    if (state != SilentUpdateState.readyToInstall && state != SilentUpdateState.installing) {
+      state = SilentUpdateState.downloading;
+    }
+
+    // النبضة كل ثانية تقريباً؛ الواجهة لا تحتاج أكثر، وتغيّر الطور يُبلَّغ فوراً
+    final now = DateTime.now();
+    if (status.phase != _lastPhase || now.difference(_lastProgressNotify).inMilliseconds >= 200) {
+      _lastPhase = status.phase;
+      _lastProgressNotify = now;
+      notifyListeners();
+    }
+  }
+
+  /// يرمي ما نُزّل ويبدأ من الصفر (إن رفض النظام تثبيت الملف مثلاً).
+  Future<void> restartDownload() async {
+    final info = latestInfo;
+    if (info == null) return;
+    _stopRequested = true;
+    await UpdateBackground.cancel();
+    for (var i = 0; i < 60 && _sessionRunning; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    final session = await _ensureSession();
+    await session.clear();
+    downloadedFilePath = null;
+    downloadProgress = 0;
+    receivedBytes = 0;
+    await startDownload(info);
+  }
+
+  // ══════════════════════════════════════════════
+  // 4. التثبيت (Android & Windows)
   // ══════════════════════════════════════════════
 
   /// يُشغّل التثبيت على الهاتف أو الحاسوب
   Future<void> installDownloadedUpdate() async {
-    final path = downloadedFilePath ?? await getSavedDownloadedFilePath(latestInfo?.version ?? '');
-    if (path == null || !File(path).existsSync()) {
-      _setState(SilentUpdateState.error, err: 'ملف التثبيت غير موجود، يرجى إعادة التنزيل.');
+    final session = await _ensureSession();
+    final file = await session.readyFile();
+    if (file == null) {
+      // الملف غير مكتمل أو حُذف: نكمل تنزيله بدل إعلان خطأ
+      final info = latestInfo;
+      if (info != null) await startDownload(info);
       return;
     }
+    final path = file.path;
+    downloadedFilePath = path;
 
     _setState(SilentUpdateState.installing, msg: 'جارٍ فتح مثبت النظام...');
 
@@ -485,61 +486,20 @@ class AppUpdateService extends ChangeNotifier {
     }
   }
 
-  // للتوافق مع الشيفرات السابقة
-  Future<void> installDownloadedApk() => installDownloadedUpdate();
-
-  Future<void> downloadAndInstall(
-    UpdateInfo info, {
-    void Function(int received, int total)? onProgress,
-  }) async {
-    await startDownload(info, onProgress: onProgress);
-    if (state == SilentUpdateState.readyToInstall) {
-      await installDownloadedUpdate();
-    }
-  }
-
-  Future<void> checkAndDownloadSilently({
-    void Function(UpdateInfo info)? onReadyToInstall,
-  }) async {
-    final info = await checkForUpdate();
-    if (info != null && state != SilentUpdateState.readyToInstall) {
-      await startDownload(info);
-      if (state == SilentUpdateState.readyToInstall) {
-        onReadyToInstall?.call(info);
-      }
-    }
-  }
-
   // ══════════════════════════════════════════════
-  // 4. المساعدات
+  // 5. المساعدات
   // ══════════════════════════════════════════════
 
-  Future<String?> getSavedDownloadedFilePath(String version) async {
-    if (!isNewerVersion(version, currentVersion)) return null;
-    final prefs = await SharedPreferences.getInstance();
-    final savedVer = prefs.getString(_downloadedVersionKey);
-    final savedPath = prefs.getString(_downloadedPathKey);
-    if (savedVer == version && savedPath != null && File(savedPath).existsSync()) {
-      return savedPath;
-    }
-    return null;
-  }
-
-  Future<void> dismissVersion(String version) async {
-    // التحديثات أصبحت إجبارية العرض؛ لا يمكن حجب التحديثات نهائياً
-  }
-
-  Future<bool> isVersionDismissed(String version) async {
-    return false;
-  }
-
+  /// فحص دوري والتطبيق مفتوح. إن وُجد إصدار جديد لم يُضغط عليه بعد يُستدعى
+  /// [onUpdateFound] (لعرض النافذة)؛ لا يُنزَّل شيء بلا طلب المستخدم.
   void startPeriodicSilentCheck({
     Duration interval = const Duration(hours: 12),
-    void Function(UpdateInfo)? onReadyToInstall,
+    void Function(UpdateInfo)? onUpdateFound,
   }) {
     _periodicTimer?.cancel();
     _periodicTimer = Timer.periodic(interval, (_) async {
-      await checkAndDownloadSilently(onReadyToInstall: onReadyToInstall);
+      final info = await checkForUpdate();
+      if (info != null && !_sessionRunning) onUpdateFound?.call(info);
     });
   }
 
@@ -552,112 +512,14 @@ class AppUpdateService extends ChangeNotifier {
   void dispose() {
     _periodicTimer?.cancel();
     _periodicTimer = null;
-    _cancelToken?.cancel();
+    _stopRequested = true;
     super.dispose();
   }
 
   /// مقارنة دقيقة تحدد إن كان [latest] أحدث قطعياً من [current].
   /// تُهمل بادئة 'v' وتتعامل مع لاحقة البناء '+build' بدقة لتفادي أي بلاغات خاطئة.
   bool isNewerVersion(String latest, String current) {
-    final rawLatest = latest.trim();
     final effectiveCurrent = current.trim().isNotEmpty ? current.trim() : currentVersion;
-
-    if (rawLatest.isEmpty || effectiveCurrent.isEmpty) return false;
-
-    // تطابق تام للنصين (مع تجاهل بادئة v وحالة الأحرف والمسافات)
-    final normLatest = (rawLatest.startsWith('v') || rawLatest.startsWith('V'))
-        ? rawLatest.substring(1).trim()
-        : rawLatest;
-    final normCurrent = (effectiveCurrent.startsWith('v') || effectiveCurrent.startsWith('V'))
-        ? effectiveCurrent.substring(1).trim()
-        : effectiveCurrent;
-
-    if (normLatest.toLowerCase() == normCurrent.toLowerCase()) {
-      return false;
-    }
-
-    try {
-      final l = Semver.parse(rawLatest);
-      final c = Semver.parse(effectiveCurrent);
-      return l.isStrictlyNewerThan(c);
-    } catch (_) {
-      return false;
-    }
+    return isVersionNewer(latest, effectiveCurrent);
   }
-}
-
-// ─────────────────────────────────────────────
-// Semver — محلل ومقارن دقيق لإصدارات التطبيق
-// ─────────────────────────────────────────────
-
-class Semver implements Comparable<Semver> {
-  final int major;
-  final int minor;
-  final int patch;
-  final int build;
-
-  const Semver({
-    required this.major,
-    required this.minor,
-    required this.patch,
-    this.build = 0,
-  });
-
-  factory Semver.parse(String raw) {
-    var s = raw.trim();
-    if (s.startsWith('v') || s.startsWith('V')) {
-      s = s.substring(1).trim();
-    }
-    int buildNum = 0;
-    if (s.contains('+')) {
-      final plusParts = s.split('+');
-      s = plusParts[0].trim();
-      if (plusParts.length > 1) {
-        buildNum = int.tryParse(plusParts[1].trim()) ?? 0;
-      }
-    }
-    if (s.contains('-')) {
-      s = s.split('-')[0].trim();
-    }
-    final dotParts = s.split('.');
-    final major = dotParts.isNotEmpty ? (int.tryParse(dotParts[0].trim()) ?? 0) : 0;
-    final minor = dotParts.length > 1 ? (int.tryParse(dotParts[1].trim()) ?? 0) : 0;
-    final patch = dotParts.length > 2 ? (int.tryParse(dotParts[2].trim()) ?? 0) : 0;
-
-    return Semver(
-      major: major,
-      minor: minor,
-      patch: patch,
-      build: buildNum,
-    );
-  }
-
-  @override
-  int compareTo(Semver other) {
-    if (major != other.major) return major.compareTo(other.major);
-    if (minor != other.minor) return minor.compareTo(other.minor);
-    if (patch != other.patch) return patch.compareTo(other.patch);
-    if (build > 0 && other.build > 0 && build != other.build) {
-      return build.compareTo(other.build);
-    }
-    return 0;
-  }
-
-  /// يتحقق مما إذا كان هذا الإصدار أحدث قطعياً من الإصدار الآخر.
-  bool isStrictlyNewerThan(Semver other) {
-    if (major > other.major) return true;
-    if (major < other.major) return false;
-    if (minor > other.minor) return true;
-    if (minor < other.minor) return false;
-    if (patch > other.patch) return true;
-    if (patch < other.patch) return false;
-    // إذا كانت الأرقام الرئيسية متطابقة تماماً (مثل 1.0.3 و 1.0.3)
-    if (build > 0 && other.build > 0) {
-      return build > other.build;
-    }
-    return false;
-  }
-
-  @override
-  String toString() => '$major.$minor.$patch${build > 0 ? '+$build' : ''}';
 }

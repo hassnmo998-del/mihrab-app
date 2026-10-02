@@ -6,8 +6,9 @@ import '../services/app_update_service.dart';
 // UpdateDialog — حوار التحديث التفاعلي
 // ─────────────────────────────────────────────
 
-/// حوار جميل بتصميم Material يعرض معلومات الإصدار الجديد باللغة العربية،
-/// مع شريط تقدم حقيقي، وإمكانية الإيقاف/الاستئناف أو التنزيل في الخلفية.
+/// حوار يعرض الإصدار الجديد وملاحظاته، ثم تقدم التنزيل، ثم زر التثبيت.
+/// بعد ضغط «تحديث الآن» لا يتوقف التنزيل: إغلاق الحوار أو التطبيق لا يلغيه،
+/// وانقطاع الاتصال يظهر هنا انتظاراً لا خطأً.
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo info;
   final AppUpdateService service;
@@ -72,20 +73,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildHeader(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildVersionBadge(),
-                        const SizedBox(height: 12),
-                        _buildReleaseNotes(),
-                        const SizedBox(height: 14),
-                        _buildStatusSection(service, state),
-                        const SizedBox(height: 12),
-                        _buildActionButtons(service, state),
-                      ],
+                  _buildHeader(state),
+                  // الجسم يُمرَّر إن لم تتسع له الشاشة (هاتف صغير، خط مكبَّر، ملاحظات طويلة)
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildVersionBadge(),
+                          const SizedBox(height: 12),
+                          _buildReleaseNotes(),
+                          const SizedBox(height: 14),
+                          _buildStatusSection(service, state),
+                          const SizedBox(height: 12),
+                          _buildActionButtons(service, state),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -97,7 +101,12 @@ class _UpdateDialogState extends State<UpdateDialog> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(SilentUpdateState state) {
+    final title = switch (state) {
+      SilentUpdateState.downloading => 'جارٍ تحديث محراب',
+      SilentUpdateState.readyToInstall || SilentUpdateState.installing => 'تحديث محراب جاهز للتثبيت',
+      _ => 'تحديث جديد متاح لمحراب',
+    };
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
@@ -108,14 +117,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
           end: Alignment.bottomLeft,
         ),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Text('🕌', style: TextStyle(fontSize: 26)),
-          SizedBox(width: 12),
+          const Text('🕌', style: TextStyle(fontSize: 26)),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'تحديث جديد متاح لمحراب',
-              style: TextStyle(
+              title,
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -128,16 +137,21 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   Widget _buildVersionBadge() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 6,
       children: [
-        Row(
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 4,
           children: [
             const Text(
               'الإصدار الجديد:',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
@@ -210,13 +224,22 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   Widget _buildStatusSection(AppUpdateService service, SilentUpdateState state) {
     if (state == SilentUpdateState.downloading) {
+      final waiting = service.isWaitingForNetwork;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('جارٍ تنزيل التحديث...', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Expanded(
+                child: Text(
+                  waiting ? 'بانتظار الاتصال بالإنترنت…' : 'جارٍ تنزيل التحديث...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: waiting ? Colors.orange.shade800 : null,
+                  ),
+                ),
+              ),
               Text(
                 service.formattedProgress,
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: _lightGreen),
@@ -230,7 +253,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
               value: service.downloadProgress > 0 ? service.downloadProgress : null,
               minHeight: 8,
               backgroundColor: Colors.grey.shade200,
-              color: _lightGreen,
+              color: waiting ? Colors.orange : _lightGreen,
             ),
           ),
           const SizedBox(height: 6),
@@ -238,29 +261,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
             service.formattedSize,
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
+          const SizedBox(height: 6),
+          Text(
+            waiting
+                ? 'ما نزل محفوظ. يُستكمل التنزيل تلقائياً حين يعود الاتصال، ولو أغلقت التطبيق.'
+                : 'يستمر التنزيل إلى أن يكتمل ولو أغلقت هذه النافذة أو التطبيق.',
+            style: const TextStyle(fontSize: 11.5, height: 1.5, color: Colors.grey),
+          ),
         ],
-      );
-    }
-
-    if (state == SilentUpdateState.paused) {
-      return Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.pause_circle_outline, color: Colors.orange, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'تم إيقاف التنزيل مؤقتاً عند ${service.formattedProgress}',
-                style: const TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
       );
     }
 
@@ -316,59 +324,27 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   Widget _buildActionButtons(AppUpdateService service, SilentUpdateState state) {
     if (state == SilentUpdateState.downloading) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          TextButton.icon(
-            onPressed: () {
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('جارٍ تنزيل التحديث في الخلفية... يمكنك متابعته من الإعدادات'),
-                  duration: Duration(seconds: 4),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            icon: const Icon(Icons.hide_source_rounded, size: 18),
-            label: const Text('متابعة بالخلفية'),
-          ),
-          OutlinedButton.icon(
-            onPressed: () => service.pauseOrCancelDownload(),
-            icon: const Icon(Icons.pause_rounded, size: 18),
-            label: const Text('إيقاف مؤقت'),
-          ),
-        ],
-      );
-    }
-
-    if (state == SilentUpdateState.paused) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('إغلاق'),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: () => service.resumeDownload(),
-            icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
-            label: const Text('استئناف', style: TextStyle(color: Colors.white)),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800),
-          ),
-        ],
+      return Align(
+        alignment: AlignmentDirectional.centerEnd,
+        child: TextButton.icon(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.expand_more_rounded, size: 18),
+          label: const Text('متابعة في الخلفية'),
+        ),
       );
     }
 
     if (state == SilentUpdateState.readyToInstall) {
-      return Row(
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
         children: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('لاحقاً'),
           ),
-          const Spacer(),
           ElevatedButton.icon(
             onPressed: () => service.installDownloadedUpdate(),
             icon: const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 18),
@@ -386,35 +362,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
       );
     }
 
-    // Default / idle / error
-    return Row(
+    // متاح، أو تعذّر البدء
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 4,
       children: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('لاحقاً', style: TextStyle(color: Colors.grey)),
         ),
-        const Spacer(),
-        OutlinedButton(
-          onPressed: () {
-            service.startDownload(widget.info);
-            Navigator.of(context).pop();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('بدأ تنزيل التحديث في الخلفية... يمكنك متابعة شريط التقدم من الإعدادات'),
-                duration: Duration(seconds: 4),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          },
-          child: const Text('تنزيل بالخلفية'),
-        ),
-        const SizedBox(width: 8),
         ElevatedButton.icon(
           onPressed: () => service.startDownload(widget.info),
           icon: const Icon(Icons.download_rounded, color: Colors.white, size: 18),
-          label: const Text(
-            'تحديث الآن',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          label: Text(
+            state == SilentUpdateState.error ? 'إعادة المحاولة' : 'تحديث الآن',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           style: ElevatedButton.styleFrom(
             backgroundColor: _lightGreen,

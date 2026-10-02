@@ -517,7 +517,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'جارٍ تنزيل التحديث...',
+                                service.isWaitingForNetwork ? 'بانتظار الاتصال…' : 'جارٍ تنزيل التحديث...',
                                 style: AppTypography.titleBold(context, fontSize: 13.5),
                               ),
                             ],
@@ -543,94 +543,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         service.formattedSize,
                         style: AppTypography.font(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => service.pauseOrCancelDownload(),
-                              icon: const Icon(Icons.pause_circle_outline, size: 18),
-                              label: const Text('إيقاف مؤقت'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: primaryColor,
-                                side: BorderSide(color: primaryColor.withValues(alpha: 0.5)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton.icon(
-                            onPressed: () => service.cancelDownload(),
-                            icon: const Icon(Icons.close_rounded, size: 18, color: Colors.redAccent),
-                            label: Text(
-                              'إلغاء',
-                              style: AppTypography.font(fontSize: 13, color: Colors.redAccent),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ] else if (state == SilentUpdateState.paused) ...[
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.pause_circle_filled, color: Colors.orange, size: 18),
-                              const SizedBox(width: 8),
-                              Text('تم الإيقاف المؤقت', style: AppTypography.titleBold(context, fontSize: 13.5)),
-                            ],
-                          ),
-                          Text(service.formattedProgress, style: AppTypography.titleBold(context, fontSize: 13.5, color: Colors.orange)),
-                        ],
-                      ),
                       const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(
-                          value: service.downloadProgress,
-                          minHeight: 8,
-                          backgroundColor: Colors.orange.withValues(alpha: 0.2),
-                          color: Colors.orange,
+                      Text(
+                        service.isWaitingForNetwork
+                            ? 'بانتظار الاتصال بالإنترنت… ما نزل محفوظ، ويُستكمل تلقائياً حين يعود الاتصال.'
+                            : 'يستمر التنزيل إلى أن يكتمل، ولو أغلقت التطبيق أو انقطع الاتصال.',
+                        style: AppTypography.font(
+                          fontSize: 12,
+                          height: 1.5,
+                          color: service.isWaitingForNetwork
+                              ? Colors.orange.shade800
+                              : (isDark ? Colors.white60 : Colors.black54),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(service.formattedSize, style: AppTypography.font(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54)),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => service.resumeDownload(),
-                              icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                              label: const Text('استئناف التنزيل'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange.shade800,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: () => service.cancelDownload(),
-                            child: Text('إلغاء', style: AppTypography.font(fontSize: 13, color: Colors.redAccent)),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -690,10 +614,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Align(
                         alignment: Alignment.center,
                         child: TextButton(
-                          onPressed: () async {
-                            await service.cancelDownload();
-                            if (latest != null) service.startDownload(latest);
-                          },
+                          onPressed: () => service.restartDownload(),
                           child: Text(
                             'إعادة التنزيل من البداية',
                             style: AppTypography.font(fontSize: 11.5, color: isDark ? Colors.white54 : Colors.black45),
@@ -747,7 +668,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: ElevatedButton.icon(
-                          onPressed: () => service.resumeDownload(),
+                          onPressed: latest == null ? null : () => service.startDownload(latest),
                           icon: const Icon(Icons.refresh_rounded, size: 16),
                           label: const Text('إعادة المحاولة'),
                           style: ElevatedButton.styleFrom(
