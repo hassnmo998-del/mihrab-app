@@ -236,12 +236,43 @@ class _QuranSurahReaderViewState extends State<QuranSurahReaderView> {
           ),
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_forward_rounded),
-                tooltip: 'العودة للفهرس',
-                onPressed: widget.onClose,
+              Tooltip(
+                message: 'العودة لفهرس القرآن الكريم',
+                child: InkWell(
+                  onTap: widget.onClose,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.menu_book_rounded,
+                          size: 16,
+                          color: isDark ? AppColors.gold : AppColors.emeraldPrimary,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'الفهرس',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

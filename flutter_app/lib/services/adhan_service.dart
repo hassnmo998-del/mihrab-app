@@ -185,26 +185,30 @@ class AdhanService implements BackgroundAudioSource {
     unawaited(refreshStickyNotification());
     unawaited(rescheduleNativeAlarms());
 
-    // Listen to native Android actions (Silence, Live firing start, Completion)
-    if (!kIsWeb && Platform.isAndroid && !Platform.environment.containsKey('FLUTTER_TEST')) {
-      _customNotificationChannel.setMethodCallHandler((call) async {
-        if (call.method == 'silenceAdhan') {
-          await silenceAdhan();
-        } else if (call.method == 'onAdhanStarted') {
-          final prayerName = call.arguments as String? ?? 'الصلاة';
-          liveFiringPrayerNotifier.value = prayerName;
-          isPlayingNotifier.value = true;
-          unawaited(refreshStickyNotification());
-        } else if (call.method == 'onAdhanCompleted') {
-          _onPlaybackFinished();
-        }
-      });
-    }
-
     // Register hardware volume keys handler (Volume Down / Mute silences Adhan immediately)
     if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
       HardwareKeyboard.instance.addHandler(_handleKeyEvent);
       _startTicker();
+    }
+  }
+
+  /// Native Android actions (Silence, Live firing start, Completion). The channel is
+  /// shared with [AppNotificationService], which owns its handler and forwards here.
+  Future<void> handleNativeCall(MethodCall call) async {
+    if (call.method == 'silenceAdhan') {
+      await silenceAdhan();
+    } else if (call.method == 'onAdhanStarted') {
+      final prayerName = call.arguments as String? ?? 'الصلاة';
+      // The native player is sounding the adhan: a preview must not play over it
+      try {
+        await _playerInstance?.stop();
+      } catch (_) {}
+      currentPlayingSoundNotifier.value = null;
+      liveFiringPrayerNotifier.value = prayerName;
+      isPlayingNotifier.value = true;
+      unawaited(refreshStickyNotification());
+    } else if (call.method == 'onAdhanCompleted') {
+      _onPlaybackFinished();
     }
   }
 
@@ -224,8 +228,18 @@ class AdhanService implements BackgroundAudioSource {
   void updateLocation(double lat, double lng) {
     _latitude = lat;
     _longitude = lng;
+    unawaited(_saveLocation());
     unawaited(refreshStickyNotification());
     unawaited(rescheduleNativeAlarms());
+  }
+
+  // Kept for the next launch: alarms are set at startup, before any GPS fix
+  Future<void> _saveLocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('adhan_latitude', _latitude);
+      await prefs.setDouble('adhan_longitude', _longitude);
+    } catch (_) {}
   }
 
   double get latitude => _latitude;
@@ -311,31 +325,31 @@ class AdhanService implements BackgroundAudioSource {
     unawaited(rescheduleNativeAlarms());
   }
 
+  /// Upcoming adhan times of the enabled prayers for the coming [days], in order.
+  /// Android keeps this schedule and renews its own alarms from it after every adhan,
+  /// so the adhan keeps sounding for days without the app being opened.
+  List<Map<String, dynamic>> buildNativeAlarmSchedule({int days = 14}) {
+    final now = DateTime.now();
+    final alarms = <Map<String, dynamic>>[];
+    for (var d = 0; d < days; d++) {
+      final day = DateTime(now.year, now.month, now.day + d);
+      for (final p in calculateTodaySchedule(forDate: day)) {
+        final name = p['name'] as String;
+        if (name == 'الشروق' || !isPrayerAdhanEnabled(name)) continue;
+        final time = p['time'] as DateTime;
+        if (time.isAfter(now)) {
+          alarms.add({'name': name, 'time': time.millisecondsSinceEpoch});
+        }
+      }
+    }
+    return alarms;
+  }
+
   /// Synchronizes calculated upcoming prayer times with Android AlarmManager exact alarms
   Future<void> rescheduleNativeAlarms() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      final now = DateTime.now();
-      final todaySchedule = calculateTodaySchedule(forDate: now);
-      final tomSchedule = calculateTodaySchedule(
-          forDate: now.add(const Duration(days: 1)));
-
-      final allPrayers = [...todaySchedule, ...tomSchedule];
-      final activeAlarms = <Map<String, dynamic>>[];
-
-      for (final p in allPrayers) {
-        final name = p['name'] as String;
-        if (name == 'الشروق') continue;
-        final time = p['time'] as DateTime;
-        if (time.isAfter(now)) {
-          if (isPrayerAdhanEnabled(name)) {
-            activeAlarms.add({
-              'name': name,
-              'time': time.millisecondsSinceEpoch,
-            });
-          }
-        }
-      }
+      final activeAlarms = buildNativeAlarmSchedule();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('adhan_cached_schedule_json', jsonEncode(activeAlarms));
@@ -828,17 +842,35 @@ class AdhanService implements BackgroundAudioSource {
         final key = '${now.year}-${now.month}-${now.day}_$pName';
         if (_lastFiredPrayerKey != key) {
           _lastFiredPrayerKey = key;
-          _onAdhanTimeReached(pName);
+          _onAdhanTimeReached(pName, pTime);
         }
       }
     }
   }
 
-  void _onAdhanTimeReached(String prayerName) {
+  void _onAdhanTimeReached(String prayerName, DateTime prayerTime) {
     if (!isEnabledNotifier.value) return;
     if (!isPrayerAdhanEnabled(prayerName)) return;
 
+    // Android sounds the adhan from its own service, the one the exact alarm starts.
+    // It ignores this request when the alarm got there first, so the adhan plays once.
+    if (!kIsWeb && Platform.isAndroid) {
+      unawaited(_startNativeAdhan(prayerName, prayerTime));
+      return;
+    }
+
     playLiveAdhan(prayerName);
+  }
+
+  Future<void> _startNativeAdhan(String prayerName, DateTime prayerTime) async {
+    try {
+      await _customNotificationChannel.invokeMethod('startAdhanNow', {
+        'name': prayerName,
+        'time': prayerTime.millisecondsSinceEpoch,
+      });
+    } catch (e) {
+      debugPrint('⚠️ [AdhanService] Error starting native adhan: $e');
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -856,6 +888,8 @@ class AdhanService implements BackgroundAudioSource {
       }
 
       _volume = prefs.getDouble('adhan_volume') ?? 1.0;
+      _latitude = prefs.getDouble('adhan_latitude') ?? _latitude;
+      _longitude = prefs.getDouble('adhan_longitude') ?? _longitude;
 
       for (final p in ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء']) {
         _prayerEnabledMap[p] = prefs.getBool('adhan_prayer_$p') ?? true;

@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import 'daily_athkar_view.dart';
-import 'hadith_encyclopedia_view.dart';
 import 'allah_names_view.dart';
 import 'spiritual_gems_view.dart';
 
@@ -30,7 +29,7 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
   @override
   void initState() {
     super.initState();
-    _activeTab = widget.initialTab.clamp(0, 3);
+    _activeTab = widget.initialTab.clamp(0, 2);
   }
 
   @override
@@ -61,7 +60,7 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
                   color: AppColors.gold.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.auto_stories_rounded, color: AppColors.goldBright, size: 24),
+                child: Icon(Icons.favorite_rounded, color: AppColors.goldBright, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -69,7 +68,7 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'زاد المسلم والسنة النبوية المشرفة 🌿',
+                      'زاد المسلم والأذكار والرقية 🌿',
                       style: GoogleFonts.notoNaskhArabic(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -78,7 +77,7 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'الأذكار اليومية • موسوعة الحديث الشريف • أسماء الله الـ 99 • الرقية والدرر',
+                      'الأذكار اليومية • أسماء الله الحسنى الـ 99 • الرقية الشرعية والدرر والكنوز',
                       style: TextStyle(fontSize: 11.5, color: Colors.white.withValues(alpha: 0.85)),
                     ),
                   ],
@@ -102,11 +101,9 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
               children: [
                 _buildTabButton(0, Icons.favorite_rounded, 'أذكار المسلم ☀️'),
                 const SizedBox(width: 4),
-                _buildTabButton(1, Icons.menu_book_rounded, 'موسوعة الحديث 📜'),
+                _buildTabButton(1, Icons.auto_awesome_rounded, 'أسماء الله الحسنى ✨ (99)'),
                 const SizedBox(width: 4),
-                _buildTabButton(2, Icons.auto_awesome_rounded, 'أسماء الله الحسنى ✨ (99)'),
-                const SizedBox(width: 4),
-                _buildTabButton(3, Icons.shield_rounded, 'الرقية والكنوز والدرر 🛡️'),
+                _buildTabButton(2, Icons.shield_rounded, 'الرقية والكنوز والدرر 🛡️'),
               ],
             ),
           ),
@@ -160,10 +157,8 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
       case 0:
         return DailyAthkarView(isDark: isDark);
       case 1:
-        return HadithEncyclopediaView(isDark: isDark);
-      case 2:
         return AllahNamesView(isDark: isDark);
-      case 3:
+      case 2:
       default:
         return SpiritualGemsView(isDark: isDark);
     }

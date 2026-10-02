@@ -17,6 +17,10 @@ class AppTypography {
     Color? color,
     double? height,
     String? family,
+    FontStyle? fontStyle,
+    double? letterSpacing,
+    List<Shadow>? shadows,
+    TextDecoration? decoration,
   }) {
     final target = family ?? currentFontFamily;
     return TextStyle(
@@ -25,6 +29,10 @@ class AppTypography {
       fontWeight: fontWeight,
       color: color,
       height: height,
+      fontStyle: fontStyle,
+      letterSpacing: letterSpacing,
+      shadows: shadows,
+      decoration: decoration,
     );
   }
 

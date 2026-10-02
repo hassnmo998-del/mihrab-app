@@ -11,8 +11,15 @@ import 'hadith_card.dart';
 /// Optimized with on-demand lazy loading and smart pagination for desktop & mobile.
 class HadithEncyclopediaView extends StatefulWidget {
   final bool isDark;
+  final String? initialBook;
+  final bool showBookSelector;
 
-  const HadithEncyclopediaView({super.key, required this.isDark});
+  const HadithEncyclopediaView({
+    super.key,
+    required this.isDark,
+    this.initialBook,
+    this.showBookSelector = true,
+  });
 
   @override
   State<HadithEncyclopediaView> createState() => _HadithEncyclopediaViewState();
@@ -30,6 +37,9 @@ class _HadithEncyclopediaViewState extends State<HadithEncyclopediaView> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialBook != null && widget.initialBook!.isNotEmpty) {
+      _selectedBook = widget.initialBook!;
+    }
     _initData();
     _searchCtrl.addListener(() {
       setState(() {
@@ -133,31 +143,33 @@ class _HadithEncyclopediaViewState extends State<HadithEncyclopediaView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Book Selector Tabs
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : const Color(0xFFE2E8F0),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildBookTab('bukhari', 'صحيح البخاري 📜', '7,589 حديثاً (98 كتاباً)'),
-                const SizedBox(width: 4),
-                _buildBookTab('muslim', 'صحيح مسلم 🕌', '7,563 حديثاً (56 كتاباً)'),
-                const SizedBox(width: 4),
-                _buildBookTab('qudsi', 'الأحاديث القدسية 🤍', '40 حديثاً قدسياً'),
-                const SizedBox(width: 4),
-                _buildBookTab('nawawi', 'الأربعون النووية 📖', '42 حديثاً في أصول الدين'),
-                const SizedBox(width: 4),
-                _buildBookTab('riyad', 'رياض الصالحين 🌿', 'مختارات المساجد والتربية'),
-              ],
+        // Book Selector Tabs (hidden if viewing a specific book directly)
+        if (widget.showBookSelector) ...[
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildBookTab('bukhari', 'صحيح البخاري 📜', '7,589 حديثاً (98 كتاباً)'),
+                  const SizedBox(width: 4),
+                  _buildBookTab('muslim', 'صحيح مسلم 🕌', '7,563 حديثاً (56 كتاباً)'),
+                  const SizedBox(width: 4),
+                  _buildBookTab('qudsi', 'الأحاديث القدسية 🤍', '40 حديثاً قدسياً'),
+                  const SizedBox(width: 4),
+                  _buildBookTab('nawawi', 'الأربعون النووية 📖', '42 حديثاً في أصول الدين'),
+                  const SizedBox(width: 4),
+                  _buildBookTab('riyad', 'رياض الصالحين 🌿', 'مختارات المساجد والتربية'),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ],
 
         // Chapters Bar (Dropdown + Chips)
         _buildChaptersSection(isDark),

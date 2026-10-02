@@ -18,4 +18,5 @@ export 'subject_recitation_record.dart';
 export 'event_question.dart';
 export 'quran_reciter.dart';
 export 'women_branch_provision.dart';
+export 'library_book.dart';
 

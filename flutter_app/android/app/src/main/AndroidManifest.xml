@@ -84,6 +84,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- خدمة تشغيل الأذان: تُبقي التطبيق حياً حتى ينتهي الأذان والتطبيق مغلق -->
+        <service
+            android:name=".AdhanPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <!-- مستلم منبهات الأذان الدقيقة في الخلفية والشاشة مقفلة (AlarmManager) -->
         <receiver
             android:name=".AdhanAlarmReceiver"

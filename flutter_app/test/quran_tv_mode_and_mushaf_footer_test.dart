@@ -241,5 +241,70 @@ void main() {
       // Verify no overflow exception thrown
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('Long ayah in TV Mode auto-scrolls smoothly as recitation advances and resets on new ayah', (tester) async {
+      tester.view.physicalSize = const Size(390, 844); // Mobile screen size
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final audio = QuranAudioService.instance;
+      // Ayat Al-Dayn (2:282) - the longest Ayah in the Quran
+      audio.activeTagNotifier.value = const QuranAyahAudioTag(
+        surahNumber: 2,
+        ayahNumber: 282,
+        surahName: 'البقرة',
+        pageNumber: 48,
+      );
+      audio.durationNotifier.value = const Duration(seconds: 120);
+      audio.positionNotifier.value = Duration.zero;
+      audio.isPlayingNotifier.value = true;
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: QuranTvRecitationView(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Locate the SingleChildScrollView
+      final scrollFinder = find.byType(SingleChildScrollView);
+      expect(scrollFinder, findsOneWidget);
+
+      final scrollableState = tester.state<ScrollableState>(find.descendant(
+        of: scrollFinder,
+        matching: find.byType(Scrollable),
+      ));
+      final controller = scrollableState.position;
+
+      // In a mobile view, Ayat Al-Dayn significantly overflows the viewport
+      expect(controller.maxScrollExtent, greaterThan(100.0));
+      // At start (0 seconds), offset is 0.0 (top)
+      expect(controller.pixels, 0.0);
+
+      // Advance audio position to halfway through recitation (60s out of 120s)
+      audio.positionNotifier.value = const Duration(seconds: 60);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Scroll position must have moved down automatically to reveal the lower text
+      expect(controller.pixels, greaterThan(0.0));
+
+      // Switch to a new Ayah (e.g. Al-Ikhlas 112:1)
+      audio.activeTagNotifier.value = const QuranAyahAudioTag(
+        surahNumber: 112,
+        ayahNumber: 1,
+        surahName: 'الإخلاص',
+        pageNumber: 604,
+      );
+      audio.durationNotifier.value = const Duration(seconds: 4);
+      audio.positionNotifier.value = Duration.zero;
+
+      await tester.pump(const Duration(milliseconds: 500));
+      // Scroll offset resets back to 0.0 for the new Ayah
+      expect(controller.pixels, 0.0);
+    });
   });
 }

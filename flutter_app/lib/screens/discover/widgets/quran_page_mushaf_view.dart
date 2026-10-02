@@ -190,11 +190,43 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
       height: 46,
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_forward_rounded),
-            tooltip: 'العودة للفهرس',
-            onPressed: widget.onClose,
+          Tooltip(
+            message: 'العودة لفهرس القرآن الكريم',
+            child: InkWell(
+              onTap: widget.onClose,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : AppColors.lightCard,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.menu_book_rounded,
+                      size: 16,
+                      color: isDark ? AppColors.gold : AppColors.emeraldPrimary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'الفهرس',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
+          const SizedBox(width: 6),
           if (!_searchOpen)
             IconButton(
               icon: const Icon(Icons.search_rounded),

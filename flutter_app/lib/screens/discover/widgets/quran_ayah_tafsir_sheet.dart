@@ -5,8 +5,10 @@ import '../../../core/theme/app_colors.dart';
 import '../../../services/quran_service.dart';
 import '../../../services/tafsir_service.dart';
 
-/// Centered Modal Dialog displaying authentic Tafsir Al-Muyassar for Quranic Ayahs.
+/// Centered Modal Dialog displaying authentic Tafsir (Al-Muyassar, Ibn Kathir, Al-Saadi, etc.) for Quranic Ayahs.
 /// Features:
+/// - Selector in the header to switch between Tafsir commentators on the fly.
+/// - Offline instant display for Al-Muyassar, and on-demand cached retrieval for Ibn Kathir and others.
 /// - Centered on screen with smooth transition and backdrop dismissal.
 /// - Horizontal swipe between Ayahs strictly within the same Surah (bounded).
 /// - Long Ayah & lengthy Tafsir vertical smooth scrolling (zero overflow).
@@ -60,12 +62,14 @@ class QuranAyahTafsirSheet extends StatefulWidget {
 class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
   late int _currentAyah;
   late PageController _pageController;
+  late TafsirEdition _selectedEdition;
 
   @override
   void initState() {
     super.initState();
     _currentAyah = widget.initialAyahNumber.clamp(1, widget.totalAyahs);
     _pageController = PageController(initialPage: _currentAyah - 1);
+    _selectedEdition = TafsirService.selectedEdition;
   }
 
   @override
@@ -81,7 +85,8 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
   }
 
   void _copyAyahAndTafsir(String ayahText, String tafsirText) {
-    final copyText = '﴿$ayahText﴾\n\n[التفسير الميسر]:\n$tafsirText\n\n— سورة ${widget.surahName} (الآية $_currentAyah)';
+    final copyText =
+        '﴿$ayahText﴾\n\n[${_selectedEdition.name}]:\n$tafsirText\n\n— سورة ${widget.surahName} (الآية $_currentAyah)';
     Clipboard.setData(ClipboardData(text: copyText));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -110,13 +115,18 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
 
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       elevation: 0,
+      shadowColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: const RoundedRectangleBorder(
+        side: BorderSide.none,
+      ),
       child: Center(
         child: Container(
           width: double.infinity,
           constraints: BoxConstraints(
-            maxWidth: 620,
+            maxWidth: 640,
             maxHeight: maxDialogHeight,
           ),
           decoration: BoxDecoration(
@@ -139,9 +149,9 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Top Header: Title, Ayah counter, and Close button
+                // Top Header: Title, Ayah counter, Tafsir Selector and Close button
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Row(
                     children: [
                       // Surah and Ayah counter Badge
@@ -149,7 +159,10 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 4,
                               children: [
                                 Text(
                                   'سورة ${widget.surahName}',
@@ -159,7 +172,6 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
                                     color: gold,
                                   ),
                                 ),
-                                const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   decoration: BoxDecoration(
@@ -180,15 +192,22 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'التفسير الميسر • مجمع الملك فهد',
+                              _selectedEdition.author,
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 color: isDark ? Colors.white54 : Colors.black54,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
+
+                      // Tafsir Selector Dropdown Menu
+                      _buildTafsirSelectorMenu(isDark: isDark, gold: gold),
+
+                      const SizedBox(width: 4),
 
                       // Close button
                       IconButton(
@@ -212,15 +231,12 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
                     itemBuilder: (context, index) {
                       final ayahNum = index + 1;
                       final verses = QuranService.getUthmaniVerses(widget.surahNumber);
-                      final ayahText = (verses.isNotEmpty && index < verses.length)
-                          ? verses[index]
-                          : '';
-                      final tafsirText = TafsirService.getAyahTafsir(widget.surahNumber, ayahNum);
+                      final ayahText =
+                          (verses.isNotEmpty && index < verses.length) ? verses[index] : '';
 
                       return _buildAyahPage(
                         ayahNum: ayahNum,
                         ayahText: ayahText,
-                        tafsirText: tafsirText,
                         isDark: isDark,
                         gold: gold,
                         primaryColor: primaryColor,
@@ -236,15 +252,113 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
     );
   }
 
+  /// Compact, stylish popup menu to select commentator on the fly
+  Widget _buildTafsirSelectorMenu({
+    required bool isDark,
+    required Color gold,
+  }) {
+    return PopupMenuButton<TafsirEdition>(
+      initialValue: _selectedEdition,
+      tooltip: 'اختيار المفسر',
+      onSelected: (edition) {
+        if (edition == _selectedEdition) return;
+        setState(() {
+          _selectedEdition = edition;
+        });
+        TafsirService.setSelectedEdition(edition);
+      },
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: AppColors.gold.withValues(alpha: 0.35)),
+      ),
+      color: isDark ? const Color(0xFF1E2620) : const Color(0xFFFDFCF9),
+      elevation: 8,
+      itemBuilder: (context) => TafsirEdition.values.map((edition) {
+        final isSelected = edition == _selectedEdition;
+        return PopupMenuItem<TafsirEdition>(
+          value: edition,
+          child: Row(
+            children: [
+              Icon(
+                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                size: 18,
+                color: isSelected ? gold : (isDark ? Colors.white38 : Colors.black38),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      edition.name,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        color: isSelected ? gold : (isDark ? Colors.white : Colors.black87),
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      edition.isOffline
+                          ? 'متاح بدون إنترنت (أوفلاين)'
+                          : 'تحميل مباشر وحفظ محلي تلقائي',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: edition.isOffline
+                            ? Colors.green
+                            : (isDark ? Colors.white54 : Colors.black45),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: gold.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: gold.withValues(alpha: 0.4), width: 1.1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.menu_book_rounded, size: 14, color: gold),
+            const SizedBox(width: 5),
+            Text(
+              _selectedEdition.shortName,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: gold,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down_rounded, size: 18, color: gold),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Single Ayah card & Tafsir body with smooth vertical scroll to completely prevent overflow
   Widget _buildAyahPage({
     required int ayahNum,
     required String ayahText,
-    required String tafsirText,
     required bool isDark,
     required Color gold,
     required Color primaryColor,
   }) {
+    final cachedSync = TafsirService.getAyahTafsirSync(
+      widget.surahNumber,
+      ayahNum,
+      _selectedEdition,
+    );
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
@@ -301,65 +415,69 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
           const SizedBox(height: 16),
 
           // Tafsir Card (Bottom)
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkSurface : AppColors.lightCard,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Tafsir header & Copy button
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.auto_stories_rounded, color: gold, size: 18),
-                        const SizedBox(width: 8),
-                        Text(
-                          'التفسير وبيان المعنى',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: gold,
+          if (cachedSync != null)
+            _buildTafsirCard(
+              ayahNum: ayahNum,
+              ayahText: ayahText,
+              tafsirText: cachedSync,
+              isDark: isDark,
+              gold: gold,
+            )
+          else
+            FutureBuilder<String>(
+              key: ValueKey('${_selectedEdition.id}_${widget.surahNumber}_$ayahNum'),
+              future: TafsirService.getAyahTafsirAsync(
+                widget.surahNumber,
+                ayahNum,
+                _selectedEdition,
+              ),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Container(
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurface : AppColors.lightCard,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                      ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: gold,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _copyAyahAndTafsir(ayahText, tafsirText),
-                      icon: Icon(Icons.copy_rounded, size: 15, color: gold),
-                      label: Text(
-                        'نسخ',
-                        style: TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.bold),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          const SizedBox(height: 14),
+                          Text(
+                            'جاري تحميل ${_selectedEdition.name} للآية $ayahNum...',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
+                  );
+                }
 
-                // Tafsir Text
-                Text(
-                  tafsirText,
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    height: 1.85,
-                    color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
-                  ),
-                  textAlign: TextAlign.justify,
-                  textDirection: TextDirection.rtl,
-                ),
-              ],
+                final text = snapshot.data ?? 'لا يتوفر تفسير لهذه الآية حالياً.';
+                return _buildTafsirCard(
+                  ayahNum: ayahNum,
+                  ayahText: ayahText,
+                  tafsirText: text,
+                  isDark: isDark,
+                  gold: gold,
+                );
+              },
             ),
-          ),
 
           const SizedBox(height: 14),
 
@@ -372,6 +490,75 @@ class _QuranAyahTafsirSheetState extends State<QuranAyahTafsirSheet> {
                 color: isDark ? Colors.white38 : Colors.black38,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the loaded Tafsir card with clean typography and copy button
+  Widget _buildTafsirCard({
+    required int ayahNum,
+    required String ayahText,
+    required String tafsirText,
+    required bool isDark,
+    required Color gold,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Tafsir header & Copy button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_stories_rounded, color: gold, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    _selectedEdition.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: gold,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: () => _copyAyahAndTafsir(ayahText, tafsirText),
+                icon: Icon(Icons.copy_rounded, size: 15, color: gold),
+                label: Text(
+                  'نسخ',
+                  style: TextStyle(fontSize: 12, color: gold, fontWeight: FontWeight.bold),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Tafsir Text
+          Text(
+            tafsirText,
+            style: TextStyle(
+              fontSize: 15.5,
+              height: 1.85,
+              color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+            ),
+            textAlign: TextAlign.justify,
+            textDirection: TextDirection.rtl,
           ),
         ],
       ),

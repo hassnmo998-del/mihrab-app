@@ -767,13 +767,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       icon: Icons.volunteer_activism_rounded,
                       isDark: isDark,
                     ),
-                    const SizedBox(width: 4),
-                    _buildMainTabButton(
-                      id: 'media',
-                      label: 'المحتوى الإسلامي 🎬',
-                      icon: Icons.play_circle_fill_rounded,
-                      isDark: isDark,
-                    ),
+                    // const SizedBox(width: 4),
+                    // _buildMainTabButton(
+                    //   id: 'media',
+                    //   label: 'المحتوى الإسلامي 🎬',
+                    //   icon: Icons.play_circle_fill_rounded,
+                    //   isDark: isDark,
+                    // ),
                   ],
                 ),
               ),
@@ -1914,8 +1914,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               PrayerTimesQiblaView(isDark: isDark),
             if (_activeMainTab == 'donations')
               MosqueDonationsView(isDark: isDark),
-            if (_activeMainTab == 'media')
-              IslamicMediaHubView(isDark: isDark),
+            // if (_activeMainTab == 'media')
+            //   IslamicMediaHubView(isDark: isDark),
           ],
         ),
       ),

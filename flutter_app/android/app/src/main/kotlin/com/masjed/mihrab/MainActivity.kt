@@ -64,15 +64,27 @@ class MainActivity : AudioServiceActivity() {
                 "schedulePrayerAlarms" -> {
                     val alarms = call.arguments as? List<*>
                     if (alarms != null) {
-                        for (item in alarms) {
-                            val map = item as? Map<*, *> ?: continue
-                            val name = map["name"] as? String ?: continue
-                            val time = (map["time"] as? Number)?.toLong() ?: continue
-                            AdhanAlarmManager.schedulePrayerAlarm(this, name, time)
-                        }
+                        AdhanAlarmManager.syncSchedule(this, alarms.mapNotNull { item ->
+                            val map = item as? Map<*, *> ?: return@mapNotNull null
+                            val name = map["name"] as? String ?: return@mapNotNull null
+                            val time = (map["time"] as? Number)?.toLong() ?: return@mapNotNull null
+                            name to time
+                        })
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGS", "Alarms list must not be null", null)
+                    }
+                }
+                // التطبيق مفتوح وحان الأذان: يصدح من الخدمة نفسها التي يطلقها المنبّه، مرة واحدة
+                "startAdhanNow" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val name = args?.get("name") as? String
+                    val time = (args?.get("time") as? Number)?.toLong()
+                    if (name != null && time != null) {
+                        AdhanPlaybackService.start(this, name, time)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGS", "name and time are required", null)
                     }
                 }
                 "cancelPrayerAlarms" -> {

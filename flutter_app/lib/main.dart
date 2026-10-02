@@ -17,6 +17,7 @@ import 'screens/settings_screen.dart';
 import 'services/data_service.dart';
 import 'services/app_update_service.dart';
 import 'services/app_notification_service.dart';
+import 'services/adhan_service.dart';
 import 'widgets/update_dialog.dart';
 import 'widgets/code_scanner_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
@@ -24,6 +25,7 @@ import 'screens/discover_screen.dart';
 import 'screens/discover/widgets/quran_reader_view.dart';
 import 'screens/discover/widgets/islamic_zad_hub_view.dart';
 import 'screens/discover/widgets/prayer_times_qibla_view.dart';
+import 'screens/library/library_screen.dart';
 import 'screens/student_screen.dart';
 import 'screens/sheikh_screen.dart';
 import 'screens/mosque_admin_screen.dart';
@@ -81,6 +83,11 @@ void main() async {
     AppNotificationService.instance.init(),
     dataService.init(),
   ]);
+
+  // الأذان يُجدول من بداية التشغيل، لا عند فتح تبويب المواقيت فقط
+  if (!kIsWeb) {
+    unawaited(AdhanService.instance.init());
+  }
 
   // Initialize window manager for fullscreen support (Desktop only)
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
@@ -432,6 +439,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
         context.read<DataService>().syncWithSupabase();
         // فحص التحديثات فور العودة للتطبيق لضمان تنبيه المستخدم
         _checkUpdateOnLaunch();
+        // تمديد جدول منبّهات الأذان أسبوعين من اليوم
+        AdhanService.instance.rescheduleNativeAlarms();
       }
     }
   }
@@ -711,13 +720,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       ),
     ));
 
-    // 3. Islamic Content / Hadith / Ruqyah / Athkar
+    // 3. Islamic Content / Ruqyah / Athkar
     tabs.add(_ShellTab(
       id: 'islamic_zad',
-      label: 'الأحاديث والرقية',
-      shortLabel: 'الأحاديث والرقية',
-      icon: Icons.menu_book_outlined,
-      activeIcon: Icons.menu_book_rounded,
+      label: 'الأذكار والرقية',
+      shortLabel: 'الأذكار والرقية',
+      icon: Icons.favorite_outline,
+      activeIcon: Icons.favorite_rounded,
       widget: RefreshIndicator(
         onRefresh: () => data.syncWithSupabase(),
         child: SingleChildScrollView(
@@ -730,7 +739,17 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       ),
     ));
 
-    // 4. Adhan & Prayer Times
+    // 4. Comprehensive Islamic Library (المكتبة الشاملة)
+    tabs.add(const _ShellTab(
+      id: 'library',
+      label: 'المكتبة الشاملة',
+      shortLabel: 'المكتبة',
+      icon: Icons.local_library_outlined,
+      activeIcon: Icons.local_library_rounded,
+      widget: LibraryScreen(),
+    ));
+
+    // 5. Adhan & Prayer Times
     tabs.add(_ShellTab(
       id: 'prayer_times',
       label: 'الأذان ومواقيت الصلاة',

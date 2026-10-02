@@ -101,11 +101,12 @@ class AppNotificationService {
 
       // الاستماع لأحداث الإشعار المخصص (إسكات الأذان، فتح شاشة المواقيت)
       if (Platform.isAndroid && !Platform.environment.containsKey('FLUTTER_TEST')) {
+        // القناة لها معالج واحد: أحداث الأذان (إسكات، بدء، انتهاء) تُحوَّل إلى AdhanService
         _customNotificationChannel.setMethodCallHandler((call) async {
-          if (call.method == 'silenceAdhan') {
-            await AdhanService.instance.silenceAdhan();
-          } else if (call.method == 'openPrayerTimes') {
+          if (call.method == 'openPrayerTimes') {
             MainShell.targetTabNotifier.value = 'adhan_prayer_times';
+          } else {
+            await AdhanService.instance.handleNativeCall(call);
           }
         });
 

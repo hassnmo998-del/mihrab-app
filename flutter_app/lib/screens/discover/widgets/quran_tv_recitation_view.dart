@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -502,87 +503,15 @@ class _QuranTvRecitationViewState extends State<QuranTvRecitationView>
 
             const SizedBox(height: 16),
 
-            // 2. MAIN AYAH TEXT (Centered smoothly in the remaining area; only the text cross-fades)
+            // 2. MAIN AYAH TEXT WITH SMART BROADCAST AUTO-SCROLL
             Expanded(
-              child: Center(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Standalone Basmalah if first ayah of surah
-                      if (showBasmalah) ...[
-                        Text(
-                          'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.amiri(
-                            fontSize: (_fontSize * 0.82).clamp(20.0, 36.0),
-                            fontWeight: FontWeight.bold,
-                            color: _theme.accentGold,
-                            shadows: [
-                              Shadow(
-                                color: _theme.glowColor.withValues(alpha: 0.4),
-                                blurRadius: 10,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Silk-smooth pure cross-fade on ONLY the ayah text
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 380),
-                        switchInCurve: Curves.easeInOutCubic,
-                        switchOutCurve: Curves.easeInOutCubic,
-                        transitionBuilder: (child, animation) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: child,
-                          );
-                        },
-                        child: Text.rich(
-                          key: ValueKey('tv_ayah_text_${tag.key}'),
-                          TextSpan(
-                            children: [
-                              TextSpan(
-                                text: ayahText,
-                                style: GoogleFonts.amiri(
-                                  fontSize: _fontSize,
-                                  height: 2.1,
-                                  fontWeight: FontWeight.normal,
-                                  color: _theme.primaryTextColor,
-                                  shadows: [
-                                    Shadow(
-                                      color: Colors.black.withValues(alpha: 0.65),
-                                      offset: const Offset(0, 2),
-                                      blurRadius: 6,
-                                    ),
-                                    Shadow(
-                                      color: _theme.accentGold.withValues(alpha: 0.25),
-                                      blurRadius: 12,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              TextSpan(
-                                text: ' ${QuranService.formatAyahBracket(tag.ayahNumber)} ',
-                                style: GoogleFonts.amiri(
-                                  fontSize: _fontSize * 0.9,
-                                  fontWeight: FontWeight.bold,
-                                  color: _theme.accentGold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          textAlign: TextAlign.center,
-                          textDirection: TextDirection.rtl,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              child: _TvSmartAyahScrollView(
+                tag: tag,
+                ayahText: ayahText,
+                showBasmalah: showBasmalah,
+                fontSize: _fontSize,
+                theme: _theme,
+                audio: _audio,
               ),
             ),
 
@@ -1214,6 +1143,283 @@ class _QuranTvRecitationViewState extends State<QuranTvRecitationView>
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Smart scrollable viewport for TV Recitation mode.
+/// Intelligently centers ayahs when they fit inside the screen, and smoothly auto-scrolls
+/// long ayahs down proportional to the reciter's playback pace so nothing is ever truncated.
+/// Also respects manual user scrolling with an automatic resume timer.
+class _TvSmartAyahScrollView extends StatefulWidget {
+  final QuranAyahAudioTag tag;
+  final String ayahText;
+  final bool showBasmalah;
+  final double fontSize;
+  final QuranTvTheme theme;
+  final QuranAudioService audio;
+
+  const _TvSmartAyahScrollView({
+    required this.tag,
+    required this.ayahText,
+    required this.showBasmalah,
+    required this.fontSize,
+    required this.theme,
+    required this.audio,
+  });
+
+  @override
+  State<_TvSmartAyahScrollView> createState() => _TvSmartAyahScrollViewState();
+}
+
+class _TvSmartAyahScrollViewState extends State<_TvSmartAyahScrollView> {
+  final ScrollController _scrollController = ScrollController();
+  bool _isUserInteracting = false;
+  Timer? _userInteractionResumeTimer;
+  Duration _lastPosition = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.audio.positionNotifier.addListener(_onAudioTick);
+    widget.audio.durationNotifier.addListener(_onAudioTick);
+    widget.audio.isPlayingNotifier.addListener(_onAudioTick);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onAudioTick();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _TvSmartAyahScrollView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tag.key != widget.tag.key) {
+      _userInteractionResumeTimer?.cancel();
+      _isUserInteracting = false;
+      _lastPosition = Duration.zero;
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onAudioTick();
+      });
+    } else if (oldWidget.fontSize != widget.fontSize) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onAudioTick();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.audio.positionNotifier.removeListener(_onAudioTick);
+    widget.audio.durationNotifier.removeListener(_onAudioTick);
+    widget.audio.isPlayingNotifier.removeListener(_onAudioTick);
+    _userInteractionResumeTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onAudioTick() {
+    if (!mounted) return;
+    if (_isUserInteracting) return;
+    if (!_scrollController.hasClients) return;
+
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    if (maxScroll <= 1.0) {
+      if (_scrollController.offset != 0.0) {
+        _scrollController.jumpTo(0.0);
+      }
+      return;
+    }
+
+    final position = widget.audio.positionNotifier.value;
+    final duration = widget.audio.durationNotifier.value;
+    final isPlaying = widget.audio.isPlayingNotifier.value;
+
+    // Detect if playback repeated / looped back to the beginning
+    if (position < _lastPosition - const Duration(seconds: 1)) {
+      if (position.inMilliseconds < 1500) {
+        _scrollController.jumpTo(0.0);
+        _lastPosition = position;
+        return;
+      }
+    }
+    _lastPosition = position;
+
+    final targetOffset = _calculateTargetOffset(
+      position: position,
+      duration: duration,
+      maxScroll: maxScroll,
+    );
+
+    final currentOffset = _scrollController.offset;
+    final diff = (targetOffset - currentOffset).abs();
+
+    if (diff > 1.0) {
+      if (diff > 45.0) {
+        // Large seek or initial jump: smooth animated ease glide
+        _scrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+      } else if (isPlaying) {
+        // Continuous smooth playback glide
+        _scrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.linear,
+        );
+      }
+    }
+  }
+
+  double _calculateTargetOffset({
+    required Duration position,
+    required Duration duration,
+    required double maxScroll,
+  }) {
+    if (maxScroll <= 0) return 0.0;
+    if (duration <= Duration.zero) return 0.0;
+
+    final posMs = position.inMilliseconds.toDouble();
+    final durMs = duration.inMilliseconds.toDouble();
+    final progress = (posMs / durMs).clamp(0.0, 1.0);
+
+    // Initial reading window: stay at the top (0.0) while listener reads opening lines
+    final startProgress = (2500.0 / durMs).clamp(0.05, 0.15);
+    // Ending contemplation window: arrive at bottom before ayah finishes so ending words are read stationary
+    final endProgress = (1.0 - (3000.0 / durMs)).clamp(0.80, 0.92);
+
+    if (progress <= startProgress) {
+      return 0.0;
+    }
+    if (progress >= endProgress) {
+      return maxScroll;
+    }
+
+    final normalized = (progress - startProgress) / (endProgress - startProgress);
+    return maxScroll * normalized;
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification is UserScrollNotification) {
+      if (notification.direction != ScrollDirection.idle) {
+        _isUserInteracting = true;
+        _userInteractionResumeTimer?.cancel();
+      } else {
+        _userInteractionResumeTimer?.cancel();
+        _userInteractionResumeTimer = Timer(const Duration(milliseconds: 3500), () {
+          if (mounted) {
+            _isUserInteracting = false;
+            _onAudioTick();
+          }
+        });
+      }
+    } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
+      _isUserInteracting = true;
+      _userInteractionResumeTimer?.cancel();
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: math.max(0.0, constraints.maxHeight - 16),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Standalone Basmalah if first ayah of surah
+                      if (widget.showBasmalah) ...[
+                        Text(
+                          'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.amiri(
+                            fontSize: (widget.fontSize * 0.82).clamp(20.0, 36.0),
+                            fontWeight: FontWeight.bold,
+                            color: widget.theme.accentGold,
+                            shadows: [
+                              Shadow(
+                                color: widget.theme.glowColor.withValues(alpha: 0.4),
+                                blurRadius: 10,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+
+                      // Silk-smooth pure cross-fade on ONLY the ayah text
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 380),
+                        switchInCurve: Curves.easeInOutCubic,
+                        switchOutCurve: Curves.easeInOutCubic,
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          );
+                        },
+                        child: Text.rich(
+                          key: ValueKey('tv_ayah_text_${widget.tag.key}'),
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: widget.ayahText,
+                                style: GoogleFonts.amiri(
+                                  fontSize: widget.fontSize,
+                                  height: 2.1,
+                                  fontWeight: FontWeight.normal,
+                                  color: widget.theme.primaryTextColor,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      offset: const Offset(0, 2),
+                                      blurRadius: 6,
+                                    ),
+                                    Shadow(
+                                      color: widget.theme.accentGold.withValues(alpha: 0.25),
+                                      blurRadius: 12,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              TextSpan(
+                                text: ' ${QuranService.formatAyahBracket(widget.tag.ayahNumber)} ',
+                                style: GoogleFonts.amiri(
+                                  fontSize: widget.fontSize * 0.9,
+                                  fontWeight: FontWeight.bold,
+                                  color: widget.theme.accentGold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          textAlign: TextAlign.center,
+                          textDirection: TextDirection.rtl,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

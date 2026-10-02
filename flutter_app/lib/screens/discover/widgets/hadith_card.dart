@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../services/hadith_service.dart';
 
 class HadithCard extends StatefulWidget {
@@ -129,7 +129,7 @@ class _HadithCardState extends State<HadithCard> {
                   h.matn,
                   maxLines: _isExpanded ? null : (isLong ? 5 : null),
                   overflow: _isExpanded ? TextOverflow.clip : (isLong ? TextOverflow.ellipsis : TextOverflow.clip),
-                  style: GoogleFonts.amiri(
+                  style: AppTypography.font(
                     fontSize: widget.fontSize,
                     height: 1.85,
                     fontWeight: FontWeight.w600,

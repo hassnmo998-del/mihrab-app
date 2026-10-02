@@ -48,3 +48,11 @@ Thumbs.db
 # مخرجات تحليل مؤقّتة
 analyze_out.txt
 .kreelo/
+
+# رمز استيراد كتب المكتبة ونصوص المصادر المنزّلة — محلية فقط
+flutter_app/tool/library/.ingest-token
+flutter_app/tool/library/.cache/
+
+# ملخصات كتب قديمة استُبدلت بالنصوص الكاملة في Supabase — لا تُنشر
+flutter_app/tool/legacy_abridged/
+website/data/
