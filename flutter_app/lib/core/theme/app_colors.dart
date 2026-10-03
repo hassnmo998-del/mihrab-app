@@ -125,7 +125,7 @@ class AppColors {
   static const Color tajweedTafkheem = Color(0xFF2563EB); // تفخيم الراء واللام (أزرق داكن)
 
   // =========================================================================
-  // 7 Distinct Theme Palettes (سبع باقات ألوان كاملة ومتقنة)
+  // 8 Distinct Theme Palettes (ثماني باقات ألوان كاملة ومتقنة)
   // =========================================================================
   static const List<AppThemePalette> palettes = [
     // 1. Terracotta (التيراكوتا الشامي)
@@ -322,6 +322,34 @@ class AppColors {
       darkCard: Color(0xFF2E151D),
       darkBorder: Color(0xFF45202B),
       darkInputFill: Color(0xFF261118),
+    ),
+
+    // 8. Kaaba (كسوة الكعبة)
+    AppThemePalette(
+      id: 'kaaba',
+      name: 'كسوة الكعبة',
+      subtitle: 'سواد الكسوة وذهب الحزام',
+      primary: Color(0xFF1B1813),
+      darkPrimary: Color(0xFFB8922E),
+      accent: Color(0xFFD4AF37),
+      accentDark: Color(0xFF8C6B1A),
+      accentLight: Color(0xFFF0D683),
+      accentSoftBg: Color(0xFFFAF5E6),
+      gradient: LinearGradient(
+        colors: [Color(0xFF0B0B0B), Color(0xFF221C10), Color(0xFF8F7023)],
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+      ),
+      lightBg: Color(0xFFF8F5EE),
+      lightSurface: Color(0xFFFFFFFF),
+      lightCard: Color(0xFFFFFFFF),
+      lightBorder: Color(0xFFE6DEC8),
+      lightInputFill: Color(0xFFF3EEE0),
+      darkBg: Color(0xFF080807),
+      darkSurface: Color(0xFF11100E),
+      darkCard: Color(0xFF191713),
+      darkBorder: Color(0xFF3A311D),
+      darkInputFill: Color(0xFF14120F),
     ),
   ];
 

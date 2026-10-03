@@ -1,16 +1,37 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/adhan_sound.dart';
 import 'adhan_data.dart';
+import 'update/update_downloader.dart';
+import 'update/update_models.dart';
 
-/// Manages resilient offline storage, persistent caching, and background downloading
-/// of Adhan sound files. Guarantees 100% offline playback with Syria-friendly retry tolerance.
+/// ملف واحد من ملفي المؤذن كما يراه محرك التنزيل.
+class _AdhanFileSpec implements DownloadSpec {
+  const _AdhanFileSpec(this.url, this.size, this.sha256);
+
+  final String url;
+  @override
+  final int size;
+  @override
+  final String sha256;
+
+  @override
+  List<String> get urls => [url];
+
+  /// اسم الملف على الخادم يحمل بصمته، فيُستعمل كما هو على الجهاز.
+  @override
+  String get fileName => Uri.parse(url).pathSegments.last;
+}
+
+/// ملفات أصوات الأذان على الجهاز وتنزيلها.
+///
+/// التنزيل لا يفشل بسبب الشبكة: يستكمل من آخر بايت وصل، وينتظر عودة الاتصال،
+/// وما لم يكتمل يُستأنف عند فتح التطبيق التالي لأن الطابور محفوظ. والمشغّل لا يبثّ
+/// من الشبكة أبداً: يشغّل ملفاً محلياً أو معاينة قصيرة مضمَّنة في التطبيق.
 class AdhanAudioCacheManager {
   AdhanAudioCacheManager._();
   static final AdhanAudioCacheManager instance = AdhanAudioCacheManager._();
@@ -19,14 +40,15 @@ class AdhanAudioCacheManager {
   static const String pendingTargetPrefKey = 'adhan_pending_target_sound_id';
   static const String pendingQueuePrefKey = 'adhan_pending_download_queue';
 
-  Directory? _audioDir;
-  final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 120),
-      sendTimeout: const Duration(seconds: 15),
-    ),
-  );
+  static const String _defaultAsset = 'audio/default_adhan.mp3';
+  static const String _defaultFajrAsset = 'audio/default_adhan_fajr.mp3';
+
+  List<AdhanSound> _catalog = AdhanData.allSounds;
+  Directory? _dir;
+
+  /// مجلد ما قبل 1.0.11: تسجيل واحد لكل مؤذن يُؤذَّن به لكل الصلوات.
+  Directory? _legacyDir;
+  UpdateDownloader? _downloader;
 
   // Download states
   final ValueNotifier<Set<String>> downloadedSoundIdsNotifier =
@@ -38,74 +60,110 @@ class AdhanAudioCacheManager {
   final ValueNotifier<Set<String>> activeDownloadingIdsNotifier =
       ValueNotifier<Set<String>>({});
 
+  /// يُنادى حين يكتمل تنزيل صوت بملفيه.
+  void Function(String soundId)? onSoundReady;
+
+  final List<String> _queue = [];
+  final Map<String, Completer<bool>> _waiters = {};
+  bool _working = false;
   bool _initialized = false;
-  Timer? _resilienceRetryTimer;
+  bool _disposed = false;
+
+  /// يتغيّر مع كل dispose: تنزيل بدأ قبله يتوقف ولا يمسّ حالة ما بعده.
+  int _session = 0;
+
+  /// المتصفح (نسخة الآيفون) لا يحفظ ملفات: يشغّل من الرابط مباشرة.
+  bool get supportsDownloads => !kIsWeb;
 
   Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
+    _disposed = false;
+    if (kIsWeb) return;
 
     try {
-      final docDir = await getApplicationDocumentsDirectory();
-      _audioDir = Directory('${docDir.path}/adhan_audio');
-      if (!await _audioDir!.exists()) {
-        await _audioDir!.create(recursive: true);
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory('${support.path}${Platform.pathSeparator}adhan_audio_v2');
+      await dir.create(recursive: true);
+      _dir = dir;
+      _downloader = UpdateDownloader(dir: dir);
+
+      try {
+        final docs = await getApplicationDocumentsDirectory();
+        _legacyDir = Directory('${docs.path}${Platform.pathSeparator}adhan_audio');
+        await _cleanLegacyLeftovers();
+      } catch (_) {
+        _legacyDir = null;
       }
 
-      // 1. Ensure the default bundled adhan (Sheikh Ali Mullah) is extracted to disk for Android native use
-      await _extractDefaultBundledAdhan();
-
-      // 2. Scan disk for already downloaded sounds
       await refreshDownloadedCache();
-
-      // 3. Kick off resilient downloader for any pending items when network is ready
-      _startResilienceRetryWatcher();
-      unawaited(_processPendingQueue());
+      await _resumePending();
     } catch (e) {
       debugPrint('⚠️ [AdhanAudioCacheManager] Init error: $e');
     }
   }
 
-  /// Extracts the bundled default adhan asset to local app storage once,
-  /// so both Flutter AudioPlayer and Android native MediaPlayer can access it directly.
-  Future<void> _extractDefaultBundledAdhan() async {
-    if (_audioDir == null) return;
-    final defaultFile = File('${_audioDir!.path}/$defaultSoundId.mp3');
-    if (!await defaultFile.exists() || await defaultFile.length() < 100 * 1024) {
-      try {
-        final byteData =
-            await rootBundle.load('assets/audio/default_adhan.mp3');
-        final bytes = byteData.buffer.asUint8List();
-        await defaultFile.writeAsBytes(bytes, flush: true);
-        debugPrint('✅ [AdhanAudioCacheManager] Extracted default adhan to ${defaultFile.path}');
-      } catch (e) {
-        debugPrint('⚠️ [AdhanAudioCacheManager] Error extracting default adhan asset: $e');
+  /// الأذان الافتراضي صار يُشغَّل من داخل التطبيق مباشرة، فنسخته المستخرجة قديماً
+  /// (وفيها «الصلاة خير من النوم») تُحذف مع بقايا التنزيلات الناقصة، ومع كل تسجيل
+  /// قديم وصل بديلاه. لا يُحذف القديم لحظة وصول البديل: مسار أندرويد المحفوظ قد
+  /// يشير إليه بعدُ، فيُحذف هنا عند التشغيل التالي.
+  Future<void> _cleanLegacyLeftovers() async {
+    final legacy = _legacyDir;
+    if (legacy == null || !await legacy.exists()) return;
+    final superseded = {
+      for (final sound in _catalog)
+        if (_hasAllFiles(sound)) '${sound.id}.mp3',
+    };
+    await for (final entity in legacy.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      if (name == '$defaultSoundId.mp3' || name.endsWith('.tmp') || superseded.contains(name)) {
+        try {
+          await entity.delete();
+        } catch (_) {}
       }
     }
   }
 
-  /// Scans disk to find all completely downloaded MP3 files
-  Future<void> refreshDownloadedCache() async {
-    if (_audioDir == null) return;
-    final downloaded = <String>{defaultSoundId};
+  File? _file(AdhanSound sound, {required bool fajr}) {
+    final dir = _dir;
+    if (dir == null) return null;
+    final url = fajr ? sound.fajrUrl : sound.audioUrl;
+    if (url == null || url.isEmpty) return null;
+    return File('${dir.path}${Platform.pathSeparator}${Uri.parse(url).pathSegments.last}');
+  }
 
+  bool _isComplete(AdhanSound sound, {required bool fajr}) {
+    final file = _file(sound, fajr: fajr);
+    if (file == null) return false;
     try {
-      if (await _audioDir!.exists()) {
-        final entities = await _audioDir!.list().toList();
-        for (final entity in entities) {
-          if (entity is File && entity.path.endsWith('.mp3')) {
-            final fileName = entity.uri.pathSegments.last;
-            final id = fileName.substring(0, fileName.length - 4);
-            final length = await entity.length();
-            if (length > 80 * 1024) {
-              // Valid file (> 80 KB)
-              downloaded.add(id);
-            }
-          }
-        }
-      }
-    } catch (_) {}
+      final expected = fajr ? sound.fajrBytes : sound.audioBytes;
+      return file.existsSync() && (expected <= 0 || file.lengthSync() == expected);
+    } catch (_) {
+      return false;
+    }
+  }
 
+  bool _hasAllFiles(AdhanSound sound) =>
+      _isComplete(sound, fajr: false) && (!sound.hasFajrVariant || _isComplete(sound, fajr: true));
+
+  /// التسجيل القديم لهذا الصوت إن بقي على الجهاز ولم يُستبدل بعد.
+  String? legacyPath(String soundId) {
+    final legacy = _legacyDir;
+    if (legacy == null || soundId == defaultSoundId) return null;
+    try {
+      final file = File('${legacy.path}${Platform.pathSeparator}$soundId.mp3');
+      if (file.existsSync() && file.lengthSync() > 80 * 1024) return file.path;
+    } catch (_) {}
+    return null;
+  }
+
+  /// Scans disk to find all sounds that can play with no connection
+  Future<void> refreshDownloadedCache() async {
+    final downloaded = <String>{defaultSoundId};
+    for (final sound in _catalog) {
+      if (_hasAllFiles(sound) || legacyPath(sound.id) != null) downloaded.add(sound.id);
+    }
     downloadedSoundIdsNotifier.value = downloaded;
   }
 
@@ -115,199 +173,241 @@ class AdhanAudioCacheManager {
     return downloadedSoundIdsNotifier.value.contains(soundId);
   }
 
-  /// Returns the local absolute file path for a sound if it exists on disk
-  String? getLocalAudioFilePath(String soundId) {
-    if (_audioDir == null) return null;
-    final file = File('${_audioDir!.path}/$soundId.mp3');
-    if (file.existsSync() && file.lengthSync() > 80 * 1024) {
-      return file.path;
+  /// مسار الملف الذي يشغّله أندرويد عند الأذان. ملف الفجر null للتسجيلات التي
+  /// لا تحمل «الصلاة خير من النوم»، فيُؤذَّن للفجر بالملف العادي.
+  String? nativePath(AdhanSound sound, {required bool fajr}) {
+    if (sound.id == defaultSoundId) return null; // مضمَّن في التطبيق
+    if (fajr) {
+      return sound.hasFajrVariant && _isComplete(sound, fajr: true) ? _file(sound, fajr: true)!.path : null;
     }
-    if (soundId == defaultSoundId) {
-      final defaultFile = File('${_audioDir!.path}/$defaultSoundId.mp3');
-      if (defaultFile.existsSync() && defaultFile.lengthSync() > 80 * 1024) {
-        return defaultFile.path;
-      }
+    if (_isComplete(sound, fajr: false)) return _file(sound, fajr: false)!.path;
+    return legacyPath(sound.id);
+  }
+
+  /// مصدر الأذان الكامل لهذا الصوت، أو null إن لم يكن على الجهاز بعد.
+  Source? sourceFor(AdhanSound sound, {bool fajr = false}) {
+    final wantsFajr = fajr && sound.hasFajrVariant;
+    if (sound.id == defaultSoundId) {
+      return AssetSource(wantsFajr ? _defaultFajrAsset : _defaultAsset);
     }
-    return null;
+    if (kIsWeb) return UrlSource(wantsFajr ? sound.fajrUrl! : sound.audioUrl);
+
+    final path = (wantsFajr ? nativePath(sound, fajr: true) : null) ?? nativePath(sound, fajr: false);
+    return path == null ? null : DeviceFileSource(path);
+  }
+
+  /// ما يُسمع عند ضغط زر المعاينة: الأذان كاملاً إن كان على الجهاز، وإلا مقطع
+  /// قصير مضمَّن في التطبيق (يعمل فوراً وبلا إنترنت).
+  Source previewSource(AdhanSound sound) {
+    if (!kIsWeb || sound.id == defaultSoundId) {
+      final full = sourceFor(sound);
+      if (full != null) return full;
+    }
+    return AssetSource('audio/previews/${sound.id}.mp3');
   }
 
   /// Gets playable Source for audioplayers: prioritizes local file or asset
-  Source getPlayableSource(AdhanSound sound) {
-    // On web (iPhone PWA), the local filesystem is unavailable — stream directly
-    if (kIsWeb) {
-      if (sound.id == defaultSoundId) {
-        return AssetSource('audio/default_adhan.mp3');
-      }
-      return UrlSource(sound.audioUrl);
-    }
+  Source getPlayableSource(AdhanSound sound) => previewSource(sound);
 
-    final localPath = getLocalAudioFilePath(sound.id);
-    if (localPath != null) {
-      return DeviceFileSource(localPath);
-    }
-    if (sound.id == defaultSoundId) {
-      return AssetSource('audio/default_adhan.mp3');
-    }
-    // Fallback to streaming URL
-    return UrlSource(sound.audioUrl);
-  }
-
-  /// Patient internet probe allowing weak/slow Syria connections to establish
-  Future<bool> checkInternetConnection({
-    Duration timeout = const Duration(seconds: 7),
-  }) async {
-    try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(timeout);
-      if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
-        return true;
-      }
-    } catch (_) {
-      try {
-        final result = await InternetAddress.lookup('cloudflare.com')
-            .timeout(const Duration(seconds: 4));
-        if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
-          return true;
-        }
-      } catch (_) {}
-    }
-    return false;
-  }
-
-  /// Downloads an Adhan sound with progress reporting and atomic saving
+  /// ينزّل ملفي الصوت ويعيد true حين يكتملان. انقطاع الشبكة لا يُنهيه: ينتظر
+  /// ويكمل. [silent] لتنزيل لم يطلبه المستخدم الآن (ترقية تسجيل قديم) فلا يظهر.
   Future<bool> downloadSound({
     required AdhanSound sound,
     void Function(double progress)? onProgress,
+    bool silent = false,
   }) async {
-    if (isSoundDownloaded(sound.id)) {
+    if (sound.id == defaultSoundId || _hasAllFiles(sound)) {
       onProgress?.call(1.0);
       return true;
     }
-
-    if (_audioDir == null) await init();
+    if (!_initialized) await init();
+    if (_downloader == null || _disposed) return false;
 
     final id = sound.id;
-    final activeSet = Set<String>.from(activeDownloadingIdsNotifier.value);
-    activeSet.add(id);
-    activeDownloadingIdsNotifier.value = activeSet;
-
-    final tmpFile = File('${_audioDir!.path}/$id.tmp');
-    final finalFile = File('${_audioDir!.path}/$id.mp3');
-
-    try {
-      await _dio.download(
-        sound.audioUrl,
-        tmpFile.path,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            final progress = (received / total).clamp(0.0, 1.0);
-            final map = Map<String, double>.from(downloadProgressNotifier.value);
-            map[id] = progress;
-            downloadProgressNotifier.value = map;
-            onProgress?.call(progress);
-          }
-        },
+    if (!silent) _setActive(id, true);
+    if (onProgress != null) {
+      void listener() => onProgress(downloadProgressNotifier.value[id] ?? 0);
+      downloadProgressNotifier.addListener(listener);
+      unawaited(
+        (_waiters[id] ??= Completer<bool>()).future.whenComplete(
+              () => downloadProgressNotifier.removeListener(listener),
+            ),
       );
-
-      // Atomic rename once fully downloaded
-      if (await tmpFile.exists() && await tmpFile.length() > 80 * 1024) {
-        if (await finalFile.exists()) {
-          await finalFile.delete();
-        }
-        await tmpFile.rename(finalFile.path);
-
-        // Update downloaded set
-        final updatedSet = Set<String>.from(downloadedSoundIdsNotifier.value);
-        updatedSet.add(id);
-        downloadedSoundIdsNotifier.value = updatedSet;
-
-        // Cleanup progress
-        final map = Map<String, double>.from(downloadProgressNotifier.value);
-        map.remove(id);
-        downloadProgressNotifier.value = map;
-
-        // Check if this was the pending target sound chosen by user
-        final prefs = await SharedPreferences.getInstance();
-        final pendingTargetId = prefs.getString(pendingTargetPrefKey);
-        if (pendingTargetId == id) {
-          await prefs.remove(pendingTargetPrefKey);
-          await prefs.setString('adhan_selected_sound_id', id);
-          await prefs.setString('adhan_selected_sound_path', finalFile.path);
-        }
-
-        // Remove from pending queue if present
-        final queue = prefs.getStringList(pendingQueuePrefKey) ?? [];
-        if (queue.contains(id)) {
-          queue.remove(id);
-          await prefs.setStringList(pendingQueuePrefKey, queue);
-        }
-
-        debugPrint('✅ [AdhanAudioCacheManager] Downloaded & verified: ${sound.title} (${finalFile.path})');
-        return true;
-      } else {
-        throw Exception('Downloaded file is incomplete or corrupt');
-      }
-    } catch (e) {
-      debugPrint('⚠️ [AdhanAudioCacheManager] Download failed for ${sound.title}: $e');
-      try {
-        if (await tmpFile.exists()) await tmpFile.delete();
-      } catch (_) {}
-      return false;
-    } finally {
-      final updatedActive = Set<String>.from(activeDownloadingIdsNotifier.value);
-      updatedActive.remove(id);
-      activeDownloadingIdsNotifier.value = updatedActive;
     }
+    final waiter = _waiters[id] ??= Completer<bool>();
+    if (!_queue.contains(id)) {
+      _queue.add(id);
+      await _persistQueue(add: id);
+    }
+    unawaited(_pump());
+    return waiter.future;
   }
 
-  /// Queues a sound to be downloaded in the background as soon as connectivity resumes
+  /// Queues a sound to be downloaded; [isTargetSound] makes it the selected adhan once it lands
   Future<void> queuePendingDownload(String soundId, {bool isTargetSound = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (isTargetSound) {
         await prefs.setString(pendingTargetPrefKey, soundId);
       }
-      final queue = prefs.getStringList(pendingQueuePrefKey) ?? [];
-      if (!queue.contains(soundId)) {
-        queue.add(soundId);
-        await prefs.setStringList(pendingQueuePrefKey, queue);
-      }
+      await _persistQueue(add: soundId);
     } catch (_) {}
   }
 
-  /// Resilient background worker: runs periodically to pick up any pending downloads
-  void _startResilienceRetryWatcher() {
-    _resilienceRetryTimer?.cancel();
-    _resilienceRetryTimer = Timer.periodic(const Duration(minutes: 2), (_) {
-      unawaited(_processPendingQueue());
-    });
-  }
-
-  Future<void> _processPendingQueue() async {
+  Future<void> _persistQueue({String? add, String? remove}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final queue = prefs.getStringList(pendingQueuePrefKey) ?? [];
-      final pendingTarget = prefs.getString(pendingTargetPrefKey);
-
-      if (queue.isEmpty && pendingTarget == null) return;
-
-      final hasInternet = await checkInternetConnection(timeout: const Duration(seconds: 4));
-      if (!hasInternet) return;
-
-      final allIds = <String>{...queue};
-      if (pendingTarget != null) allIds.add(pendingTarget);
-
-      for (final id in allIds) {
-        if (!isSoundDownloaded(id)) {
-          final sound = AdhanData.getById(id);
-          await downloadSound(sound: sound);
-        }
-      }
+      final queue = prefs.getStringList(pendingQueuePrefKey) ?? <String>[];
+      if (add != null && !queue.contains(add)) queue.add(add);
+      if (remove != null) queue.remove(remove);
+      await prefs.setStringList(pendingQueuePrefKey, queue);
     } catch (_) {}
+  }
+
+  /// ما طلبه المستخدم ولم يكتمل قبل إغلاق التطبيق، ثم تسجيلات ما قبل 1.0.11
+  /// التي تُستبدل بصمت بملفي العادي والفجر.
+  Future<void> _resumePending() async {
+    final prefs = await SharedPreferences.getInstance();
+    final requested = <String>[
+      ...?prefs.getStringList(pendingQueuePrefKey),
+      if (prefs.getString(pendingTargetPrefKey) case final String target) target,
+    ];
+    final known = {for (final s in _catalog) s.id: s};
+    for (final id in requested.toSet()) {
+      final sound = known[id];
+      if (sound == null || id == defaultSoundId || _hasAllFiles(sound)) {
+        await _persistQueue(remove: id);
+        continue;
+      }
+      unawaited(downloadSound(sound: sound));
+    }
+
+    final selected = prefs.getString('adhan_selected_sound_id');
+    final legacy = [
+      for (final sound in _catalog)
+        if (legacyPath(sound.id) != null && !_hasAllFiles(sound)) sound,
+    ]..sort((a, b) => (b.id == selected ? 1 : 0) - (a.id == selected ? 1 : 0));
+    for (final sound in legacy) {
+      if (!_queue.contains(sound.id)) unawaited(downloadSound(sound: sound, silent: true));
+    }
+  }
+
+  /// صوت واحد في كل مرة: على الشبكة الضعيفة يكتمل الأول بدل أن يتقاسم الكل السرعة.
+  Future<void> _pump() async {
+    if (_working || _disposed) return;
+    _working = true;
+    final session = _session;
+    try {
+      while (_queue.isNotEmpty) {
+        final id = _queue.first;
+        final sound = _catalog.where((s) => s.id == id).firstOrNull;
+        final outcome = sound == null ? false : await _downloadFiles(sound, session);
+        if (session != _session) return;
+        _queue.remove(id);
+
+        // null: تعذّر على القرص — يبقى في الطابور المحفوظ ويُعاد عند الفتح التالي
+        if (outcome != null) await _persistQueue(remove: id);
+        if (outcome == true && sound != null) await refreshDownloadedCache();
+        if (session != _session) return;
+        _setProgress(id, null);
+        _setActive(id, false);
+        _waiters.remove(id)?.complete(outcome == true);
+        if (outcome == true) onSoundReady?.call(id);
+      }
+    } finally {
+      if (session == _session) _working = false;
+    }
+  }
+
+  /// true اكتمل، false الملف على الخادم ليس ما يصفه الكتالوج، null توقف أو تعذّر على القرص.
+  Future<bool?> _downloadFiles(AdhanSound sound, int session) async {
+    final downloader = _downloader;
+    if (downloader == null) return null;
+    final specs = [
+      _AdhanFileSpec(sound.audioUrl, sound.audioBytes, sound.audioSha256),
+      if (sound.hasFajrVariant) _AdhanFileSpec(sound.fajrUrl!, sound.fajrBytes, sound.fajrSha256),
+    ];
+    final total = specs.fold<int>(0, (sum, s) => sum + s.size);
+    // الشبكة لا تُخرج المحرك من حلقته؛ ما يصل إلى هنا خطأ في القرص (مجلد لا يُنشأ مثلاً)
+    for (var attempt = 1; attempt <= 4; attempt++) {
+      var done = 0;
+      try {
+        for (final spec in specs) {
+          final file = await downloader.run(spec, onTick: (progress) {
+            if (session != _session) return false;
+            if (total > 0) _setProgress(sound.id, (done + progress.received) / total);
+            return true;
+          });
+          if (file == null) return null;
+          done += spec.size;
+        }
+        debugPrint('✅ [AdhanAudioCacheManager] Downloaded & verified: ${sound.title}');
+        return true;
+      } on UpdateContentMismatch catch (e) {
+        debugPrint('⚠️ [AdhanAudioCacheManager] ${sound.title}: $e');
+        return false;
+      } catch (e) {
+        debugPrint('⚠️ [AdhanAudioCacheManager] Download interrupted for ${sound.title}: $e');
+        await Future<void>.delayed(Duration(seconds: 2 * attempt));
+        if (session != _session) return null;
+      }
+    }
+    return null;
+  }
+
+  void _setProgress(String id, double? progress) {
+    final current = downloadProgressNotifier.value;
+    if (progress == null) {
+      if (!current.containsKey(id)) return;
+      downloadProgressNotifier.value = Map<String, double>.from(current)..remove(id);
+      return;
+    }
+    final clamped = progress.clamp(0.0, 1.0);
+    // لا يُعاد بناء القائمة إلا حين يتحرك الرقم الظاهر (1%)
+    if (((current[id] ?? -1) * 100).floor() == (clamped * 100).floor()) return;
+    downloadProgressNotifier.value = Map<String, double>.from(current)..[id] = clamped;
+  }
+
+  void _setActive(String id, bool active) {
+    final current = activeDownloadingIdsNotifier.value;
+    if (current.contains(id) == active) return;
+    final next = Set<String>.from(current);
+    active ? next.add(id) : next.remove(id);
+    activeDownloadingIdsNotifier.value = next;
   }
 
   void dispose() {
-    _resilienceRetryTimer?.cancel();
-    _resilienceRetryTimer = null;
+    _disposed = true;
+    _initialized = false;
+    _session++;
+    _working = false;
+    _queue.clear();
+    for (final waiter in _waiters.values) {
+      if (!waiter.isCompleted) waiter.complete(false);
+    }
+    _waiters.clear();
+    activeDownloadingIdsNotifier.value = {};
+    downloadProgressNotifier.value = {};
+  }
+
+  /// للاختبارات: مجلدات ومحرك تنزيل بديلة بدل مجلدات النظام.
+  @visibleForTesting
+  Future<void> debugConfigure({
+    required Directory dir,
+    Directory? legacyDir,
+    UpdateDownloader? downloader,
+    List<AdhanSound>? catalog,
+  }) async {
+    dispose();
+    _catalog = catalog ?? AdhanData.allSounds;
+    _disposed = false;
+    _initialized = true;
+    _dir = dir;
+    _legacyDir = legacyDir;
+    _downloader = downloader ?? UpdateDownloader(dir: dir);
+    await dir.create(recursive: true);
+    await _cleanLegacyLeftovers();
+    await refreshDownloadedCache();
+    await _resumePending();
   }
 }

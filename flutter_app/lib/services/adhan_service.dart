@@ -62,7 +62,10 @@ class CurrentPrayerState {
 /// Core singleton service managing Adhan playback, 110+ audio catalog,
 /// live Iqama countdown tracking, and strict Android background permission checks.
 class AdhanService implements BackgroundAudioSource {
-  AdhanService._();
+  AdhanService._() {
+    // تنزيل الأصوات يكمل في الخلفية وبعد إعادة فتح التطبيق: حين يكتمل صوت نُبلَّغ هنا
+    AdhanAudioCacheManager.instance.onSoundReady = _onSoundDownloaded;
+  }
   static final AdhanService instance = AdhanService._();
 
   static const MethodChannel _customNotificationChannel =
@@ -77,6 +80,12 @@ class AdhanService implements BackgroundAudioSource {
         unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
       }
 
+      // خطأ من المشغّل (ملف تالف مثلاً) ينهي التشغيل بهدوء بدل أن يبقى الزر يدور
+      void onError(Object error) {
+        debugPrint('⚠️ [AdhanService] player error: $error');
+        _onPlaybackFinished();
+      }
+
       p.onPlayerStateChanged.listen((state) {
         final isPlaying = state == PlayerState.playing;
         isPlayingNotifier.value = isPlaying;
@@ -85,27 +94,47 @@ class AdhanService implements BackgroundAudioSource {
         } else if (state == PlayerState.completed) {
           _onPlaybackFinished();
         }
-      });
+      }, onError: onError);
 
       p.onPlayerComplete.listen((_) {
         _onPlaybackFinished();
-      });
+      }, onError: onError);
 
       p.onPositionChanged.listen((pos) {
         positionNotifier.value = pos;
         if (pos > Duration.zero) {
           isBufferingNotifier.value = false;
         }
-      });
+      }, onError: onError);
 
       p.onDurationChanged.listen((dur) {
         durationNotifier.value = dur;
         isBufferingNotifier.value = false;
-      });
+      }, onError: onError);
 
       _playerInstance = p;
     }
     return _playerInstance!;
+  }
+
+  // أوامر المشغّل تُنفَّذ واحداً بعد الآخر: ضغطات متلاحقة (معاينة ثم أخرى ثم إيقاف)
+  // كانت تتداخل داخل المشغّل، ومشغّل ويندوز يحمّل كل مصدر في خيط مستقل بلا قفل.
+  Future<void> _playerChain = Future<void>.value();
+
+  /// يزيد مع كل طلب تشغيل أو إيقاف: طلب سبقه أحدث منه لا يُنفَّذ.
+  int _playRequest = 0;
+
+  Future<void> _serial(Future<void> Function() command) {
+    final next = _playerChain.then((_) => command()).catchError((Object e) {
+      debugPrint('⚠️ [AdhanService] player command failed: $e');
+    });
+    _playerChain = next;
+    return next;
+  }
+
+  Future<void> _stopPlayer() {
+    _playRequest++;
+    return _serial(() async => _playerInstance?.stop());
   }
 
   void _onPlaybackFinished() {
@@ -200,9 +229,7 @@ class AdhanService implements BackgroundAudioSource {
     } else if (call.method == 'onAdhanStarted') {
       final prayerName = call.arguments as String? ?? 'الصلاة';
       // The native player is sounding the adhan: a preview must not play over it
-      try {
-        await _playerInstance?.stop();
-      } catch (_) {}
+      await _stopPlayer();
       currentPlayingSoundNotifier.value = null;
       liveFiringPrayerNotifier.value = prayerName;
       isPlayingNotifier.value = true;
@@ -304,17 +331,47 @@ class AdhanService implements BackgroundAudioSource {
     selectedSoundNotifier.value = sound;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('adhan_selected_sound_id', sound.id);
-
-    // Store local file path for Android native player
-    final localPath = AdhanAudioCacheManager.instance.getLocalAudioFilePath(sound.id);
-    if (localPath != null) {
-      await prefs.setString('adhan_selected_sound_path', localPath);
-    } else {
-      await prefs.remove('adhan_selected_sound_path');
+    if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) == sound.id) {
+      await prefs.remove(AdhanAudioCacheManager.pendingTargetPrefKey);
     }
+    await _storeNativeSoundPaths(prefs);
 
     unawaited(refreshStickyNotification());
     unawaited(rescheduleNativeAlarms());
+  }
+
+  /// مسارا الملفين اللذين يشغّلهما أندرويد عند الأذان: العادي لكل الصلوات، والفجر
+  /// («الصلاة خير من النوم») للفجر وحده. بلا مسار يُؤذَّن بالأذان المضمَّن في التطبيق.
+  Future<void> _storeNativeSoundPaths(SharedPreferences prefs) async {
+    final cache = AdhanAudioCacheManager.instance;
+    final sound = selectedSoundNotifier.value;
+    for (final (key, path) in [
+      ('adhan_sound_regular_path', cache.nativePath(sound, fajr: false)),
+      ('adhan_sound_fajr_path', cache.nativePath(sound, fajr: true)),
+    ]) {
+      if (path != null) {
+        await prefs.setString(key, path);
+      } else {
+        await prefs.remove(key);
+      }
+    }
+    // مفتاح ما قبل 1.0.11: ملف واحد لكل الصلوات
+    await prefs.remove('adhan_selected_sound_path');
+  }
+
+  /// اكتمل تنزيل صوت: إن كان هو الذي اختاره المستخدم وينتظر تنزيله صار صوت
+  /// الأذان، وإن كان الصوت الحالي (ترقية تسجيله القديم) تُحدَّث مساراته.
+  Future<void> _onSoundDownloaded(String soundId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) == soundId) {
+        await setSelectedSound(AdhanData.getById(soundId));
+      } else if (selectedSoundNotifier.value.id == soundId) {
+        await _storeNativeSoundPaths(prefs);
+      }
+    } catch (e) {
+      debugPrint('⚠️ [AdhanService] applying downloaded sound failed: $e');
+    }
   }
 
   Future<void> setAdhanEnabled(bool enabled) async {
@@ -452,71 +509,91 @@ class AdhanService implements BackgroundAudioSource {
   // --- Audio Preview & Controls ---
 
   Future<void> playPreview(AdhanSound sound) async {
+    final isCurrent = currentPlayingSoundNotifier.value?.id == sound.id &&
+        liveFiringPrayerNotifier.value == null;
+
     // If clicking on current playing sound, toggle pause
-    if (currentPlayingSoundNotifier.value?.id == sound.id &&
-        isPlayingNotifier.value) {
-      await _playerInstance?.pause();
+    if (isCurrent && isPlayingNotifier.value) {
       isPlayingNotifier.value = false;
-      return;
+      return _serial(() async => _playerInstance?.pause());
     }
+
+    // ما زال يبدأ: ضغطة ثانية لا تعيد تحميله
+    if (isCurrent && isBufferingNotifier.value) return;
 
     // If clicking on paused sound, resume
-    if (currentPlayingSoundNotifier.value?.id == sound.id &&
-        !isPlayingNotifier.value &&
-        positionNotifier.value > Duration.zero) {
-      await _playerInstance?.resume();
+    if (isCurrent && positionNotifier.value > Duration.zero) {
       isPlayingNotifier.value = true;
-      return;
+      return _serial(() async => _playerInstance?.resume());
     }
 
-    try {
-      // Stop only the local player — do NOT touch BackgroundAudio so we
-      // don't kick out the Quran reciter or register a foreground media
-      // session for a simple preview clip.
-      await _playerInstance?.stop();
-      currentPlayingSoundNotifier.value = sound;
-      isBufferingNotifier.value = true;
-      isPlayingNotifier.value = false;
-      positionNotifier.value = Duration.zero;
-      durationNotifier.value = Duration(seconds: sound.durationSeconds);
+    final request = ++_playRequest;
+    currentPlayingSoundNotifier.value = sound;
+    isBufferingNotifier.value = true;
+    isPlayingNotifier.value = false;
+    positionNotifier.value = Duration.zero;
+    durationNotifier.value = Duration(seconds: sound.durationSeconds);
 
-      await _player.setVolume(_volume);
-      final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
-      await _player.play(source);
-      // Preview intentionally has NO BackgroundAudio.claim → stops when
-      // the user leaves the app (correct behaviour for a preview clip).
-      // Only the live Adhan fires with BackgroundAudio so it can continue
-      // in the background.
-    } catch (e) {
-      debugPrint('⚠️ Error in AdhanService.playPreview: $e');
-      _onPlaybackFinished();
-    }
+    return _serial(() async {
+      if (request != _playRequest) return;
+      try {
+        // Stop only the local player — do NOT touch BackgroundAudio so we
+        // don't kick out the Quran reciter or register a foreground media
+        // session for a simple preview clip.
+        await _player.stop();
+        await _player.setVolume(_volume);
+        // في المتصفح الصوت المختار يُبثّ كاملاً؛ ما عداه معاينة قصيرة مضمَّنة
+        final cache = AdhanAudioCacheManager.instance;
+        final source = kIsWeb && sound.id == selectedSoundNotifier.value.id
+            ? (cache.sourceFor(sound) ?? cache.previewSource(sound))
+            : cache.previewSource(sound);
+        await _player.play(source).timeout(const Duration(seconds: 25));
+        // Preview intentionally has NO BackgroundAudio.claim → stops when
+        // the user leaves the app (correct behaviour for a preview clip).
+        // Only the live Adhan fires with BackgroundAudio so it can continue
+        // in the background.
+      } catch (e) {
+        debugPrint('⚠️ Error in AdhanService.playPreview: $e');
+        if (request == _playRequest) _onPlaybackFinished();
+      }
+    });
   }
+
+  /// «الصلاة خير من النوم» تُقال في أذان الفجر وحده.
+  static bool isFajrPrayer(String prayerName) => prayerName.startsWith('الفجر');
 
   Future<void> playLiveAdhan(String prayerName) async {
     final sound = selectedSoundNotifier.value;
-    try {
-      await _player.stop();
-      liveFiringPrayerNotifier.value = prayerName;
-      currentPlayingSoundNotifier.value = sound;
-      isBufferingNotifier.value = true;
-      isPlayingNotifier.value = false;
-      positionNotifier.value = Duration.zero;
-      durationNotifier.value = Duration(seconds: sound.durationSeconds);
+    final request = ++_playRequest;
+    liveFiringPrayerNotifier.value = prayerName;
+    currentPlayingSoundNotifier.value = sound;
+    isBufferingNotifier.value = true;
+    isPlayingNotifier.value = false;
+    positionNotifier.value = Duration.zero;
+    durationNotifier.value = Duration(seconds: sound.durationSeconds);
 
-      await _player.setVolume(_volume);
-      final source = AdhanAudioCacheManager.instance.getPlayableSource(sound);
-      await _player.play(source);
-
+    return _serial(() async {
+      if (request != _playRequest) return;
       try {
-        unawaited(BackgroundAudio.claim(this));
-      } catch (_) {}
-      _publishMediaSession(sound, isLive: true, prayerName: prayerName);
-      unawaited(refreshStickyNotification());
-    } catch (e) {
-      debugPrint('⚠️ Error in AdhanService.playLiveAdhan: $e');
-      _onPlaybackFinished();
-    }
+        await _player.stop();
+        await _player.setVolume(_volume);
+        final cache = AdhanAudioCacheManager.instance;
+        final fajr = isFajrPrayer(prayerName);
+        // الصوت المختار إن كان على الجهاز، وإلا الأذان المضمَّن: الأذان لا يفوت
+        final source = cache.sourceFor(sound, fajr: fajr) ??
+            cache.sourceFor(AdhanData.defaultSound, fajr: fajr)!;
+        await _player.play(source).timeout(const Duration(seconds: 25));
+
+        try {
+          unawaited(BackgroundAudio.claim(this));
+        } catch (_) {}
+        _publishMediaSession(sound, isLive: true, prayerName: prayerName);
+        unawaited(refreshStickyNotification());
+      } catch (e) {
+        debugPrint('⚠️ Error in AdhanService.playLiveAdhan: $e');
+        if (request == _playRequest) _onPlaybackFinished();
+      }
+    });
   }
 
   @override
@@ -525,7 +602,7 @@ class AdhanService implements BackgroundAudioSource {
   @override
   Future<void> pause() async {
     try {
-      await _playerInstance?.pause();
+      await _serial(() async => _playerInstance?.pause());
       isPlayingNotifier.value = false;
       final sound = currentPlayingSoundNotifier.value;
       if (sound != null) {
@@ -546,7 +623,7 @@ class AdhanService implements BackgroundAudioSource {
 
   Future<void> resume() async {
     try {
-      await _playerInstance?.resume();
+      await _serial(() async => _playerInstance?.resume());
       isPlayingNotifier.value = true;
       final sound = currentPlayingSoundNotifier.value;
       if (sound != null) {
@@ -561,16 +638,14 @@ class AdhanService implements BackgroundAudioSource {
 
   @override
   Future<void> stop() async {
-    try {
-      await _playerInstance?.stop();
-    } catch (_) {}
+    await _stopPlayer();
     _onPlaybackFinished();
   }
 
   @override
   Future<void> seek(Duration pos) async {
     try {
-      await _playerInstance?.seek(pos);
+      await _serial(() async => _playerInstance?.seek(pos));
       positionNotifier.value = pos;
     } catch (_) {}
   }
@@ -878,14 +953,19 @@ class AdhanService implements BackgroundAudioSource {
       final prefs = await SharedPreferences.getInstance();
       isEnabledNotifier.value = prefs.getBool('adhan_master_enabled') ?? false;
 
-      final soundId = prefs.getString('adhan_selected_sound_id');
+      final cache = AdhanAudioCacheManager.instance;
+      var soundId = prefs.getString('adhan_selected_sound_id');
+      // صوت اختاره المستخدم واكتمل تنزيله والتطبيق يُغلق: يُعتمد الآن
+      final pending = prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey);
+      if (pending != null && pending != soundId && cache.sourceFor(AdhanData.getById(pending)) != null) {
+        soundId = pending;
+        await prefs.setString('adhan_selected_sound_id', pending);
+        await prefs.remove(AdhanAudioCacheManager.pendingTargetPrefKey);
+      }
       selectedSoundNotifier.value = AdhanData.getById(soundId);
 
-      // Ensure local audio file path is stored for Android native player
-      final localPath = AdhanAudioCacheManager.instance.getLocalAudioFilePath(selectedSoundNotifier.value.id);
-      if (localPath != null) {
-        await prefs.setString('adhan_selected_sound_path', localPath);
-      }
+      // Ensure local audio file paths are stored for Android native player
+      if (!kIsWeb) await _storeNativeSoundPaths(prefs);
 
       _volume = prefs.getDouble('adhan_volume') ?? 1.0;
       _latitude = prefs.getDouble('adhan_latitude') ?? _latitude;

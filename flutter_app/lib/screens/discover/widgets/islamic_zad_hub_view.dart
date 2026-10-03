@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
+import '../../../services/zad_content_service.dart';
 import 'daily_athkar_view.dart';
 import 'allah_names_view.dart';
 import 'spiritual_gems_view.dart';
@@ -30,6 +31,8 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
   void initState() {
     super.initState();
     _activeTab = widget.initialTab.clamp(0, 2);
+    // أذكار وأدعية نُشرت بعد هذا الإصدار: تُنزَّل مرة واحدة وتبقى على الجهاز
+    ZadContentService.instance.refreshIfStale();
   }
 
   @override
@@ -39,17 +42,11 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Spiritual Header Banner
+        // Spiritual Header Banner — يتبع ثيم التطبيق المختار كباقي اللافتات
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDark
-                  ? [const Color(0xFF0F2E28), const Color(0xFF1B4332)]
-                  : [const Color(0xFF1B4332), const Color(0xFF2D6A4F)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
+            gradient: AppColors.sunsetTwilightGradient,
             borderRadius: AppRadius.card,
           ),
           child: Row(
@@ -57,8 +54,9 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.gold.withValues(alpha: 0.2),
+                  color: Colors.white.withValues(alpha: 0.14),
                   shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.goldBright.withValues(alpha: 0.55)),
                 ),
                 child: Icon(Icons.favorite_rounded, color: AppColors.goldBright, size: 24),
               ),
@@ -92,7 +90,7 @@ class _IslamicZadHubViewState extends State<IslamicZadHubView> {
         Container(
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : const Color(0xFFE2E8F0),
+            color: isDark ? AppColors.darkCard : AppColors.lightInputFill,
             borderRadius: BorderRadius.circular(16),
           ),
           child: SingleChildScrollView(

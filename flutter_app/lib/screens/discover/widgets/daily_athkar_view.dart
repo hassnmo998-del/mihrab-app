@@ -3,8 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../models/zad_content.dart';
 import '../../../presentation/widgets/unified_badge.dart';
-import 'athkar_data_constants.dart';
+import '../../../services/zad_content_service.dart';
 
 /// Interactive Daily Athkar View with countdown counters and category resets.
 class DailyAthkarView extends StatefulWidget {
@@ -33,7 +34,20 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
 
   @override
   Widget build(BuildContext context) {
+    // المحتوى يتحدّث بلا إصدار: حين تصل حزمة أحدث يُعاد البناء بأنواعها وأذكارها
+    return ListenableBuilder(
+      listenable: ZadContentService.instance,
+      builder: (context, _) => _buildContent(context, ZadContentService.instance.content.athkar),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, List<AthkarCategory> categories) {
     final isDark = widget.isDark;
+    // نوع حُذف من المحتوى وهو المختار: يُعرض الأول
+    final selected = categories.firstWhere(
+      (c) => c.id == _selectedAthkarCategory,
+      orElse: () => categories.first,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -43,13 +57,10 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _buildAthkarChip('أذكار الصباح ☀️', 'morning'),
-              const SizedBox(width: 8),
-              _buildAthkarChip('أذكار المساء 🌙', 'evening'),
-              const SizedBox(width: 8),
-              _buildAthkarChip('أدعية بعد الصلاة 🕌', 'prayer'),
-              const SizedBox(width: 8),
-              _buildAthkarChip('أذكار النوم 🛏️', 'sleep'),
+              for (final (index, category) in categories.indexed) ...[
+                if (index > 0) const SizedBox(width: 8),
+                _buildAthkarChip(category.title, category.id, isSelected: category.id == selected.id),
+              ],
             ],
           ),
         ),
@@ -74,13 +85,12 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
           ],
         ),
         const SizedBox(height: 8),
-        _buildAthkarList(_selectedAthkarCategory, isDark),
+        _buildAthkarList(selected, isDark),
       ],
     );
   }
 
-  Widget _buildAthkarChip(String label, String key) {
-    final isSelected = _selectedAthkarCategory == key;
+  Widget _buildAthkarChip(String label, String key, {required bool isSelected}) {
     return ChoiceChip(
       label: Text(
         label,
@@ -92,7 +102,7 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
       ),
       selected: isSelected,
       selectedColor: Theme.of(context).primaryColor,
-      backgroundColor: widget.isDark ? AppColors.darkSurface : const Color(0xFFF1F5F9),
+      backgroundColor: widget.isDark ? AppColors.darkSurface : AppColors.lightInputFill,
       shape: const StadiumBorder(),
       side: BorderSide.none,
       onSelected: (v) {
@@ -101,8 +111,8 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
     );
   }
 
-  Widget _buildAthkarList(String category, bool isDark) {
-    final list = kAthkarDatabase[category] ?? [];
+  Widget _buildAthkarList(AthkarCategory category, bool isDark) {
+    final list = category.items;
     final primary = Theme.of(context).primaryColor;
 
     return ListView.separated(
@@ -112,12 +122,12 @@ class _DailyAthkarViewState extends State<DailyAthkarView> {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, idx) {
         final item = list[idx];
-        final id = '${category}_$idx';
-        final countTarget = (item['count'] as num?)?.toInt() ?? 1;
+        final id = '${category.id}_$idx';
+        final countTarget = item.count;
         final currentTaps = _athkarTaps[id] ?? 0;
         final isCompleted = currentTaps >= countTarget;
-        final fadl = (item['virtue'] ?? item['fadl'] ?? '') as String;
-        final dhikrText = (item['text'] ?? '') as String;
+        final fadl = item.virtue;
+        final dhikrText = item.text;
 
         return InkWell(
           borderRadius: BorderRadius.circular(18),

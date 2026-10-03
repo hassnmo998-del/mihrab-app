@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.MediaPlayer
@@ -67,7 +68,7 @@ class AdhanPlaybackService : Service() {
                 // was inexact (exact alarms denied): play without one rather than stay silent
                 Log.w(TAG, "Foreground service refused, playing the adhan without it", e)
                 val appContext = context.applicationContext
-                val started = AdhanPlayer.play(appContext) {
+                val started = AdhanPlayer.play(appContext, prayerName) {
                     notificationManager(appContext).cancel(LIVE_NOTIFICATION_ID)
                     MainActivity.channel?.invokeMethod("onAdhanCompleted", prayerName)
                 }
@@ -187,7 +188,7 @@ class AdhanPlaybackService : Service() {
             return START_NOT_STICKY
         }
 
-        val started = AdhanPlayer.play(this) {
+        val started = AdhanPlayer.play(this, prayerName) {
             Log.d(TAG, "Adhan playback finished")
             MainActivity.channel?.invokeMethod("onAdhanCompleted", prayerName)
             finish()
@@ -218,15 +219,21 @@ private object AdhanPlayer {
     private const val TAG = "AdhanPlayer"
     // shared_preferences stores a Dart double as a string behind this prefix
     private const val FLUTTER_DOUBLE_PREFIX = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBEb3VibGUu"
+    // The sound bundled in the APK (res/raw): it needs no file path
+    private const val BUNDLED_SOUND_ID = "iconic_makkah_ali_mullah"
+    private const val FAJR = "الفجر"
 
     private var player: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    /** Starts the selected adhan. [onFinished] runs when it ends on its own, not on [stop]. */
-    fun play(context: Context, onFinished: () -> Unit): Boolean {
+    /**
+     * Starts the selected adhan for [prayerName]. [onFinished] runs when it ends on its
+     * own, not on [stop].
+     */
+    fun play(context: Context, prayerName: String, onFinished: () -> Unit): Boolean {
         stop()
         val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val mediaPlayer = open(context, prefs.getString("flutter.adhan_selected_sound_path", null))
+        val mediaPlayer = open(context, prefs, fajr = prayerName.startsWith(FAJR))
         if (mediaPlayer == null) {
             Log.e(TAG, "No adhan sound could be loaded")
             return false
@@ -290,16 +297,36 @@ private object AdhanPlayer {
         }
     }
 
-    /** The downloaded sound the user picked, else the adhan bundled in the APK. */
-    private fun open(context: Context, soundPath: String?): MediaPlayer? {
-        if (!soundPath.isNullOrEmpty() && File(soundPath).exists()) {
-            prepare { setDataSource(soundPath) }?.let { return it }
-            Log.w(TAG, "Failed to load custom sound, falling back to bundled default")
+    /**
+     * The sound the user picked, else the adhan bundled in the APK.
+     *
+     * Every muezzin has a regular recording, without "الصلاة خير من النوم". The
+     * recordings that carry that phrase have a second file, played for Fajr only.
+     */
+    private fun open(context: Context, prefs: SharedPreferences, fajr: Boolean): MediaPlayer? {
+        val paths = ArrayList<String?>()
+        if (fajr) paths.add(prefs.getString("flutter.adhan_sound_fajr_path", null))
+        paths.add(prefs.getString("flutter.adhan_sound_regular_path", null))
+        // Written by versions before 1.0.11: one file for every prayer. Used until the
+        // app has run once and fetched the two recordings. The bundled muezzin never
+        // needs it: its old copy on disk still says the Fajr phrase.
+        val soundId = prefs.getString("flutter.adhan_selected_sound_id", null)
+        if (soundId != null && soundId != BUNDLED_SOUND_ID) {
+            paths.add(prefs.getString("flutter.adhan_selected_sound_path", null))
         }
-        return prepare {
-            context.resources.openRawResourceFd(R.raw.adhan_default).use { fd ->
-                setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
-            }
+        for (path in paths) {
+            if (path.isNullOrEmpty() || !File(path).exists()) continue
+            prepare { setDataSource(path) }?.let { return it }
+            Log.w(TAG, "Failed to load $path, trying the next source")
+        }
+
+        return (if (fajr) prepareBundled(context, R.raw.adhan_default_fajr) else null)
+            ?: prepareBundled(context, R.raw.adhan_default)
+    }
+
+    private fun prepareBundled(context: Context, resId: Int): MediaPlayer? = prepare {
+        context.resources.openRawResourceFd(resId).use { fd ->
+            setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
         }
     }
 

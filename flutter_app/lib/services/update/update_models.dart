@@ -220,9 +220,25 @@ class UpdateInfo {
       );
 }
 
+/// ما يحتاجه محرك التنزيل عن أي ملف: من أين يُجلب، وكم حجمه، وما بصمته.
+/// يشترك فيه ملف التحديث وملفات أصوات الأذان.
+abstract class DownloadSpec {
+  /// اسم الملف على الجهاز.
+  String get fileName;
+
+  /// روابط الملف نفسه، بترتيب التفضيل.
+  List<String> get urls;
+
+  /// بالبايت؛ 0 إن لم يُعرف.
+  int get size;
+
+  /// بصمة الملف الكامل (hex)؛ فارغة إن لم تُعرف.
+  String get sha256;
+}
+
 /// مهمة تنزيل تحديث واحدة. تُحفظ في ملف (`job.json`) فيكملها التطبيق بعد إغلاقه
 /// وإعادة فتحه، وتكملها مهمة الخلفية والتطبيق مغلق.
-class UpdateJob {
+class UpdateJob implements DownloadSpec {
   final UpdateInfo info;
 
   /// 'android' أو 'windows'
@@ -232,11 +248,15 @@ class UpdateJob {
 
   String get version => info.version;
   UpdateAsset get asset => (platform == 'windows' ? info.windows : info.android)!;
+  @override
   List<String> get urls => asset.urls;
+  @override
   int get size => asset.size;
+  @override
   String get sha256 => asset.sha256;
 
   /// اسم الملف على الجهاز يحمل رقم الإصدار: جزء من إصدار لا يُستكمل بإصدار آخر.
+  @override
   String get fileName => 'mihrab-$version.${platform == 'windows' ? 'exe' : 'apk'}';
 
   /// يتغيّر إن تغيّر ما يُنزَّل: من يعمل على مهمة قديمة يتوقف حين يراه اختلف.

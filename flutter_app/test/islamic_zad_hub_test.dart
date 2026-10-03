@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_app/core/theme/app_theme.dart';
 import 'package:flutter_app/screens/discover/widgets/islamic_zad_hub_view.dart';
 import 'package:flutter_app/screens/discover/widgets/daily_athkar_view.dart';
-import 'package:flutter_app/screens/discover/widgets/hadith_encyclopedia_view.dart';
 import 'package:flutter_app/screens/discover/widgets/allah_names_view.dart';
 import 'package:flutter_app/screens/discover/widgets/spiritual_gems_view.dart';
 import 'package:flutter_app/services/allah_names_full_data.dart';
@@ -23,7 +23,7 @@ void main() {
       }
     });
 
-    testWidgets('IslamicZadHubView renders with all 4 tabs', (tester) async {
+    testWidgets('IslamicZadHubView renders with its 3 tabs', (tester) async {
       tester.view.physicalSize = const Size(1280 * 2, 900 * 2);
       tester.view.devicePixelRatio = 2.0;
       addTearDown(() {
@@ -43,24 +43,18 @@ void main() {
       await tester.pump();
 
       // Header Banner
-      expect(find.textContaining('زاد المسلم والسنة النبوية المشرفة'), findsOneWidget);
+      expect(find.textContaining('زاد المسلم والأذكار والرقية'), findsOneWidget);
 
       // Tab 0: Daily Athkar
       expect(find.byType(DailyAthkarView), findsOneWidget);
       expect(find.textContaining('أذكار الصباح'), findsWidgets);
 
-      // Tab 1: Hadith Encyclopedia visible after tap
-      await tester.tap(find.text('موسوعة الحديث 📜'));
-      await tester.pump();
-      expect(find.byType(HadithEncyclopediaView), findsOneWidget);
-      expect(find.textContaining('روائع الصحيحين'), findsNothing);
-
-      // Tab 2: Allah Names
+      // Tab 1: Allah Names
       await tester.tap(find.text('أسماء الله الحسنى ✨ (99)'));
       await tester.pump();
       expect(find.byType(AllahNamesView), findsOneWidget);
 
-      // Tab 3: Spiritual Gems
+      // Tab 2: Spiritual Gems
       await tester.tap(find.text('الرقية والكنوز والدرر 🛡️'));
       await tester.pump();
       expect(find.byType(SpiritualGemsView), findsOneWidget);
@@ -78,7 +72,7 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: SingleChildScrollView(
-              child: IslamicZadHubView(isDark: true, initialTab: 2),
+              child: IslamicZadHubView(isDark: true, initialTab: 1),
             ),
           ),
         ),
@@ -86,6 +80,48 @@ void main() {
       await tester.pump();
 
       expect(find.byType(AllahNamesView), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('كرت «زاد المسلم» يتبع ثيم التطبيق المختار، لا أخضر ثابتاً', (tester) async {
+      Future<Gradient?> bannerGradient(String paletteId) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.buildTheme(isDark: false, paletteId: paletteId),
+            home: Scaffold(
+              // مفتاح لكل ثيم: يُبنى الكرت من جديد كما يحدث عند تغيير الثيم من الإعدادات
+              body: SingleChildScrollView(
+                child: IslamicZadHubView(key: ValueKey(paletteId), isDark: false),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final banner = tester.widget<Container>(
+          find.ancestor(of: find.textContaining('زاد المسلم والأذكار والرقية'), matching: find.byType(Container)).first,
+        );
+        return (banner.decoration as BoxDecoration).gradient;
+      }
+
+      for (final palette in AppColors.palettes) {
+        expect(await bannerGradient(palette.id), palette.gradient, reason: palette.id);
+      }
+      AppTheme.buildTheme(isDark: false); // يعيد الثيم الافتراضي لبقية الاختبارات
+    });
+
+    test('ثيم كسوة الكعبة (أسود وذهبي) بين ثيمات التطبيق', () {
+      final kaaba = AppColors.getPaletteById('kaaba');
+
+      expect(kaaba.id, 'kaaba');
+      expect(AppColors.palettes.map((p) => p.id).toSet().length, AppColors.palettes.length);
+      // أسود في الوضع الفاتح، وذهبي على الأسود في الداكن
+      expect(kaaba.primary.computeLuminance(), lessThan(0.02));
+      expect(kaaba.darkBg.computeLuminance(), lessThan(0.01));
+      expect(kaaba.darkPrimary.computeLuminance(), greaterThan(0.25));
+      // النص الأبيض مقروء فوق أزرار الثيم في الوضعين
+      double onWhite(Color c) => 1.05 / (c.computeLuminance() + 0.05);
+      expect(onWhite(kaaba.primary), greaterThan(7));
+      expect(onWhite(kaaba.darkPrimary), greaterThan(2.8));
     });
   });
 }

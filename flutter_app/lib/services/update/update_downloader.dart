@@ -81,19 +81,19 @@ class UpdateDownloader {
   final Duration backoffBase;
   final Duration tickInterval;
 
-  File finalFile(UpdateJob job) => File('${dir.path}${Platform.pathSeparator}${job.fileName}');
-  File partFile(UpdateJob job) => File('${finalFile(job).path}.part');
-  File _metaFile(UpdateJob job) => File('${finalFile(job).path}.meta');
+  File finalFile(DownloadSpec job) => File('${dir.path}${Platform.pathSeparator}${job.fileName}');
+  File partFile(DownloadSpec job) => File('${finalFile(job).path}.part');
+  File _metaFile(DownloadSpec job) => File('${finalFile(job).path}.meta');
 
   /// هل الملف النهائي موجود بحجمه الكامل؟
-  Future<bool> isComplete(UpdateJob job) async {
+  Future<bool> isComplete(DownloadSpec job) async {
     final file = finalFile(job);
     if (!await file.exists()) return false;
     return job.size <= 0 || await file.length() == job.size;
   }
 
   /// يحذف كل ما نُزّل لهذه المهمة.
-  Future<void> discard(UpdateJob job) async {
+  Future<void> discard(DownloadSpec job) async {
     for (final f in [finalFile(job), partFile(job), _metaFile(job)]) {
       try {
         if (await f.exists()) await f.delete();
@@ -104,7 +104,7 @@ class UpdateDownloader {
   /// ينزّل ملف [job] حتى يكتمل ويعيده، أو يعيد null إن أوقفه [onTick].
   ///
   /// يرمي [UpdateContentMismatch] فقط حين لا يطابق أي رابط وصف المهمة.
-  Future<File?> run(UpdateJob job, {required UpdateTick onTick}) async {
+  Future<File?> run(DownloadSpec job, {required UpdateTick onTick}) async {
     await dir.create(recursive: true);
     final part = partFile(job);
     final meta = await _readMeta(job);
@@ -132,8 +132,14 @@ class UpdateDownloader {
         if (verified == null) return null;
         if (verified) {
           final done = finalFile(job);
-          if (await done.exists()) await done.delete();
-          await part.rename(done.path);
+          try {
+            if (await done.exists()) await done.delete();
+            await part.rename(done.path);
+          } on FileSystemException {
+            // الملف مقفل لحظياً (فاحص فيروسات على ويندوز مثلاً): ننتظر ونعيد التسمية
+            if (!await _wait(const Duration(seconds: 2), UpdatePhase.verifying, job, onTick)) return null;
+            continue;
+          }
           try {
             await _metaFile(job).delete();
           } catch (_) {}
@@ -192,7 +198,7 @@ class UpdateDownloader {
 
   /// محاولة اتصال واحدة. تعيد عدد البايتات التي وصلت فيها، أو null إن طُلب الإيقاف.
   Future<int?> _attempt(
-    UpdateJob job,
+    DownloadSpec job,
     String url,
     int have,
     Map<String, dynamic> meta,
@@ -291,7 +297,7 @@ class UpdateDownloader {
   }
 
   /// ينتظر [duration] وهو ينبض كل ثانية (ليبقى ظاهراً أنه حي، وليُسمع طلب الإيقاف).
-  Future<bool> _wait(Duration duration, UpdatePhase phase, UpdateJob job, UpdateTick onTick) async {
+  Future<bool> _wait(Duration duration, UpdatePhase phase, DownloadSpec job, UpdateTick onTick) async {
     final part = partFile(job);
     final have = await part.exists() ? await part.length() : 0;
     final until = _now().add(duration);
@@ -304,7 +310,7 @@ class UpdateDownloader {
   }
 
   /// true سليم، false تالف، null طُلب الإيقاف أثناء الفحص.
-  Future<bool?> _verify(File file, UpdateJob job, UpdateTick onTick) async {
+  Future<bool?> _verify(File file, DownloadSpec job, UpdateTick onTick) async {
     if (job.sha256.isEmpty) return true;
     final digestSink = _DigestSink();
     final hasher = sha256.startChunkedConversion(digestSink);
@@ -321,7 +327,7 @@ class UpdateDownloader {
     return digestSink.value.toString() == job.sha256.toLowerCase();
   }
 
-  Future<void> _resetPart(UpdateJob job, Map<String, dynamic> meta) async {
+  Future<void> _resetPart(DownloadSpec job, Map<String, dynamic> meta) async {
     meta
       ..remove('etags')
       ..remove('total');
@@ -332,7 +338,7 @@ class UpdateDownloader {
     }
   }
 
-  Future<Map<String, dynamic>> _readMeta(UpdateJob job) async {
+  Future<Map<String, dynamic>> _readMeta(DownloadSpec job) async {
     try {
       final file = _metaFile(job);
       // بيانات جزء لم يعد موجوداً لا تعني شيئاً
@@ -343,7 +349,7 @@ class UpdateDownloader {
     return <String, dynamic>{};
   }
 
-  Future<void> _writeMeta(UpdateJob job, Map<String, dynamic> meta) async {
+  Future<void> _writeMeta(DownloadSpec job, Map<String, dynamic> meta) async {
     try {
       await _metaFile(job).writeAsString(jsonEncode(meta), flush: true);
     } catch (_) {}

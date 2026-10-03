@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../services/zad_content_service.dart';
 import 'zad_card.dart';
 import 'zad_data_constants.dart';
 import 'zad_detail_dialog.dart';
@@ -38,7 +39,20 @@ class _SpiritualGemsViewState extends State<SpiritualGemsView> {
 
   @override
   Widget build(BuildContext context) {
+    // المحتوى يتحدّث بلا إصدار: حين تصل حزمة أحدث يُعاد البناء بتصنيفاتها ونصوصها
+    return ListenableBuilder(
+      listenable: ZadContentService.instance,
+      builder: (context, _) => _buildContent(context),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     final isDark = widget.isDark;
+    final duaCategories = ZadContentService.instance.content.duaCategories;
+    // تصنيف حُذف من المحتوى وهو المختار: يُعرض الكل
+    if (_selectedDuaCategory != 'all' && !duaCategories.any((c) => c.id == _selectedDuaCategory)) {
+      _selectedDuaCategory = 'all';
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -141,16 +155,10 @@ class _SpiritualGemsViewState extends State<SpiritualGemsView> {
             child: Row(
               children: [
                 _buildDuaCategoryChip('الكل 📿', 'all'),
-                const SizedBox(width: 8),
-                _buildDuaCategoryChip('الرقية الشرعية 🛡️', 'ruqyah'),
-                const SizedBox(width: 8),
-                _buildDuaCategoryChip('تفريج الكرب والهم 🤲', 'kurb'),
-                const SizedBox(width: 8),
-                _buildDuaCategoryChip('الرزق وقضاء الدَّين 💰', 'rizq'),
-                const SizedBox(width: 8),
-                _buildDuaCategoryChip('الشفاء وعيادة المريض 🩺', 'health'),
-                const SizedBox(width: 8),
-                _buildDuaCategoryChip('حفظ الأهل والأولاد 👨‍👩‍👧‍👦', 'family'),
+                for (final category in duaCategories) ...[
+                  const SizedBox(width: 8),
+                  _buildDuaCategoryChip(category.title, category.id),
+                ],
               ],
             ),
           ),

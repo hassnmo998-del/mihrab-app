@@ -51,13 +51,7 @@ class _IslamicZadViewState extends State<IslamicZadView> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDark
-                  ? [const Color(0xFF0F2E28), const Color(0xFF1B4332)]
-                  : [const Color(0xFF1B4332), const Color(0xFF2D6A4F)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
+            gradient: AppColors.sunsetTwilightGradient,
             borderRadius: AppRadius.card,
           ),
           child: Row(

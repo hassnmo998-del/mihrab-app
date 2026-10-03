@@ -56,3 +56,6 @@ flutter_app/tool/library/.cache/
 # ملخصات كتب قديمة استُبدلت بالنصوص الكاملة في Supabase — لا تُنشر
 flutter_app/tool/legacy_abridged/
 website/data/
+
+# تسجيلات الأذان الأصلية المنزّلة لبناء ملفات الأصوات — محلية فقط
+flutter_app/tool/adhan/.cache/

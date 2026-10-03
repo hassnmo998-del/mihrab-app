@@ -19,6 +19,7 @@ import 'services/app_update_service.dart';
 import 'services/update/update_background.dart';
 import 'services/app_notification_service.dart';
 import 'services/adhan_service.dart';
+import 'services/zad_content_service.dart';
 import 'widgets/update_dialog.dart';
 import 'widgets/code_scanner_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
@@ -90,6 +91,9 @@ void main() async {
     unawaited(UpdateBackground.initialize());
     unawaited(AppUpdateService.instance.resumePendingUpdate());
   }
+
+  // أذكار وأدعية نزلت إلى الجهاز بعد هذا الإصدار تُقرأ قبل أول عرض للتبويب
+  unawaited(ZadContentService.instance.init());
 
   // الأذان يُجدول من بداية التشغيل، لا عند فتح تبويب المواقيت فقط
   if (!kIsWeb) {
@@ -741,7 +745,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       icon: Icons.favorite_outline,
       activeIcon: Icons.favorite_rounded,
       widget: RefreshIndicator(
-        onRefresh: () => data.syncWithSupabase(),
+        onRefresh: () => Future.wait([data.syncWithSupabase(), ZadContentService.instance.sync()]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
