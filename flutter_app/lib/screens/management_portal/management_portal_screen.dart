@@ -63,6 +63,54 @@ class ManagementPortalScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // التطبيق وصل عامة الناس قبل إدارات المساجد: من لا بطاقة له يرى
+                // أولاً أن القسم لم يُفعَّل بعد ولمن هو، فلا يظنه عطلاً
+                if (!hasAnyAdmin) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: isDark ? 0.16 : 0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.redAccent, width: 1.4),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'هذا القسم قيد التفعيل',
+                                style: AppTypography.font(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.redAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'هذا القسم خاص بالمساجد وحلقات تحفيظ القرآن: منه يدخل مدير المسجد والشيخ '
+                          'والطالب وولي أمره ببطاقة خاصة (رمز QR) يستلمونها من إدارة المسجد.\n\n'
+                          'لم يبدأ العمل به في المساجد بعد، فلا تحتاج منه شيئاً الآن. وباقي أقسام '
+                          'التطبيق تعمل كاملة: القرآن، الأذان ومواقيت الصلاة، الأذكار، والمكتبة.\n\n'
+                          'سنُعلمكم هنا وفي ملاحظات التحديث فور تفعيله بإذن الله.',
+                          style: AppTypography.font(
+                            fontSize: 13,
+                            height: 1.6,
+                            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // Top Hero Banner
                 Container(
                   padding: const EdgeInsets.all(22),
