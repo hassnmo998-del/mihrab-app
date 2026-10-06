@@ -152,6 +152,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         children: [
                           _LibraryBanner(
                             bookCount: catalog.length,
+                            subjects: _LibraryBanner.subjectsOf(categories),
                             isSyncing: _libraryService.isLoadingRemote,
                           ),
                           const SizedBox(height: 14),
@@ -419,9 +420,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
 /// لافتة المكتبة: العنوان وعدد الكتب وحالة المزامنة.
 class _LibraryBanner extends StatelessWidget {
   final int bookCount;
+
+  /// «في الحديث والتفسير والسيرة…» من التصنيفات الموجودة فعلاً في الفهرس.
+  final String subjects;
   final bool isSyncing;
 
-  const _LibraryBanner({required this.bookCount, required this.isSyncing});
+  const _LibraryBanner({required this.bookCount, required this.subjects, required this.isSyncing});
+
+  static const Map<String, String> _subjectNames = {
+    'hadith': 'الحديث',
+    'tafsir': 'التفسير',
+    'seerah': 'السيرة',
+    'aqeedah': 'العقيدة',
+    'fiqh': 'الفقه',
+    'usul': 'الأصول',
+    'tazkiyah': 'التزكية',
+    'tarikh': 'التاريخ',
+    'lugha': 'اللغة',
+  };
+
+  /// الكتب تُضاف وتُحذف بلا إصدار، فالنص يُبنى من الفهرس لا يُكتب ثابتاً.
+  static String subjectsOf(List<LibraryCategory> categories) {
+    final names = [
+      for (final c in categories)
+        if (_subjectNames[c.id] case final String name) name,
+    ];
+    return names.isEmpty ? '' : ' في ${names.join(' و')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -477,7 +502,7 @@ class _LibraryBanner extends StatelessWidget {
                       Text(
                         isSyncing
                             ? '$bookCount كتاباً • جارٍ البحث عن كتب جديدة…'
-                            : '$bookCount كتاباً بنصوصها الكاملة في الحديث والتفسير والسيرة والفقه والتزكية',
+                            : '$bookCount كتاباً بنصوصها الكاملة$subjects',
                         style: AppTypography.font(
                           fontSize: 12,
                           height: 1.5,

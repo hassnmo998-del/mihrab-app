@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/competitions_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -49,7 +50,7 @@ class CompetitionsRepositoryImpl implements CompetitionsRepository {
     required String genderBranch,
   }) {
     final comp = Competition(
-      id: 'comp-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('comp'),
       mosqueId: mosqueId,
       title: title.trim(),
       description: description.trim(),

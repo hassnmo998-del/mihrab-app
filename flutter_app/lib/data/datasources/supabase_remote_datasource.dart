@@ -74,16 +74,44 @@ class SupabaseRemoteDataSource {
 
   final Set<String> _missingTablesNotified = {};
 
-  /// Generic query to fetch all records from a remote table
+  /// حجم الصفحة عند جلب جدول. الخادم يقصّ كل طلب عند حدّه (1000 صف افتراضياً).
+  @visibleForTesting
+  static int fetchPageSize = 1000;
+
+  /// Generic query to fetch all records from a remote table.
+  ///
+  /// يعيد الجدول **كاملاً** أو `null`. الطلب الواحد يعيد ألف صف على الأكثر، والمزامنة
+  /// تحذف من الجهاز كل ما ليس في القائمة العائدة: قائمة مقصوصة كانت ستحذف ما بعد
+  /// الألف الأولى. لذلك تُجلب الصفحات بترتيب المعرّف حتى يكتمل العدّ، وأي صفحة تفشل
+  /// تُلغي الجلب كله بدل أن تُعيد جزءاً.
   Future<List<Map<String, dynamic>>?> fetchTable(String table) async {
     final c = client;
     if (c == null) return null;
     try {
-      final res = await c
+      final first = await c
           .from(table)
           .select()
+          .order('id', ascending: true)
+          .limit(fetchPageSize)
+          .count(CountOption.exact)
           .timeout(const Duration(seconds: 10));
-      return List<Map<String, dynamic>>.from(res);
+      final rows = List<Map<String, dynamic>>.from(first.data);
+      final total = first.count;
+      // صفحات تالية بعد آخر معرّف (لا بالإزاحة): إضافة صف أثناء الجلب لا تُسقط صفاً آخر
+      while (rows.length < total) {
+        final lastId = rows.isEmpty ? null : rows.last['id'];
+        if (lastId == null) break;
+        final page = await c
+            .from(table)
+            .select()
+            .gt('id', lastId)
+            .order('id', ascending: true)
+            .limit(fetchPageSize)
+            .timeout(const Duration(seconds: 15));
+        if (page.isEmpty) break;
+        rows.addAll(List<Map<String, dynamic>>.from(page));
+      }
+      return rows;
     } catch (e) {
       if (e is TimeoutException) {
         debugPrint('⏱️ Supabase fetchTable timeout ($table)');

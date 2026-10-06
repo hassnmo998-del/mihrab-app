@@ -138,6 +138,48 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('على الهاتف الكرت مطوي مثل شريط القرآن: زر الترس يفتح الخيارات ويطويها',
+        (tester) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Scaffold(body: AdhanAudioCard(isDark: false)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // مطوي: التشغيل واسم المؤذن وزر الترس فقط
+      final sound = AdhanService.instance.selectedSoundNotifier.value;
+      expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+      expect(find.text(sound.muezzinOrLocation), findsOneWidget);
+      expect(find.byIcon(Icons.settings_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
+      expect(find.text('أوقات الإقامة'), findsNothing);
+      final collapsed = tester.getSize(find.byType(AdhanAudioCard)).height;
+
+      await tester.tap(find.byIcon(Icons.settings_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.text('أوقات الإقامة'), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_up_rounded), findsOneWidget);
+      expect(tester.getSize(find.byType(AdhanAudioCard)).height, greaterThan(collapsed));
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byIcon(Icons.settings_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.text('أوقات الإقامة'), findsNothing);
+      expect(tester.getSize(find.byType(AdhanAudioCard)).height, collapsed);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('PrayerTimesQiblaView renders AdhanAudioCard, Hero countdown, and silence banner',
         (tester) async {
       await tester.pumpWidget(

@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/recitation_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -56,7 +57,7 @@ class RecitationRepositoryImpl implements RecitationRepository {
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
       final record = MemorizationRecord(
-        id: 'mem-${DateTime.now().millisecondsSinceEpoch}-$i',
+        id: AccessCodeGenerator.entityId('mem'),
         studentId: studentId,
         halaqaId: halaqaId,
         sheikhId: sheikhId,
@@ -123,7 +124,7 @@ class RecitationRepositoryImpl implements RecitationRepository {
       }
 
       final log = PointsLog(
-        id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+        id: AccessCodeGenerator.entityId('pts'),
         studentId: studentId,
         points: countsTowardsStatistics ? points : 0,
         reason: summaryDescription,
@@ -198,7 +199,7 @@ class RecitationRepositoryImpl implements RecitationRepository {
     if (studentIdx != -1) {
       _localDataSource.students[studentIdx].totalPoints += points;
       final log = PointsLog(
-        id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+        id: AccessCodeGenerator.entityId('pts'),
         studentId: studentId,
         points: points,
         reason: 'تسميع حديث نبوي شريف: $hadithTitle',

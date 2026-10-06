@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import 'dart:math';
 import '../../domain/repositories/students_repository.dart';
 import '../../models/models.dart';
@@ -85,7 +86,7 @@ class StudentsRepositoryImpl implements StudentsRepository {
 
     if (welcomePoints > 0) {
       final log = PointsLog(
-        id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+        id: AccessCodeGenerator.entityId('pts'),
         studentId: student.id,
         points: welcomePoints,
         reason: 'نقاط الترحيب بالانتساب للحلقة القرآنية',

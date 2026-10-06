@@ -3,10 +3,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
 import '../../../widgets/printable_badge_dialog.dart';
 import '../../../widgets/qr_dialogs.dart';
+import 'mosque_info_edit_dialog.dart';
 import 'women_branch_provision_dialog.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:provider/provider.dart';
-import '../../../services/data_service.dart';
 
 class AdminHeaderBanner extends StatelessWidget {
   final Mosque mosque;
@@ -128,6 +126,15 @@ class AdminHeaderBanner extends StatelessWidget {
                     spacing: 6,
                     children: [
                       IconButton(
+                        tooltip: 'تعديل معلومات المسجد',
+                        icon: const Icon(Icons.edit_outlined, color: Colors.white, size: 24),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.15),
+                          shape: const CircleBorder(),
+                        ),
+                        onPressed: () => MosqueInfoEditDialog.show(context, mosque),
+                      ),
+                      IconButton(
                         tooltip: 'بطاقة مدير المسجد والباركود',
                         icon: const Icon(Icons.badge_outlined, color: Colors.white, size: 24),
                         style: IconButton.styleFrom(
@@ -155,12 +162,19 @@ class AdminHeaderBanner extends StatelessWidget {
                           tooltip: mosque.hasWomenBranch
                               ? 'القسم النسائي (منشأ)'
                               : 'إنشاء إدارة القسم النسائي',
-                          icon: Icon(
-                            mosque.hasWomenBranch
-                                ? Icons.verified_user_outlined
-                                : Icons.female,
-                            color: Colors.white,
-                            size: 24,
+                          // وجه محجّبة بدل علامة ♀؛ وعلامة صح صغيرة حين يكون القسم منشأً
+                          icon: Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: [
+                              const Text('🧕🏻', style: TextStyle(fontSize: 20, height: 1.1)),
+                              if (mosque.hasWomenBranch)
+                                PositionedDirectional(
+                                  end: -5,
+                                  bottom: -4,
+                                  child: Icon(Icons.check_circle, size: 13, color: AppColors.goldBright),
+                                ),
+                            ],
                           ),
                           style: IconButton.styleFrom(
                             backgroundColor: Colors.white.withValues(alpha: 0.15),
@@ -192,49 +206,6 @@ class AdminHeaderBanner extends StatelessWidget {
                               primaryColor: AppColors.gold,
                             ),
                           );
-                        },
-                      ),
-                      IconButton(
-                        tooltip: 'تحديث موقع المسجد الحالي 📍',
-                        icon: const Icon(Icons.location_searching, color: Colors.white, size: 24),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.15),
-                          shape: const CircleBorder(),
-                        ),
-                        onPressed: () async {
-                          try {
-                            LocationPermission permission = await Geolocator.checkPermission();
-                            if (permission == LocationPermission.denied) {
-                              permission = await Geolocator.requestPermission();
-                            }
-                            if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
-                              final pos = await Geolocator.getCurrentPosition();
-                              if (context.mounted) {
-                                final data = context.read<DataService>();
-                                data.updateMosque(
-                                  id: mosque.id,
-                                  name: mosque.name,
-                                  address: mosque.address ?? '',
-                                  city: mosque.city,
-                                  phone: mosque.phone,
-                                  latitude: pos.latitude,
-                                  longitude: pos.longitude,
-                                );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text('تم تحديث موقع المسجد إلى موقعك الحالي بنجاح! 📍'),
-                                    backgroundColor: AppColors.emeraldPrimary,
-                                  ),
-                                );
-                              }
-                            }
-                          } catch (_) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('حدث خطأ أثناء تحديث الموقع')),
-                              );
-                            }
-                          }
                         },
                       ),
                     ],

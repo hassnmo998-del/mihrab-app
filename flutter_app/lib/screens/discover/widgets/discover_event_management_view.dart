@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
 import '../../../services/data_service.dart';
+import '../../../services/lesson_schedule.dart';
 import '../../../presentation/widgets/widgets.dart';
 import '../dialogs/discover_event_dialog.dart';
 
@@ -85,6 +86,7 @@ class DiscoverEventManagementView extends StatelessWidget {
                             const SizedBox(height: 6),
                             Wrap(
                               spacing: 8,
+                              runSpacing: 6,
                               children: [
                                 UnifiedBadge(
                                   label: ev.displayCategory,
@@ -98,6 +100,13 @@ class DiscoverEventManagementView extends StatelessWidget {
                                       : Colors.red.withValues(alpha: 0.1),
                                   textColor: ev.isActive ? AppColors.emeraldPrimary : Colors.redAccent,
                                 ),
+                                // درس المرة الواحدة يختفي من قائمة الجمهور حين ينقضي موعده
+                                if (LessonSchedule.hasEnded(ev, DateTime.now()))
+                                  UnifiedBadge(
+                                    label: 'انتهى موعده ولا يظهر للجمهور',
+                                    backgroundColor: Colors.grey.withValues(alpha: 0.15),
+                                    textColor: isDark ? Colors.white70 : Colors.black54,
+                                  ),
                               ],
                             ),
                           ],

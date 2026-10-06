@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/platform_utils.dart';
 import '../../../models/models.dart';
+import '../../../services/app_notification_service.dart';
 import '../../../services/data_service.dart';
 import '../../../services/telegram_media_resolver.dart';
 import '../../../services/windows_audio_compressor.dart';
@@ -82,6 +83,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     _pulseController.dispose();
     _audioRecorder.dispose();
     _stopForegroundTask();
+    unawaited(AppNotificationService.instance.setKeepScreenOn(false));
 
     if (widget.event.eventStatus == 'live') {
       _dataService.changeEventStatus(widget.event.id, 'upcoming');
@@ -141,7 +143,8 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       if (await _audioRecorder.hasPermission()) {
         final dir = await getApplicationDocumentsDirectory();
         final ext = _recordsWavThenCompresses ? 'wav' : 'm4a';
-        final path = '${dir.path}/lesson_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        final path = '${dir.path}${Platform.pathSeparator}'
+            'lesson_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
         // صوت كلام أحادي مضغوط: الساعة ≈ 14MB، تحت حد أرشيف تيليجرام (20MB).
         await _audioRecorder.start(
@@ -165,6 +168,9 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         });
         _startTimer();
         _startForegroundTask();
+        // أندرويد يُسكت الميكروفون حين تُطفأ الشاشة أو يغادر التطبيق الواجهة:
+        // تبقى الشاشة مضاءة ما دام التسجيل جارياً
+        unawaited(AppNotificationService.instance.setKeepScreenOn(true));
 
         if (mounted) {
           context.read<DataService>().changeEventStatus(widget.event.id, 'live');
@@ -230,6 +236,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       finalPath = await _audioRecorder.stop();
       if (mounted) setState(() => _isRecording = false);
     }
+    unawaited(AppNotificationService.instance.setKeepScreenOn(false));
     finalPath ??= _recordedFilePath;
 
     if (finalPath == null || !File(finalPath).existsSync()) {
@@ -273,8 +280,10 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     }
 
     _stopForegroundTask();
-    _dataService.finalizeLiveSession(widget.event.id);
-    await _addToUploadQueue(File(finalPath));
+    // التسجيل يُربط بلقطة الأرشيف التي أُنشئت لهذه الجلسة بعينها، لا بالدرس
+    // المتكرر: جلستان تنتظران الرفع لا تكتبان على لقطة واحدة.
+    final archiveId = _dataService.finalizeLiveSession(widget.event.id) ?? widget.event.id;
+    await _addToUploadQueue(File(finalPath), archiveId);
   }
 
   Future<void> _showArchiveProblem(String message) async {
@@ -293,7 +302,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _addToUploadQueue(File file) async {
+  Future<void> _addToUploadQueue(File file, String archiveId) async {
     setState(() {
       _isUploading = true;
       _busyMessage = 'جاري أرشفة الدرس الصوتي في السحابة...';
@@ -302,7 +311,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     try {
       final data = context.read<DataService>();
       await data.audioUploadQueue.addToQueue(
-        eventId: widget.event.id,
+        eventId: archiveId,
         title: widget.event.title,
         speaker: widget.event.organizerName,
         filePath: file.path,
@@ -363,7 +372,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       return _RecordingNotPermittedView(isDark: isDark);
     }
 
-    final allQuestions = data.getEventQuestions(widget.event.id);
+    final allQuestions = data.getCurrentEventQuestions(widget.event, forSpeaker: true);
     final displayedQuestions = _showUnansweredOnly
         ? allQuestions.where((q) => !q.isAnswered).toList()
         : allQuestions;
@@ -380,7 +389,14 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         if (!mounted) return;
         if (shouldPop) {
           if (_isRecording) {
-            await _audioRecorder.stop();
+            // تسجيل تُرك في منتصفه لا يُرفع: يُحذف ملفه (على ويندوز 10MB لكل دقيقة)
+            final abandoned = await _audioRecorder.stop() ?? _recordedFilePath;
+            unawaited(AppNotificationService.instance.setKeepScreenOn(false));
+            if (abandoned != null) {
+              try {
+                await File(abandoned).delete();
+              } catch (_) {}
+            }
           }
           nav.pop();
         }

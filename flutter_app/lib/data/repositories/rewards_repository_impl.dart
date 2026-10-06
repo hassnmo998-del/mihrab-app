@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/rewards_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -37,7 +38,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
     bool isActive = true,
   }) {
     final reward = Reward(
-      id: 'rew-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('rew'),
       mosqueId: mosqueId,
       title: title.trim(),
       description: description?.trim(),
@@ -103,6 +104,17 @@ class RewardsRepositoryImpl implements RewardsRepository {
     return List.unmodifiable(list);
   }
 
+  /// كود قسيمة `VCH-XXXX` غير مستعمل في قسيمة أخرى على هذا الجهاز.
+  String _freshVoucherCode() {
+    final taken = _localDataSource.redemptions.map((r) => r.redemptionCode).toSet();
+    final seed = DateTime.now().millisecondsSinceEpoch % 9000;
+    for (var i = 0; i < 9000; i++) {
+      final code = 'VCH-${(seed + i) % 9000 + 1000}';
+      if (!taken.contains(code)) return code;
+    }
+    return 'VCH-${DateTime.now().microsecondsSinceEpoch}';
+  }
+
   @override
   RewardRedemption? claimReward({
     required String studentId,
@@ -142,10 +154,10 @@ class RewardsRepositoryImpl implements RewardsRepository {
           accessCode: ''),
     );
 
-    final codeSuffix =
-        (DateTime.now().millisecondsSinceEpoch % 9000 + 1000).toString();
+    // طلب كمية من الجائزة ينشئ قسائمها في اللحظة نفسها: لكل قسيمة معرّف وكود لا يتكرران،
+    // وإلا طابقت إحداها الأخرى في السحابة وضاعت.
     final redemption = RewardRedemption(
-      id: 'rdm-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('rdm'),
       studentId: student.id,
       studentName: student.fullName,
       mosqueId: mosque.id,
@@ -153,7 +165,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
       rewardId: reward.id,
       rewardTitle: reward.title,
       pointsSpent: reward.pointsCost,
-      redemptionCode: 'VCH-$codeSuffix',
+      redemptionCode: _freshVoucherCode(),
       status: 'pending',
       redeemedAt: DateTime.now(),
     );
@@ -203,7 +215,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
 
     // 2. Create Redemption Record (Directly as dispensed)
     final redemption = RewardRedemption(
-      id: 'rdm-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('rdm'),
       studentId: student.id,
       studentName: student.fullName,
       mosqueId: student.mosqueId,
@@ -228,7 +240,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
 
     // 3. Create Points Log
     final log = PointsLog(
-      id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('pts'),
       studentId: student.id,
       points: -reward.pointsCost,
       reason: 'استلام جائزة (صرف مباشر): ${reward.title}',
@@ -310,7 +322,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
 
     // Log the deduction
     final log = PointsLog(
-      id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('pts'),
       studentId: student.id,
       points: -red.pointsSpent,
       reason: 'استلام جائزة: ${red.rewardTitle}',

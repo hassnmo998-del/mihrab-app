@@ -2,10 +2,11 @@ import 'package:flutter_app/core/utils/app_file_launcher.dart';
 import 'package:flutter_app/models/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// اختبارات فلتر نوع التسجيل في الأرشيف (الكل / فيديو / صوت).
+/// تصنيف مرفقات الدروس في الأرشيف (فلتر «فيديو» أُزيل من الشاشة مع إلغاء التسجيل
+/// المرئي، وبقي فلتر «صوت»).
 ///
 /// حقل `videoRecordUrl` يحمل أي مرفق — فيديو أو مستند أو رابط — لذلك يعتمد
-/// الفلتر على تصنيف المرفق لا على وجود القيمة، وهذا ما تحرسه هذه الاختبارات.
+/// التصنيف على نوع المرفق لا على وجود القيمة، وهذا ما تحرسه هذه الاختبارات.
 void main() {
   CommunityEvent event({String? audio, String? video}) => CommunityEvent(
         id: 'e1',

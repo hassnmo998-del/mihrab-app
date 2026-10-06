@@ -10,15 +10,33 @@ import '../dialogs/adhan_sound_picker_dialog.dart';
 
 /// Top Audio Card for Adhan sound selection, live preview, and notification controls.
 /// Styled following the Quran audio bar aesthetic with Damascus gold accents.
-class AdhanAudioCard extends StatelessWidget {
+///
+/// مثل شريط القرآن تماماً: على الهاتف صف مضغوط (تشغيل، اسم المؤذن، زر الترس) والخيارات
+/// مطوية تحته تُفتح بالزر؛ وعلى الشاشات العريضة مفتوح دائماً.
+class AdhanAudioCard extends StatefulWidget {
   final bool isDark;
   final EdgeInsetsGeometry margin;
+
+  /// يتجاوز الكشف التلقائي (العرض < 600 هاتف)، كما في شريط القرآن.
+  final bool? isMobile;
 
   const AdhanAudioCard({
     super.key,
     required this.isDark,
     this.margin = const EdgeInsets.only(bottom: 16),
+    this.isMobile,
   });
+
+  @override
+  State<AdhanAudioCard> createState() => _AdhanAudioCardState();
+}
+
+class _AdhanAudioCardState extends State<AdhanAudioCard> {
+  /// مطوي افتراضياً على الهاتف ليبقى المجال لمواقيت الصلاة
+  bool _isExpanded = false;
+
+  bool get isDark => widget.isDark;
+  EdgeInsetsGeometry get margin => widget.margin;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +123,8 @@ class AdhanAudioCard extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                           child: LayoutBuilder(
                             builder: (context, constraints) {
+                              final isMobile =
+                                  widget.isMobile ?? (MediaQuery.sizeOf(context).width < 600);
                               final singleLine = constraints.maxWidth >= 720;
 
                               final transport = [
@@ -138,6 +158,23 @@ class AdhanAudioCard extends StatelessWidget {
                                   _volumePill(context),
                                 ],
                               );
+
+                              if (isMobile) {
+                                return Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        ...transport,
+                                        const SizedBox(width: 6),
+                                        _expandToggleButton(),
+                                      ],
+                                    ),
+                                    _buildCollapsibleOptions(options),
+                                  ],
+                                );
+                              }
 
                               if (singleLine) {
                                 return Row(
@@ -173,6 +210,72 @@ class AdhanAudioCard extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  /// زر الترس والسهم: يطوي الخيارات ويفتحها (نفس زر شريط القرآن)
+  Widget _expandToggleButton() {
+    final gold = isDark ? AppColors.goldLight : AppColors.goldDark;
+    return Tooltip(
+      message: _isExpanded ? 'إخفاء خيارات الأذان' : 'خيارات الأذان: الصوت والتفعيل والإقامة',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => setState(() => _isExpanded = !_isExpanded),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          decoration: BoxDecoration(
+            color: _isExpanded
+                ? AppColors.gold.withValues(alpha: 0.18)
+                : (isDark ? AppColors.darkSurface : AppColors.lightInputFill),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _isExpanded
+                  ? AppColors.goldDark
+                  : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.settings_rounded, size: 16, color: gold),
+              const SizedBox(width: 3),
+              Icon(
+                _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                size: 16,
+                color: gold,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// الخيارات المطوية تحت الصف العلوي على الهاتف
+  Widget _buildCollapsibleOptions(Widget options) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: _isExpanded
+          ? Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Divider(
+                    height: 1,
+                    thickness: 0.8,
+                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  ),
+                  const SizedBox(height: 8),
+                  options,
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
     );
   }
 

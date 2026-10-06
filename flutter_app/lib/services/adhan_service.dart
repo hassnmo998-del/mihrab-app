@@ -240,14 +240,24 @@ class AdhanService implements BackgroundAudioSource {
   }
 
   bool _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.audioVolumeDown ||
-          event.logicalKey == LogicalKeyboardKey.audioVolumeMute) {
-        if (liveFiringPrayerNotifier.value != null || isPlayingNotifier.value) {
-          silenceAdhan();
-          return true; // consumed
-        }
-      }
+    if (event is! KeyDownEvent) return false;
+    final key = event.logicalKey;
+
+    // الأذان يصدح الآن: أي زر صوت (رفع، خفض، كتم) يُسكته فوراً، كالمكالمة الواردة.
+    // زر التشغيل والتطبيق مغلق يلتقطهما أندرويد نفسه (AdhanSilenceKeys).
+    if (liveFiringPrayerNotifier.value != null &&
+        (key == LogicalKeyboardKey.audioVolumeUp ||
+            key == LogicalKeyboardKey.audioVolumeDown ||
+            key == LogicalKeyboardKey.audioVolumeMute)) {
+      silenceAdhan();
+      return true; // consumed
+    }
+
+    // معاينة صوت: الخفض والكتم يوقفانها، والرفع يرفع الصوت كالمعتاد
+    if (isPlayingNotifier.value &&
+        (key == LogicalKeyboardKey.audioVolumeDown || key == LogicalKeyboardKey.audioVolumeMute)) {
+      silenceAdhan();
+      return true;
     }
     return false;
   }

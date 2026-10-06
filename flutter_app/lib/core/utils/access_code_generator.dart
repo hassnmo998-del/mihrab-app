@@ -44,8 +44,12 @@ class AccessCodeGenerator {
   static String cashierCode() => '$cashierPrefix${_body()}';
 
   /// Entity identifier that carries no information about any access code.
+  ///
+  /// الوقت وحده لا يكفي: تسجيل حضور حلقة كاملة ينشئ سجلاتها في الميلي ثانية نفسها،
+  /// وجهازان في مسجدين قد يكتبان في اللحظة ذاتها. المعرّف المتكرر يجعل سجلاً يكتب فوق
+  /// آخر في السحابة بصمت، لذلك يحمل كل معرّف ثمانية محارف عشوائية.
   static String entityId(String prefix) =>
-      '$prefix-${DateTime.now().millisecondsSinceEpoch}-${_body(4)}';
+      '$prefix-${DateTime.now().millisecondsSinceEpoch}-${_body(8)}';
 
   /// `WM-` tokens are refused on sight: they are computable from the mosque
   /// access code, so the admin must mint a fresh [womenProvisionToken] instead.

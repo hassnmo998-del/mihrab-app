@@ -106,6 +106,21 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
       return isPlaying ? pause() : play();
     }
 
+    // ضغطات متلاحقة على دروس مختلفة تُنفَّذ واحدة بعد الأخرى، وما سبقته ضغطة أحدث
+    // يُترك: تحميل مصدرين معاً داخل المشغّل يُفسد حالته (وعلى ويندوز بلا قفل).
+    final request = ++_request;
+    final next = _startChain.then((_) => _start(ev, rawPath, request)).catchError((Object e) {
+      debugPrint('⚠️ فشل تشغيل الصوت: $e');
+    });
+    _startChain = next;
+    return next;
+  }
+
+  Future<void> _startChain = Future<void>.value();
+  int _request = 0;
+
+  Future<void> _start(CommunityEvent ev, String rawPath, int request) async {
+    if (request != _request) return;
     try {
       await BackgroundAudio.claim(this);
       await _p.stop();
@@ -124,6 +139,7 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
       } else if (TelegramMediaResolver.isRef(cleanPath)) {
         // مرجع دائم: نطلب رابطاً طازجاً لأن روابط تيليجرام تنتهي بعد ساعة
         final resolved = await TelegramMediaResolver.resolveResult(cleanPath);
+        if (request != _request) return; // اختير درس آخر أثناء تجهيز الرابط
         if (resolved.url == null) {
           _fail(TelegramMediaResolver.failureMessage(resolved.error));
           return;
@@ -140,7 +156,7 @@ class LessonAudioService extends ChangeNotifier implements BackgroundAudioSource
       }
     } catch (e) {
       debugPrint('⚠️ فشل تشغيل الصوت: $e');
-      _fail('تعذّر تشغيل هذا التسجيل، حاول مرة أخرى');
+      if (request == _request) _fail('تعذّر تشغيل هذا التسجيل، حاول مرة أخرى');
     }
   }
 

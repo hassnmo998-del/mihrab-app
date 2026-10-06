@@ -58,10 +58,18 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
       addStudentSession(session);
       return;
     }
-    _localDataSource.savedSessions.removeWhere((s) => s.role == session.role);
+    _localDataSource.savedSessions.removeWhere((s) => _replacedBy(s, session));
     _localDataSource.savedSessions.add(session);
     _localDataSource.currentSession = session;
     _localDataSource.saveToStorage();
+  }
+
+  /// جلسة واحدة لكل صفة، إلا الصراف: محل واحد قد يصرف لأكثر من جامع، فله جلسة لكل
+  /// جامع، وإعادة مسح كود الجامع نفسه تحدّث جلسته ولا تمسّ غيرها.
+  bool _replacedBy(ActiveSession old, ActiveSession incoming) {
+    if (old.role != incoming.role) return false;
+    if (incoming.role == 'cashier') return old.mosqueId == incoming.mosqueId;
+    return true;
   }
 
   @override
@@ -564,7 +572,7 @@ class AuthSessionRepositoryImpl implements AuthSessionRepository {
       addStudentSession(session);
       return;
     }
-    _localDataSource.savedSessions.removeWhere((s) => s.role == session.role);
+    _localDataSource.savedSessions.removeWhere((s) => _replacedBy(s, session));
     _localDataSource.savedSessions.add(session);
     _localDataSource.currentSession = session;
   }

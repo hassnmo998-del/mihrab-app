@@ -2,6 +2,7 @@ package com.masjed.mihrab
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -93,6 +94,15 @@ class MainActivity : AudioServiceActivity() {
                 }
                 "silenceNativeAdhan" -> {
                     AdhanAlarmReceiver.stopAdhan(this)
+                    result.success(true)
+                }
+                // تسجيل درس جارٍ: الشاشة تبقى مضاءة، فأندرويد يُسكت الميكروفون حين تُطفأ
+                "setKeepScreenOn" -> {
+                    if (call.arguments == true) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
                     result.success(true)
                 }
                 else -> result.notImplemented()

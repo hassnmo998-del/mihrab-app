@@ -397,7 +397,30 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                           ),
                           const SizedBox(height: 14),
 
-                          // 2. شريط كود الباركود / كود الوصول مع زر النسخ السريع
+                          // 2. شريط كود الباركود / كود الوصول مع زر النسخ السريع.
+                          //    أكواد القسم النسائي لا تظهر للمشرف العام: تبقى عند إدارته وحدها.
+                          if (m.isWomenSection)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.black26 : Colors.purple.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.2)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.lock_outline, size: 18, color: Colors.purpleAccent),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'كود هذا القسم عند إدارته وحدها، ولا يُعرض هنا.',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
@@ -453,58 +476,6 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                               ],
                             ),
                           ),
-
-                          // 3. كود تسليم الفرع النسائي إن وجد
-                          if (m.womenAccessCode != null && m.womenAccessCode!.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.black26 : Colors.purple.withValues(alpha: 0.05),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.2)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.female, size: 18, color: Colors.purpleAccent),
-                                  const SizedBox(width: 8),
-                                  const Text('كود الفرع النسائي:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      m.womenAccessCode!,
-                                      style: const TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        color: Colors.purpleAccent,
-                                      ),
-                                    ),
-                                  ),
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.purpleAccent,
-                                      side: const BorderSide(color: Colors.purpleAccent),
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    icon: const Icon(Icons.copy, size: 14),
-                                    label: const Text('نسخ', style: TextStyle(fontSize: 11)),
-                                    onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: m.womenAccessCode!));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('تم نسخ كود الفرع النسائي: ${m.womenAccessCode} 📋'),
-                                          duration: const Duration(seconds: 2),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
 
                           // 4. كود التسجيل المستخدم في فتح هذا الجامع (مدمج من تاريخ الأكواد المستعادة)
                           if (usedToken.isNotEmpty) ...[

@@ -3,6 +3,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
 import '../../../presentation/widgets/unified_dropdown.dart';
 import '../../../services/data_service.dart';
+import '../../../services/lesson_schedule.dart';
 import '../../../widgets/qr_dialogs.dart';
 import '../widgets/discover_event_management_view.dart';
 import 'lesson_speakers_field.dart';
@@ -33,6 +34,36 @@ class DiscoverEventDialog {
       DropdownMenuItem(value: 'male', child: Text('رجال فقط (افتراضي)')),
       DropdownMenuItem(value: 'general', child: Text('عائلي (للكل)')),
     ];
+  }
+
+  /// القسم النسائي لا يعلن دروساً عامة من أي مدخل (شاشة الفعاليات، تبويب الإدارة،
+  /// تبويب المعلمة). الأزرار مخفية هناك، وهذا الحاجز يضمن ألا يفتح النافذة مدخل آخر.
+  static bool _blockedForWomenBranch(BuildContext context, DataService data, ActiveSession session) {
+    if (data.branchOfSession(session) != 'female') return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('القسم النسائي لا يعلن دروساً عامة. الدروس العامة والأرشيف متاحة للاستماع.'),
+      ),
+    );
+    return true;
+  }
+
+  /// درس لمرة واحدة بموعد مضى يختفي من القائمة فور نشره: يُنبَّه صاحبه قبل الحفظ.
+  static bool _isPastOneTimeLesson(
+    BuildContext context, {
+    required bool isRecurring,
+    required String timingType,
+    required DateTime when,
+  }) {
+    if (isRecurring || timingType != 'custom_time') return false;
+    final over = when.add(const Duration(minutes: 60)).add(LessonSchedule.endGrace);
+    if (over.isAfter(DateTime.now())) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('موعد هذا الدرس مضى. اختر تاريخاً ووقتاً قادمين، أو فعّل «درس دائم ومتكرر».'),
+      ),
+    );
+    return true;
   }
 
   /// يُثبّت القيمة داخل الخيارات المسموحة لفرع المُعلِن.
@@ -112,6 +143,17 @@ class DiscoverEventDialog {
             return;
           }
 
+          // الفصل بين الفرعين: شيخ فرع الرجال لا يُربط بقسم نسائي ولا العكس، ولو عُرف الكود
+          if (data.branchOfMosque(foundMosque.id) != data.branchOfSession(session)) {
+            ScaffoldMessenger.of(parentContext).showSnackBar(
+              const SnackBar(
+                content: Text('هذا الكود يخص فرعاً آخر (رجال/نساء) ولا يمكن ربطه بحسابك.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
+
           // تسجيل أو التحقق من وجود الشيخ في هذا المسجد
           var sheikhInMosque = data.getSheikhs(mosqueId: foundMosque.id).where((s) =>
             (session.sheikhId != null && s.id == session.sheikhId) ||
@@ -153,6 +195,7 @@ class DiscoverEventDialog {
     DataService data,
     ActiveSession session,
   ) {
+    if (_blockedForWomenBranch(context, data, session)) return;
     final mosques = data.getVisibleMosques();
 
     // جلب المساجد التي تم اعتماد هذا الشيخ فيها
@@ -745,6 +788,14 @@ class DiscoverEventDialog {
                           selectedCustomTime.minute,
                         )
                       : DateTime.now().add(const Duration(hours: 2));
+                  if (_isPastOneTimeLesson(
+                    context,
+                    isRecurring: isRecurring,
+                    timingType: timingType,
+                    when: calculatedDateTime,
+                  )) {
+                    return;
+                  }
 
                   // Only co-sheikhs of the mosque chosen now (the mosque may have changed).
                   final coIds = LessonSpeakersField.orderedSelection(
@@ -835,6 +886,7 @@ class DiscoverEventDialog {
     DataService data,
     ActiveSession session,
   ) {
+    if (_blockedForWomenBranch(context, data, session)) return;
     final mosques = data.getVisibleMosques();
     final selectedMosqueId = session.mosqueId ?? (mosques.isNotEmpty ? mosques.first.id : '');
     final currentMosque = mosques.where((m) => m.id == selectedMosqueId).firstOrNull;
@@ -1372,6 +1424,14 @@ class DiscoverEventDialog {
                           selectedCustomTime.minute,
                         )
                       : DateTime.now().add(const Duration(hours: 2));
+                  if (_isPastOneTimeLesson(
+                    context,
+                    isRecurring: isRecurring,
+                    timingType: timingType,
+                    when: calculatedDateTime,
+                  )) {
+                    return;
+                  }
 
                   try {
                     final newEv = data.addCommunityEvent(
@@ -1931,7 +1991,12 @@ class DiscoverEventDialog {
                           selectedCustomTime.hour,
                           selectedCustomTime.minute,
                         )
-                      : ev.eventDateTime;
+                      // درس مربوط بصلاة لا تاريخ له: موعده أول صلاة بعد إعلانه. إن كان قد
+                      // انقضى (أو كان بوقت محدد وصار مربوطاً بصلاة) فحفظه يعلنه من جديد.
+                      : (ev.timingType != 'prayer_linked' ||
+                              (!isRecurring && LessonSchedule.hasEnded(ev, DateTime.now())))
+                          ? DateTime.now().add(const Duration(hours: 2))
+                          : ev.eventDateTime;
 
                   data.updateCommunityEvent(
                     eventId: ev.id,

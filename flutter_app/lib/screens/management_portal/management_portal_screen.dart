@@ -36,6 +36,12 @@ class ManagementPortalScreen extends StatelessWidget {
     final cashierSession = data.getSessionForRole('cashier');
     final studentSession = data.getSessionForRole('student');
 
+    // إدارة قسم نسائي تُعرض في بطاقتها، لا في بطاقة إدارة مسجد الرجال
+    final womenSession = mosqueSession != null && data.branchOfSession(mosqueSession) == 'female'
+        ? mosqueSession
+        : null;
+    final menAdminSession = womenSession == null ? mosqueSession : null;
+
     final hasAnyAdmin = mosqueSession != null ||
         sheikhSession != null ||
         cashierSession != null ||
@@ -296,7 +302,7 @@ class ManagementPortalScreen extends StatelessWidget {
                   icon: Icons.mosque_rounded,
                   title: 'إدارة المسجد ولجان الإشراف',
                   description: 'امسح رمز QR لمدير المسجد لفتح لوحة التحكم الإدارية الكاملة للمسجد، المشايخ، الحلقات، والفعاليات.',
-                  session: mosqueSession,
+                  session: menAdminSession,
                   onScan: () => _scanRole(context, targetRole: 'mosque_admin'),
                   onOpenTab: () => onNavigateToTab?.call(1),
                   onDisconnect: () {
@@ -360,6 +366,26 @@ class ManagementPortalScreen extends StatelessWidget {
                     data.disconnectRole('cashier');
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('تم قفل جلسة صراف الجوائز بنجاح')),
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+
+                // 5. Women's branch card — المكان الوحيد في البوابة لرمز القسم النسائي
+                _buildRoleCard(
+                  context: context,
+                  isDark: isDark,
+                  icon: Icons.female_rounded,
+                  title: 'القسم النسائي (إدارة النساء)',
+                  description: 'لمديرة القسم النسائي: امسحي رمز التسليم (WMV-) الذي تصدره إدارة المسجد نفسه من لوحة الإدارة. '
+                      'يُنشئ إدارة نسائية مستقلة تماماً بكودها الخاص، ولا يُقبل هنا أي رمز آخر.',
+                  session: womenSession,
+                  onScan: () => _scanRole(context, targetRole: CodeScannerDialog.womenBranchTarget),
+                  onOpenTab: () => onNavigateToTab?.call(1),
+                  onDisconnect: () {
+                    data.disconnectRole('mosque_admin');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('تم قفل جلسة إدارة القسم النسائي بنجاح')),
                     );
                   },
                 ),

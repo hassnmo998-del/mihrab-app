@@ -4,9 +4,8 @@ import '../core/theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/data_service.dart';
 import '../widgets/qr_dialogs.dart';
-import 'cashier/widgets/cashier_history_section.dart';
 import 'cashier/dialogs/cashier_dispense_dialog.dart';
-import 'cashier/cashier_full_ledger_screen.dart';
+import 'cashier/cashier_records_screen.dart';
 
 class CashierScreen extends StatefulWidget {
   const CashierScreen({super.key});
@@ -166,19 +165,11 @@ class CashierScreenState extends State<CashierScreen> {
     );
   }
 
-  /// يفتح السجل الكامل: كشف جاهز للإدارة بجامع وفترة محددين.
-  void _openFullLedger({
-    required Map<String, String> mosqueOptions,
-    required String? activeMosqueId,
-    required String cashierLabel,
-  }) {
+  /// السجلات والكشوف والفلاتر كلها في شاشة داخلية: الشاشة الأولى للصرف فقط.
+  void _openRecords(String? activeMosqueId) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CashierFullLedgerScreen(
-          mosqueOptions: mosqueOptions,
-          initialMosqueId: activeMosqueId,
-          cashierLabel: cashierLabel,
-        ),
+        builder: (_) => CashierRecordsScreen(initialMosqueId: activeMosqueId),
       ),
     );
   }
@@ -276,66 +267,6 @@ class CashierScreenState extends State<CashierScreen> {
     );
   }
 
-  /// بطاقة الوصول السريع للسجل الكامل — ما تطلبه الإدارة عند المحاسبة.
-  Widget _buildFullLedgerCta({
-    required bool isDark,
-    required Color dividerColor,
-    required Map<String, String> mosqueOptions,
-    required String? activeMosqueId,
-    required String cashierLabel,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () => _openFullLedger(
-        mosqueOptions: mosqueOptions,
-        activeMosqueId: activeMosqueId,
-        cashierLabel: cashierLabel,
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.05)
-              : AppColors.goldSoftBg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.goldSoftBorder),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(
-                color: AppColors.terracottaPrimary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(Icons.fact_check_rounded,
-                  color: AppColors.terracottaPrimary, size: 24),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('السجل الكامل للإدارة 📋',
-                      style: AppTypography.titleBold(context, fontSize: 15)),
-                  const SizedBox(height: 3),
-                  Text(
-                    'كشف جاهز لجامع وفترة محددين: كم نقطة انسحبت، وما المستحق لك بالمال حسب الجوائز — قابل للمشاركة أو التصدير Excel.',
-                    style: AppTypography.verveSubtitle(context)
-                        .copyWith(fontSize: 11.5),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(Icons.arrow_back_ios_new_rounded,
-                size: 15, color: isDark ? Colors.white38 : Colors.grey.shade500),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final ds = context.watch<DataService>();
@@ -391,45 +322,23 @@ class CashierScreenState extends State<CashierScreen> {
       activeCashierSession = cashierSessions.first;
     }
 
-    // Stats calculation filtered by active mosque
-    final allRedemptions = ds.getRedemptions(mosqueId: activeCashierSession.mosqueId);
+    // رقما هذا الشهر للجامع النشط: يظهران على بلاطة السجلات
     final now = DateTime.now();
-    final thisMonthRedemptions = allRedemptions.where((r) =>
-    r.status == 'dispensed' &&
-        r.dispensedAt != null &&
-        r.dispensedAt!.year == now.year &&
-        r.dispensedAt!.month == now.month
-    ).toList();
+    final thisMonthRedemptions = ds
+        .getRedemptions(mosqueId: activeCashierSession.mosqueId)
+        .where((r) =>
+            r.status == 'dispensed' &&
+            r.dispensedAt != null &&
+            r.dispensedAt!.year == now.year &&
+            r.dispensedAt!.month == now.month)
+        .toList();
+    final monthPoints = thisMonthRedemptions.fold<int>(0, (sum, r) => sum + r.pointsSpent);
 
-    final totalPointsDispensedMonth = thisMonthRedemptions.fold<int>(0, (sum, r) => sum + r.pointsSpent);
-
-    // بيانات سجل الصرف: تشمل كل الجوامع المعتمد الصراف فيها ليتمكن من الفرز والتنسيق بينها
-    final authorizedMosqueIds = cashierSessions
-        .map((s) => s.mosqueId)
-        .whereType<String>()
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    final ledgerRedemptions = ds
-        .getRedemptions()
-        .where((r) => authorizedMosqueIds.contains(r.mosqueId))
-        .toList();
-    final ledgerRewards = ds
-        .getRewards()
-        .where((r) => authorizedMosqueIds.contains(r.mosqueId))
-        .toList();
-    final ledgerStudents = ds
-        .getStudents()
-        .where((st) => authorizedMosqueIds.contains(st.mosqueId))
-        .toList();
-    final ledgerHalaqat = ds
-        .getHalaqat()
-        .where((h) => authorizedMosqueIds.contains(h.mosqueId))
-        .toList();
-    final mosqueOptions = <String, String>{
-      for (final s in cashierSessions)
-        if (s.mosqueId != null && s.mosqueId!.isNotEmpty)
-          s.mosqueId!: s.mosqueName ?? 'جامع'
-    };
+    // جامع واحد قد تكون له جلستان (صراف ومدير): يُعدّ ويُعرض مرة واحدة
+    final mosqueSessions = <String, ActiveSession>{};
+    for (final s in cashierSessions) {
+      mosqueSessions.putIfAbsent(s.mosqueId ?? '', () => s);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -437,24 +346,16 @@ class CashierScreenState extends State<CashierScreen> {
           children: [
             Icon(Icons.storefront_rounded, color: AppColors.terracottaPrimary, size: 22),
             const SizedBox(width: 10),
-            Text('بوابة الصراف المعتمد', style: AppTypography.titleBold(context, fontSize: 17)),
+            Flexible(
+              child: Text(
+                'بوابة الصراف المعتمد',
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.titleBold(context, fontSize: 17),
+              ),
+            ),
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'السجل الكامل للإدارة 📋',
-            icon: const Icon(Icons.fact_check_outlined),
-            onPressed: () => _openFullLedger(
-              mosqueOptions: mosqueOptions,
-              activeMosqueId: activeCashierSession.mosqueId,
-              cashierLabel: activeCashierSession.name,
-            ),
-          ),
-          IconButton(
-            tooltip: 'إضافة جامع آخر للصرف ➕',
-            icon: const Icon(Icons.add_business_outlined),
-            onPressed: () => _handleUnlockScan(ds),
-          ),
           IconButton(
             tooltip: 'تحديث البيانات',
             icon: const Icon(Icons.refresh_rounded),
@@ -462,229 +363,266 @@ class CashierScreenState extends State<CashierScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Mosque Switcher Bar
-          if (cashierSessions.length > 1)
-            Container(
-              height: 54,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey[50],
-                border: Border(bottom: BorderSide(color: dividerColor)),
-              ),
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: cashierSessions.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, idx) {
-                  final s = cashierSessions[idx];
-                  final isSelected = s.mosqueId == activeCashierSession.mosqueId;
-                  return ChoiceChip(
-                    label: Text(s.mosqueName ?? 'جامع'),
-                    selected: isSelected,
-                    selectedColor: AppColors.terracottaPrimary,
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (val) {
-                      if (val) {
-                        setState(() => _manualSelectedMosqueId = s.mosqueId);
-                        // Also switch global session so data lookups (students etc) are contextualized
-                        ds.switchSession(s);
-                      }
-                    },
-                  );
-                },
+      body: RefreshIndicator(
+        onRefresh: () => ds.syncWithSupabase(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildMosquesCard(ds, mosqueSessions.values.toList(), activeCashierSession, isDark, dividerColor),
+                  const SizedBox(height: 16),
+                  _buildScanCard(ds, activeCashierSession, isDark, dividerColor),
+                  const SizedBox(height: 16),
+                  _buildRecordsTile(
+                    isDark: isDark,
+                    activeMosqueId: activeCashierSession.mosqueId,
+                    monthCount: thisMonthRedemptions.length,
+                    monthPoints: monthPoints,
+                  ),
+                ],
               ),
             ),
-          
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => ds.syncWithSupabase(),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 860),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // 1. PRIMARY ACTION: Scanning / Input
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: dividerColor),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'مسح هوية الطالب وصرف المكافأة 📍',
-                                style: AppTypography.verveHeaderTitle(context),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'أنت الآن في: ${activeCashierSession.mosqueName}. امسح باركود الطالب (STD-) لبدء الصرف.',
-                                style: AppTypography.verveSubtitle(context),
-                              ),
-                              const SizedBox(height: 20),
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isNarrow = constraints.maxWidth < 460;
-                                  final textField = TextField(
-                                    controller: _voucherController,
-                                    textCapitalization: TextCapitalization.characters,
-                                    style: AppTypography.bodyRegular(context, fontSize: 14),
-                                    decoration: const InputDecoration(
-                                      labelText: 'كود الطالب أو القسيمة *',
-                                      hintText: 'STD-XXXX أو VCH-XXXX',
-                                      prefixIcon: Icon(Icons.qr_code_2),
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    ),
-                                    onSubmitted: (val) => _verifyAndDispense(ds, val),
-                                  );
+          ),
+        ),
+      ),
+    );
+  }
 
-                                  final scanButton = ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.terracottaPrimary,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                      elevation: 0,
-                                    ),
-                                    icon: const Icon(Icons.camera_alt_outlined, size: 22),
-                                    label: Text('فتح الكاميرا للمسح', style: AppTypography.buttonText()),
-                                    onPressed: () => _handleVoucherScan(ds),
-                                  );
+  /// «جامع واحد»، «جامعان»، «3 جوامع»، «11 جامعاً».
+  static String mosqueCountLabel(int n) {
+    if (n == 1) return 'جامع واحد';
+    if (n == 2) return 'جامعان';
+    if (n <= 10) return '$n جوامع';
+    return '$n جامعاً';
+  }
 
-                                  if (isNarrow) {
-                                    return Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        textField,
-                                        const SizedBox(height: 12),
-                                        scanButton,
-                                      ],
-                                    );
-                                  }
-
-                                  return Row(
-                                    children: [
-                                      Expanded(child: textField),
-                                      const SizedBox(width: 12),
-                                      scanButton,
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // 2. Secondary: Identity & Stats
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: AppColors.sunsetTwilightGradient,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: AppShadows.heroBanner,
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.point_of_sale_rounded, color: Colors.white, size: 24),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    activeCashierSession.name,
-                                    style: AppTypography.titleBold(context, fontSize: 18, color: Colors.white),
-                                  ),
-                                  Text(
-                                    'كود النقطة: ${activeCashierSession.code} • ${activeCashierSession.mosqueName ?? "نظام الصرف المعتمد"}',
-                                    style: AppTypography.bodyRegular(context, fontSize: 12, color: const Color(0xFFF9EAE1)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Verve Stats Mini Row
-                      IntrinsicHeight(
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                children: [
-                                  Text('${thisMonthRedemptions.length}', style: AppTypography.titleBold(context, fontSize: 24, color: AppColors.terracottaPrimary)),
-                                  Text('جوائز صُرفت (هذا الشهر)', style: AppTypography.bodyRegular(context, fontSize: 11)),
-                                ],
-                              ),
-                            ),
-                            VerticalDivider(width: 1, thickness: 0.8, color: dividerColor),
-                            Expanded(
-                              child: Column(
-                                children: [
-                                  Text('$totalPointsDispensedMonth', style: AppTypography.titleBold(context, fontSize: 24, color: AppColors.gold)),
-                                  Text('إجمالي النقاط المستبدلة', style: AppTypography.bodyRegular(context, fontSize: 11)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // زر السجل الكامل: كشف رسمي للإدارة بجامع وفترة محددين
-                      _buildFullLedgerCta(
-                        isDark: isDark,
-                        dividerColor: dividerColor,
-                        mosqueOptions: mosqueOptions,
-                        activeMosqueId: activeCashierSession.mosqueId,
-                        cashierLabel: activeCashierSession.name,
-                      ),
-                      const SizedBox(height: 24),
-                      Divider(height: 1, thickness: 0.8, color: dividerColor),
-                      const SizedBox(height: 20),
-
-                      // سجل الصرف والمستحقات (مع الفلاتر والفرز)
-                      CashierHistorySection(
-                        allRedemptions: ledgerRedemptions,
-                        allRewards: ledgerRewards,
-                        students: ledgerStudents,
-                        halaqat: ledgerHalaqat,
-                        mosqueOptions: mosqueOptions,
-                        activeMosqueId: activeCashierSession.mosqueId ?? 'all',
-                      ),
-                    ],
-                  ),
+  /// 1) كم جامعاً مسجّلاً عند الصراف، التبديل بينها، وإضافة جامع.
+  Widget _buildMosquesCard(
+    DataService ds,
+    List<ActiveSession> mosques,
+    ActiveSession active,
+    bool isDark,
+    Color dividerColor,
+  ) {
+    final many = mosques.length > 1;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.terracottaPrimary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.mosque_rounded, color: AppColors.terracottaPrimary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'مسجّل عندك: ${mosqueCountLabel(mosques.length)}',
+                      style: AppTypography.titleBold(context, fontSize: 15.5),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      many ? 'اضغط اسم الجامع الذي تصرف له الآن' : (active.mosqueName ?? 'جامع'),
+                      style: AppTypography.verveSubtitle(context),
+                    ),
+                  ],
                 ),
               ),
+            ],
+          ),
+          if (many) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                for (final s in mosques)
+                  ChoiceChip(
+                    label: Text(s.mosqueName ?? 'جامع'),
+                    selected: s.mosqueId == active.mosqueId,
+                    selectedColor: AppColors.terracottaPrimary,
+                    labelStyle: TextStyle(
+                      color: s.mosqueId == active.mosqueId
+                          ? Colors.white
+                          : (isDark ? Colors.white70 : Colors.black87),
+                      fontWeight: s.mosqueId == active.mosqueId ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (val) {
+                      if (!val) return;
+                      setState(() => _manualSelectedMosqueId = s.mosqueId);
+                      // Also switch global session so data lookups (students etc) are contextualized
+                      ds.switchSession(s);
+                    },
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () => _handleUnlockScan(ds),
+              icon: const Icon(Icons.add_business_outlined, size: 19),
+              label: Text('إضافة جامع', style: AppTypography.buttonText(color: AppColors.terracottaPrimary)),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.terracottaPrimary,
+                visualDensity: VisualDensity.compact,
+              ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 2) العمل اليومي كله: امسح باركود الطالب، أو اكتب الكود.
+  Widget _buildScanCard(DataService ds, ActiveSession active, bool isDark, Color dividerColor) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('صرف جائزة لطالب', style: AppTypography.verveHeaderTitle(context)),
+          const SizedBox(height: 4),
+          Text(
+            'الصرف الآن لطلاب: ${active.mosqueName ?? 'الجامع'}',
+            style: AppTypography.verveSubtitle(context),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 62,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.terracottaPrimary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                elevation: 0,
+              ),
+              icon: const Icon(Icons.qr_code_scanner_rounded, size: 28),
+              label: Text('مسح باركود الطالب', style: AppTypography.buttonText().copyWith(fontSize: 17)),
+              onPressed: () => _handleVoucherScan(ds),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: Divider(color: dividerColor)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Text('أو اكتب الكود', style: AppTypography.verveSubtitle(context)),
+              ),
+              Expanded(child: Divider(color: dividerColor)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _voucherController,
+                  textCapitalization: TextCapitalization.characters,
+                  style: AppTypography.bodyRegular(context, fontSize: 14),
+                  decoration: const InputDecoration(
+                    labelText: 'كود الطالب أو القسيمة',
+                    hintText: 'STD-XXXX أو VCH-XXXX',
+                    prefixIcon: Icon(Icons.qr_code_2),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
+                  onSubmitted: (val) => _verifyAndDispense(ds, val),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                height: 48,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.emeraldPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () => _verifyAndDispense(ds, _voucherController.text),
+                  child: Text('صرف', style: AppTypography.buttonText()),
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  /// 3) مدخل واحد للسجلات والكشوف والفلاتر (الشاشة الداخلية).
+  Widget _buildRecordsTile({
+    required bool isDark,
+    required String? activeMosqueId,
+    required int monthCount,
+    required int monthPoints,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _openRecords(activeMosqueId),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : AppColors.goldSoftBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.goldSoftBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: AppColors.terracottaPrimary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(Icons.receipt_long_rounded, color: AppColors.terracottaPrimary, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('السجلات والكشوف', style: AppTypography.titleBold(context, fontSize: 15.5)),
+                  const SizedBox(height: 3),
+                  Text(
+                    monthCount == 0
+                        ? 'ما صرفته، والمستحق لك، وكشف الإدارة'
+                        : 'هذا الشهر: $monthCount جائزة • $monthPoints نقطة',
+                    style: AppTypography.verveSubtitle(context),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_back_ios_new_rounded,
+                size: 15, color: isDark ? Colors.white38 : Colors.grey.shade500),
+          ],
+        ),
       ),
     );
   }

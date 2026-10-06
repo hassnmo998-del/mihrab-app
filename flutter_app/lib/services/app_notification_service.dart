@@ -124,6 +124,15 @@ class AppNotificationService {
     }
   }
 
+  /// يُبقي الشاشة مضاءة (أندرويد) ما دام تسجيل درس جارياً، ثم يعيدها لسلوكها.
+  /// النظام يُسكت الميكروفون حين تُطفأ الشاشة، فيخرج التسجيل صامتاً.
+  Future<void> setKeepScreenOn(bool on) async {
+    if (kIsWeb || !Platform.isAndroid || Platform.environment.containsKey('FLUTTER_TEST')) return;
+    try {
+      await _customNotificationChannel.invokeMethod('setKeepScreenOn', on);
+    } catch (_) {}
+  }
+
   /// فحص حالة إذن الإشعارات
   Future<bool> checkPermissionStatus() async {
     if (kIsWeb || !Platform.isAndroid) {

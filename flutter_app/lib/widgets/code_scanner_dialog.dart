@@ -10,7 +10,12 @@ import '../services/data_service.dart';
 import '../models/models.dart';
 
 class CodeScannerDialog extends StatefulWidget {
+  /// بطاقة «القسم النسائي» في بوابة التفويض: تقبل رمز التسليم (WMV-) وحده.
+  static const String womenBranchTarget = 'women_branch';
+
   final Function(ActiveSession) onSessionUnlocked;
+
+  /// الصفة التي فُتح الماسح لأجلها؛ كود صفة أخرى يُرفض. null يقبل أي كود.
   final String? targetRole;
 
   const CodeScannerDialog({
@@ -33,6 +38,23 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
 
   bool get _isCameraSupported =>
       !kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS);
+
+  bool get _forWomenBranch => widget.targetRole == CodeScannerDialog.womenBranchTarget;
+
+  static const Map<String, String> _roleNames = {
+    'mosque_admin': 'إدارة المسجد',
+    'sheikh': 'الشيخ المحفظ',
+    'student': 'الطالب وولي الأمر',
+    'cashier': 'صراف الجوائز',
+  };
+
+  void _reject(String message) {
+    setState(() {
+      _isLoading = false;
+      _isProcessing = false;
+      _errorMessage = message;
+    });
+  }
 
   @override
   void initState() {
@@ -77,6 +99,11 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
     // إدارة نسائية مستقلة بكودها الخاص. هذا هو المنفذ الوحيد لوجود قسم نسائي.
     final offer = await DataService().inspectWomenProvisionToken(clean);
     if (!mounted) return;
+    if (offer != null && widget.targetRole != null && !_forWomenBranch) {
+      // رمز القسم النسائي له مكانه وحده، فلا يُفتح من بطاقة صفة أخرى بالخطأ
+      _reject('هذا رمز تسليم القسم النسائي. امسحيه من بطاقة «القسم النسائي» في بوابة الإدارة والتفويض.');
+      return;
+    }
     if (offer != null) {
       setState(() {
         _isLoading = false;
@@ -107,6 +134,12 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
       return;
     }
 
+    if (_forWomenBranch) {
+      // هذه البطاقة لا تمنح أي دخول آخر: لا كود مسجد ولا شيخ ولا طالب
+      _reject('هذا المكان يقبل رمز القسم النسائي فقط (يبدأ بـ WMV-). تصدره إدارة المسجد نفسه من لوحة الإدارة.');
+      return;
+    }
+
     // باركود المشرف العام لتسجيل جامع جديد ليس كود دخول: يُتحقق منه في جدول
     // أكواد التسجيل ثم تُفتح لوحة إنشاء الجامع مباشرة. سابقاً كان يُمرَّر إلى
     // verifyCode فيُبحث عنه في المساجد والمشايخ والطلاب فقط ويُرفض دائماً.
@@ -128,7 +161,7 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
       if (widget.targetRole != null && session.role != widget.targetRole) {
         setState(() {
           _errorMessage =
-              'هذا الكود مخصص لـ (${session.roleLabel}) وليس لحساب ${widget.targetRole == 'student' ? 'طالب' : widget.targetRole}.';
+              'هذا الكود مخصص لـ (${session.roleLabel}) وليس لـ (${_roleNames[widget.targetRole] ?? widget.targetRole}).';
         });
         return;
       }
@@ -225,7 +258,7 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'الدخول عبر الكود أو بطاقة الـ QR',
+                    _forWomenBranch ? 'رمز القسم النسائي' : 'الدخول عبر الكود أو بطاقة الـ QR',
                     style: AppTypography.titleBold(context, fontSize: 15),
                   ),
                 ),
@@ -275,8 +308,8 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
                             letterSpacing: 2,
                           ),
                           decoration: InputDecoration(
-                            labelText: 'أدخل كود الاعتماد الممنوح لك',
-                            hintText: 'مثال: MSQ-1234 أو SHK-5678 أو STD-9012',
+                            labelText: _forWomenBranch ? 'أدخلي رمز القسم النسائي' : 'أدخل كود الاعتماد الممنوح لك',
+                            hintText: _forWomenBranch ? 'مثال: WMV-AB12CD34' : 'مثال: MSQ-1234 أو SHK-5678 أو STD-9012',
                             prefixIcon: const Icon(Icons.vpn_key_outlined),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -331,7 +364,9 @@ class _CodeScannerDialogState extends State<CodeScannerDialog> with SingleTicker
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  'يحصل المحفظ على كود الحلقة من مدير المسجد، ويحصل الطالب وولي أمره على كوده وبطاقة الـ QR من المحفظ. ومدير الجامع الجديد يمسح باركود التسجيل (REG-) من المشرف العام لتفتح له لوحة إنشاء الجامع.',
+                                  _forWomenBranch
+                                      ? 'رمز القسم النسائي تصدره إدارة المسجد نفسه: لوحة إدارة المسجد ← زر القسم النسائي. يُستعمل مرة واحدة، ويُنشئ إدارة نسائية مستقلة بكودها الخاص. لا يُقبل هنا أي كود آخر.'
+                                      : 'يحصل المحفظ على كود الحلقة من مدير المسجد، ويحصل الطالب وولي أمره على كوده وبطاقة الـ QR من المحفظ. ومدير الجامع الجديد يمسح باركود التسجيل (REG-) من المشرف العام لتفتح له لوحة إنشاء الجامع.',
                                   style: AppTypography.verveSubtitle(context).copyWith(fontSize: 11.5, height: 1.4),
                                 ),
                               ),

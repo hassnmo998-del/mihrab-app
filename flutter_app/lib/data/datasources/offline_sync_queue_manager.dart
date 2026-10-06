@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,42 @@ import 'supabase_remote_datasource.dart';
 /// Queues offline mutations and processes them automatically when connectivity is available.
 class OfflineSyncQueueManager {
   static const String queueKey = 'pending_sync_queue';
+
+  /// ما رفضه الخادم نهائياً، يُحفظ للتشخيص (آخر مئة) بدل أن يختفي بلا أثر.
+  static const String rejectedKey = 'sync_rejected_log';
+
+  /// مهلة كل عملية رفع: اتصال معلّق لا يُبقي الطابور كله مشغولاً.
+  static Duration requestTimeout = const Duration(seconds: 25);
+
+  /// بعد هذا العدد من ردود الخادم بخطأ على سجل واحد، يُتخطّى في الجولة (ولا يُسقط)
+  /// كي لا يحجز سجل واحد كل ما بعده.
+  static int stuckAfter = 20;
+
+  /// هل الخطأ عابر (الشبكة مقطوعة، الخادم مشغول، مهلة)؟ السجل نفسه سليم وسيُقبل
+  /// لاحقاً، فلا يُسقط من الطابور أبداً. غير العابر هو رفض الخادم للسجل ذاته.
+  ///
+  /// كان كل خطأ يُعدّ ثلاث مرات ثم يُسقط: تعديل أُجري بلا إنترنت يخرج من الطابور بعد
+  /// أقل من دقيقة، ثم تحذفه المزامنة من الجهاز حين يعود الاتصال لأنه «غير موجود في
+  /// السحابة ولا ينتظر الرفع».
+  static bool isTransientError(Object error) {
+    if (error is! PostgrestException) return true;
+    final code = (error.code ?? '').trim().toUpperCase();
+    // رمز حالة HTTP (ثلاثة أرقام). رموز PostgreSQL خمسة محارف وقد تكون كلها أرقاماً.
+    final status = code.length <= 3 ? int.tryParse(code) : null;
+    if (status != null) {
+      return status >= 500 || status == 0 || status == 401 || status == 408 || status == 429;
+    }
+    // PostgREST: تعذّر الاتصال بقاعدة البيانات، انتهاء صلاحية الرمز
+    if (const {'PGRST000', 'PGRST001', 'PGRST002', 'PGRST003', 'PGRST301', 'PGRST302'}.contains(code)) {
+      return true;
+    }
+    // PostgreSQL: انقطاع اتصال، موارد غير كافية، تعارض مؤقت، إلغاء بمهلة، إيقاف الخادم
+    return code.startsWith('08') ||
+        code.startsWith('53') ||
+        code.startsWith('57') ||
+        code.startsWith('40') ||
+        code.startsWith('XX');
+  }
 
   final List<Map<String, dynamic>> _pendingSyncQueue = [];
   bool _isProcessingQueue = false;
@@ -102,8 +139,9 @@ class OfflineSyncQueueManager {
     _pendingSyncQueue.clear();
   }
 
-  /// Process queue sequentially. If a network failure occurs, the loop breaks
-  /// preserving remaining items for subsequent attempts. Permanent failures drop after 5 retries.
+  /// Process queue sequentially. A transient failure (no network, busy server,
+  /// timeout) stops the loop and keeps every item, in order, for the next attempt.
+  /// Only a row the server itself rejects is removed, and it is logged.
   Future<void> processQueue(SupabaseRemoteDataSource remoteDataSource) async {
     final client = remoteDataSource.client;
     if (client == null || _isProcessingQueue || _pendingSyncQueue.isEmpty) {
@@ -113,7 +151,11 @@ class OfflineSyncQueueManager {
 
     try {
       final toRemove = <Map<String, dynamic>>[];
+      // صفوف تُخطّيت في هذه الجولة: ما بعدها لنفس الصف ينتظرها كي لا ينقلب الترتيب
+      final heldRows = <String>{};
       for (final item in List.from(_pendingSyncQueue)) {
+        final rowKey = '${item['table']}|${item['id'] ?? item['data']?['id']}';
+        if (heldRows.contains(rowKey)) continue;
         try {
           final table = item['table'] as String;
           final action = item['action'] as String;
@@ -121,34 +163,42 @@ class OfflineSyncQueueManager {
           final id = item['id'] as String?;
 
           if (action == 'upsert') {
-            await remoteDataSource.upsert(table, data);
+            await remoteDataSource.upsert(table, data).timeout(requestTimeout);
           } else if (action == 'patch' && id != null) {
             // تحديث الأعمدة المرسلة فقط: الحفظ الكامل للصف كان يسمح لجهاز
             // بنسخة قديمة أن يعيد كتابة حقول غيّرها جهاز آخر (مثل ربط الفرع).
-            await remoteDataSource.update(
-              table,
-              data,
-              matchingColumn: 'id',
-              matchingValue: id,
-            );
+            await remoteDataSource
+                .update(
+                  table,
+                  data,
+                  matchingColumn: 'id',
+                  matchingValue: id,
+                )
+                .timeout(requestTimeout);
           } else if (action == 'delete' && id != null) {
-            await remoteDataSource.delete(table, matchingColumn: 'id', matchingValue: id);
+            await remoteDataSource
+                .delete(table, matchingColumn: 'id', matchingValue: id)
+                .timeout(requestTimeout);
           }
           toRemove.add(item);
         } catch (e) {
           debugPrint('⚠️ SyncQueue error processing table ${item['table']}: $e');
-          final isPostgrest = e is PostgrestException;
-          final retries = (item['retry_count'] as int? ?? 0) + 1;
-          item['retry_count'] = retries;
-          // إذا كان الخطأ من قاعدة البيانات نفسها (رفض السجل/بيانات غير صالحة) أو تكرر أكثر من 3 مرات
-          // نقوم بإسقاطه فوراً لمنع حظر بقية الطابور وعمليات الحذف.
-          if (isPostgrest || retries >= 3) {
-            debugPrint('⚠️ SyncQueue dropping permanently failing item for table ${item['table']} ($e)');
-            toRemove.add(item);
-            continue;
+          if (isTransientError(e)) {
+            // لا إنترنت أو الخادم مشغول: يبقى العنصر وما بعده بترتيبهم للمحاولة التالية
+            final retries = (item['retry_count'] as int? ?? 0) + 1;
+            item['retry_count'] = retries;
+            if (e is PostgrestException && retries >= stuckAfter) {
+              // الخادم يردّ بخطأ على هذا السجل منذ مدة: يبقى في الطابور ولا يحجز غيره
+              heldRows.add(rowKey);
+              continue;
+            }
+            break;
           }
-          // Break on network error; keep rest for retry later
-          break;
+          // الخادم رفض السجل نفسه (بيانات لا يقبلها): إبقاؤه يحجز كل ما بعده.
+          debugPrint('⚠️ SyncQueue dropping item rejected by the server for table ${item['table']} ($e)');
+          await _logRejected(item, e);
+          toRemove.add(item);
+          continue;
         }
       }
       if (toRemove.isNotEmpty) {
@@ -160,6 +210,38 @@ class OfflineSyncQueueManager {
       debugPrint('⚠️ SyncQueue outer exception: $e');
     } finally {
       _isProcessingQueue = false;
+    }
+  }
+
+  Future<void> _logRejected(Map<String, dynamic> item, Object error) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(rejectedKey);
+      final log = raw == null ? <dynamic>[] : (jsonDecode(raw) as List);
+      log.add({
+        'table': item['table'],
+        'action': item['action'],
+        'id': item['id'] ?? item['data']?['id'],
+        'error': error.toString(),
+        'at': DateTime.now().toIso8601String(),
+        'data': item['data'],
+      });
+      while (log.length > 100) {
+        log.removeAt(0);
+      }
+      await prefs.setString(rejectedKey, jsonEncode(log));
+    } catch (_) {}
+  }
+
+  /// ما رفضه الخادم من عمليات (للتشخيص).
+  static Future<List<Map<String, dynamic>>> rejectedLog() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(rejectedKey);
+      if (raw == null) return const [];
+      return [for (final e in jsonDecode(raw) as List) Map<String, dynamic>.from(e as Map)];
+    } catch (_) {
+      return const [];
     }
   }
 }

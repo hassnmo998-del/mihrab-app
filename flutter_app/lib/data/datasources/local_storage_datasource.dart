@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/utils/access_code_generator.dart';
 import '../../models/models.dart';
 
 /// Dedicated local data source handling instant in-memory cache and
@@ -45,31 +47,99 @@ class LocalStorageDataSource {
   // Persistent deleted entity tombstones to prevent resurrecting deleted entities
   final Set<String> deletedEntityIds = {};
 
-  static int _idCounter = 0;
-  static String genId(String prefix) =>
-      '$prefix-${DateTime.now().microsecondsSinceEpoch}-${_idCounter++}';
+  static String genId(String prefix) => AccessCodeGenerator.entityId(prefix);
+
+  /// آخر ما كُتب تحت كل مفتاح: مفتاح لم يتغير لا يُعاد حفظه.
+  ///
+  /// على ويندوز كل `setString` يعيد كتابة ملف الإعدادات كله على القرص، فحفظ كل
+  /// القوائم مع كل تعديل كان يعيد كتابة الملف خمساً وعشرين مرة متتالية.
+  final Map<String, String> _lastWritten = {};
+
+  /// يُنسى ما كُتب بعد مسح التخزين كله، ليُعاد حفظ كل شيء في المرة التالية.
+  void forgetWrittenValues() => _lastWritten.clear();
+
+  /// يقرأ قائمة محفوظة عنصراً عنصراً: سجل واحد تالف يُتخطّى ولا يُسقط بقية القائمة
+  /// ولا القوائم التي بعدها.
+  ///
+  /// كان التحميل كله داخل `try` واحدة: خطأ في سجل واحد يوقفه عند تلك النقطة، فتبقى
+  /// القوائم التالية فارغة في الذاكرة، ثم يكتب أول حفظ هذا الفراغ فوق البيانات.
+  void _readList<T>(
+    SharedPreferences prefs,
+    String key,
+    List<T> target,
+    T Function(Map<String, dynamic>) fromJson, {
+    bool Function(T)? keep,
+  }) {
+    String? raw;
+    try {
+      raw = prefs.getString(key);
+      if (raw == null) return;
+      final decoded = jsonDecode(raw) as List;
+      final parsed = <T>[];
+      var skipped = 0;
+      for (final item in decoded) {
+        try {
+          final value = fromJson(Map<String, dynamic>.from(item as Map));
+          if (keep == null || keep(value)) parsed.add(value);
+        } catch (_) {
+          skipped++;
+        }
+      }
+      target
+        ..clear()
+        ..addAll(parsed);
+      if (skipped == 0) {
+        _lastWritten[key] = raw;
+      } else {
+        debugPrint('⚠️ التخزين المحلي: تُخطّي $skipped سجل تالف في $key');
+        _keepDamagedCopy(prefs, key, raw);
+      }
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي: تعذّرت قراءة $key ($e)');
+      if (raw != null) _keepDamagedCopy(prefs, key, raw);
+    }
+  }
+
+  /// نسخة من قائمة تعذّرت قراءتها (كلها أو بعضها) قبل أن يُكتب فوقها.
+  void _keepDamagedCopy(SharedPreferences prefs, String key, String raw) {
+    prefs.setString('$key.damaged', raw).catchError((_) => false);
+  }
 
   /// Loads all collections and states from SharedPreferences into in-memory cache
   Future<void> loadAllFromStorage() async {
+    final SharedPreferences prefs;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      prefs = await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي غير متاح: $e');
+      return;
+    }
+
+    // كل جزء مستقل عن غيره: تعذّر قراءة أحدها لا يمنع قراءة الباقي
+    void guarded(String what, void Function() read) {
+      try {
+        read();
+      } catch (e) {
+        debugPrint('⚠️ التخزين المحلي: تعذّرت قراءة $what ($e)');
+      }
+    }
+
+    guarded('الإعدادات', () {
       isDarkMode = prefs.getBool('is_dark_mode') ?? false;
       appMode = prefs.getString('app_mode') ?? 'personal';
       hasCompletedOnboarding = prefs.getBool('has_completed_onboarding') ?? false;
       isSuperAdminAuthenticated = prefs.getBool('super_admin_authenticated') ?? false;
+    });
 
-      // Load Sessions
-      final savedStr = prefs.getString('saved_sessions');
-      if (savedStr != null) {
-        final List list = jsonDecode(savedStr);
-        savedSessions.clear();
-        for (var item in list) {
-          final s = ActiveSession.fromJson(item);
-          if (s.role != 'super_admin') {
-            savedSessions.add(s);
-          }
-        }
-      }
+    // Load Sessions
+    _readList<ActiveSession>(
+      prefs,
+      'saved_sessions',
+      savedSessions,
+      ActiveSession.fromJson,
+      keep: (s) => s.role != 'super_admin',
+    );
+    guarded('الجلسة النشطة', () {
       final currentCode = prefs.getString('current_session_code');
       if (currentCode != null && savedSessions.isNotEmpty) {
         currentSession = savedSessions.firstWhere(
@@ -84,201 +154,45 @@ class LocalStorageDataSource {
           activeStudentId = firstStudent.studentId ?? firstStudent.code;
         }
       }
+    });
 
-      // Load Real Mosques
-      final mosquesStr = prefs.getString('real_mosques');
-      if (mosquesStr != null) {
-        final List list = jsonDecode(mosquesStr);
-        mosques.clear();
-        for (var item in list) {
-          mosques.add(Mosque.fromJson(item));
-        }
-      }
+    _readList<Mosque>(prefs, 'real_mosques', mosques, Mosque.fromJson);
+    _readList<Sheikh>(prefs, 'real_sheikhs', sheikhs, Sheikh.fromJson);
+    _readList<Halaqa>(prefs, 'real_halaqat', halaqat, Halaqa.fromJson);
+    _readList<Student>(prefs, 'real_students', students, Student.fromJson);
+    _readList<CommunityEvent>(prefs, 'real_events', communityEvents, CommunityEvent.fromJson);
+    _readList<PointsLog>(prefs, 'real_points_logs', pointsLogs, PointsLog.fromJson);
+    _readList<Competition>(prefs, 'real_competitions', competitions, Competition.fromJson);
+    _readList<MemorizationRecord>(
+        prefs, 'real_memorization_records', memorizationRecords, MemorizationRecord.fromJson);
+    _readList<AttendanceRecord>(prefs, 'real_attendance_records', attendanceRecords, AttendanceRecord.fromJson);
+    _readList<AppMessage>(prefs, 'real_messages', messages, AppMessage.fromJson);
+    _readList<Reward>(prefs, 'real_rewards', rewards, Reward.fromJson);
+    _readList<RewardRedemption>(prefs, 'real_redemptions', redemptions, RewardRedemption.fromJson);
+    _readList<IntensiveCourse>(prefs, 'real_intensive_courses', intensiveCourses, IntensiveCourse.fromJson);
+    _readList<Trip>(prefs, 'real_trips', trips, Trip.fromJson);
+    _readList<RecitationTrack>(prefs, 'real_recitation_tracks', recitationTracks, RecitationTrack.fromJson);
+    _readList<SubjectRecitationRecord>(
+        prefs, 'real_subject_recitation_records', subjectRecitationRecords, SubjectRecitationRecord.fromJson);
+    _readList<EventQuestion>(prefs, 'real_event_questions', eventQuestions, EventQuestion.fromJson);
+    _readList<Map<String, dynamic>>(prefs, 'token_usage_history', tokenUsageHistory, (m) => m);
 
-      // Load Real Sheikhs
-      final sheikhsStr = prefs.getString('real_sheikhs');
-      if (sheikhsStr != null) {
-        final List list = jsonDecode(sheikhsStr);
-        sheikhs.clear();
-        for (var item in list) {
-          sheikhs.add(Sheikh.fromJson(item));
-        }
-      }
-
-      // Load Real Halaqat
-      final halaqatStr = prefs.getString('real_halaqat');
-      if (halaqatStr != null) {
-        final List list = jsonDecode(halaqatStr);
-        halaqat.clear();
-        for (var item in list) {
-          halaqat.add(Halaqa.fromJson(item));
-        }
-      }
-
-      // Load Real Students
-      final studentsStr = prefs.getString('real_students');
-      if (studentsStr != null) {
-        final List list = jsonDecode(studentsStr);
-        students.clear();
-        for (var item in list) {
-          students.add(Student.fromJson(item));
-        }
-      }
-
-      // Load Real Community Events
-      final eventsStr = prefs.getString('real_events');
-      if (eventsStr != null) {
-        final List list = jsonDecode(eventsStr);
-        communityEvents.clear();
-        for (var item in list) {
-          communityEvents.add(CommunityEvent.fromJson(item));
-        }
-      }
-
-      // Load Real Points Logs
-      final pointsStr = prefs.getString('real_points_logs');
-      if (pointsStr != null) {
-        final List list = jsonDecode(pointsStr);
-        pointsLogs.clear();
-        for (var item in list) {
-          pointsLogs.add(PointsLog.fromJson(item));
-        }
-      }
-
-      // Load Real Competitions
-      final compsStr = prefs.getString('real_competitions');
-      if (compsStr != null) {
-        final List list = jsonDecode(compsStr);
-        competitions.clear();
-        for (var item in list) {
-          competitions.add(Competition.fromJson(item));
-        }
-      }
-
-      // Load Memorization Records
-      final memStr = prefs.getString('real_memorization_records');
-      if (memStr != null) {
-        final List list = jsonDecode(memStr);
-        memorizationRecords.clear();
-        for (var item in list) {
-          memorizationRecords.add(MemorizationRecord.fromJson(item));
-        }
-      }
-
-      // Load Attendance Records
-      final attStr = prefs.getString('real_attendance_records');
-      if (attStr != null) {
-        final List list = jsonDecode(attStr);
-        attendanceRecords.clear();
-        for (var item in list) {
-          attendanceRecords.add(AttendanceRecord.fromJson(item));
-        }
-      }
-
-      // Load Messages
-      final msgStr = prefs.getString('real_messages');
-      if (msgStr != null) {
-        final List list = jsonDecode(msgStr);
-        messages.clear();
-        for (var item in list) {
-          messages.add(AppMessage.fromJson(item));
-        }
-      }
-
-      // Load Rewards
-      final rewStr = prefs.getString('real_rewards');
-      if (rewStr != null) {
-        final List list = jsonDecode(rewStr);
-        rewards.clear();
-        for (var item in list) {
-          rewards.add(Reward.fromJson(item));
-        }
-      }
-
-      // Load Redemptions
-      final redStr = prefs.getString('real_redemptions');
-      if (redStr != null) {
-        final List list = jsonDecode(redStr);
-        redemptions.clear();
-        for (var item in list) {
-          redemptions.add(RewardRedemption.fromJson(item));
-        }
-      }
-
-      // Load Intensive Courses
-      final crsStr = prefs.getString('real_intensive_courses');
-      if (crsStr != null) {
-        final List list = jsonDecode(crsStr);
-        intensiveCourses.clear();
-        for (var item in list) {
-          intensiveCourses.add(IntensiveCourse.fromJson(item));
-        }
-      }
-
-      // Load Trips
-      final tripsStr = prefs.getString('real_trips');
-      if (tripsStr != null) {
-        final List list = jsonDecode(tripsStr);
-        trips.clear();
-        for (var item in list) {
-          trips.add(Trip.fromJson(item));
-        }
-      }
-
-      // Load Recitation Tracks
-      final tracksStr = prefs.getString('real_recitation_tracks');
-      if (tracksStr != null) {
-        final List list = jsonDecode(tracksStr);
-        recitationTracks.clear();
-        for (var item in list) {
-          recitationTracks.add(RecitationTrack.fromJson(item));
-        }
-      }
-
-      // Load Registration Tokens
+    guarded('رموز التسجيل', () {
       final tokensStr = prefs.getStringList('registration_tokens');
       if (tokensStr != null) {
-        registrationTokens.clear();
-        registrationTokens.addAll(tokensStr);
+        registrationTokens
+          ..clear()
+          ..addAll(tokensStr);
       }
-
-      // Load Token Usage History
-      final historyStr = prefs.getString('token_usage_history');
-      if (historyStr != null) {
-        final List list = jsonDecode(historyStr);
-        tokenUsageHistory.clear();
-        for (var item in list) {
-          tokenUsageHistory.add(Map<String, dynamic>.from(item));
-        }
-      }
-
-      // Load Subject Recitation Records
-      final sRecStr = prefs.getString('real_subject_recitation_records');
-      if (sRecStr != null) {
-        final List list = jsonDecode(sRecStr);
-        subjectRecitationRecords.clear();
-        for (var item in list) {
-          subjectRecitationRecords.add(SubjectRecitationRecord.fromJson(item));
-        }
-      }
-
-      // Load Real Event Questions
-      final eqStr = prefs.getString('real_event_questions');
-      if (eqStr != null) {
-        final List list = jsonDecode(eqStr);
-        eventQuestions.clear();
-        for (var item in list) {
-          eventQuestions.add(EventQuestion.fromJson(item));
-        }
-      }
-
-      // Load Deleted Entity Tombstones
+    });
+    guarded('سجل المحذوفات', () {
       final delList = prefs.getStringList('deleted_entity_tombstones');
       if (delList != null) {
-        deletedEntityIds.clear();
-        deletedEntityIds.addAll(delList);
+        deletedEntityIds
+          ..clear()
+          ..addAll(delList);
       }
-    } catch (_) {}
+    });
   }
 
   /// Persists theme mode to SharedPreferences
@@ -318,110 +232,91 @@ class LocalStorageDataSource {
     } catch (_) {}
   }
 
+  /// يكتب القيمة إن تغيّرت عمّا كُتب آخر مرة.
+  Future<void> _putString(SharedPreferences prefs, String key, String value) async {
+    if (_lastWritten[key] == value) return;
+    if (await prefs.setString(key, value)) _lastWritten[key] = value;
+  }
+
+  /// يحوّل قائمة إلى JSON ويحفظها؛ فشل قائمة لا يمنع حفظ ما بعدها.
+  Future<void> _putJson(SharedPreferences prefs, String key, Object? Function() build) async {
+    try {
+      await _putString(prefs, key, jsonEncode(build()));
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي: تعذّر حفظ $key ($e)');
+    }
+  }
+
+  Future<void> _putStringList(SharedPreferences prefs, String key, List<String> value) async {
+    try {
+      final signature = jsonEncode(value);
+      if (_lastWritten[key] == signature) return;
+      if (await prefs.setStringList(key, value)) _lastWritten[key] = signature;
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي: تعذّر حفظ $key ($e)');
+    }
+  }
+
   /// Persists all in-memory collections and session state to SharedPreferences
   Future<void> saveToStorage() async {
+    final SharedPreferences prefs;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'saved_sessions',
-        jsonEncode(savedSessions.map((s) => s.toJson()).toList()),
-      );
-      if (currentSession != null) {
-        await prefs.setString('current_session_code', currentSession!.code);
-      } else {
-        await prefs.remove('current_session_code');
-      }
-      if (activeStudentId != null) {
-        await prefs.setString('active_student_id', activeStudentId!);
-      } else {
-        await prefs.remove('active_student_id');
-      }
-      await prefs.setBool('super_admin_authenticated', isSuperAdminAuthenticated);
+      prefs = await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي غير متاح للحفظ: $e');
+      return;
+    }
 
-      await prefs.setString(
-        'real_mosques',
-        jsonEncode(mosques.map((m) => m.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_sheikhs',
-        jsonEncode(sheikhs.map((s) => s.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_halaqat',
-        jsonEncode(halaqat.map((h) => h.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_students',
-        jsonEncode(students.map((s) => s.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_events',
-        jsonEncode(communityEvents.map((e) => e.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_points_logs',
-        jsonEncode(pointsLogs.map((p) => p.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_competitions',
-        jsonEncode(competitions.map((c) => c.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_memorization_records',
-        jsonEncode(memorizationRecords.map((m) => m.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_attendance_records',
-        jsonEncode(attendanceRecords.map((a) => a.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_messages',
-        jsonEncode(messages.map((m) => m.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_rewards',
-        jsonEncode(rewards.map((r) => r.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_redemptions',
-        jsonEncode(redemptions.map((r) => r.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_intensive_courses',
-        jsonEncode(intensiveCourses.map((c) => c.toJson()).toList()),
-      );
+    await _putJson(prefs, 'saved_sessions', () => savedSessions.map((s) => s.toJson()).toList());
+    try {
+      final code = currentSession?.code;
+      if (code != null) {
+        await _putString(prefs, 'current_session_code', code);
+      } else if (prefs.containsKey('current_session_code')) {
+        await prefs.remove('current_session_code');
+        _lastWritten.remove('current_session_code');
+      }
+      final student = activeStudentId;
+      if (student != null) {
+        await _putString(prefs, 'active_student_id', student);
+      } else if (prefs.containsKey('active_student_id')) {
+        await prefs.remove('active_student_id');
+        _lastWritten.remove('active_student_id');
+      }
+      if (prefs.getBool('super_admin_authenticated') != isSuperAdminAuthenticated) {
+        await prefs.setBool('super_admin_authenticated', isSuperAdminAuthenticated);
+      }
       // Legacy key from the pre-isolation "unlock women section" flow; the
       // women's branch is now a separate mosque, so nothing is ever unlocked.
-      await prefs.remove('unlocked_women_mosques');
-      await prefs.setStringList(
-        'registration_tokens',
-        registrationTokens,
-      );
-      await prefs.setString(
-        'token_usage_history',
-        jsonEncode(tokenUsageHistory),
-      );
-      await prefs.setString(
-        'real_trips',
-        jsonEncode(trips.map((t) => t.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_recitation_tracks',
-        jsonEncode(recitationTracks.map((t) => t.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_subject_recitation_records',
-        jsonEncode(subjectRecitationRecords.map((r) => r.toJson()).toList()),
-      );
-      await prefs.setString(
-        'real_event_questions',
-        jsonEncode(eventQuestions.map((q) => q.toJson()).toList()),
-      );
-      await prefs.setStringList(
-        'deleted_entity_tombstones',
-        deletedEntityIds.toList(),
-      );
-    } catch (_) {}
+      if (prefs.containsKey('unlocked_women_mosques')) {
+        await prefs.remove('unlocked_women_mosques');
+      }
+    } catch (e) {
+      debugPrint('⚠️ التخزين المحلي: تعذّر حفظ حالة الجلسة ($e)');
+    }
+
+    await _putJson(prefs, 'real_mosques', () => mosques.map((m) => m.toJson()).toList());
+    await _putJson(prefs, 'real_sheikhs', () => sheikhs.map((s) => s.toJson()).toList());
+    await _putJson(prefs, 'real_halaqat', () => halaqat.map((h) => h.toJson()).toList());
+    await _putJson(prefs, 'real_students', () => students.map((s) => s.toJson()).toList());
+    await _putJson(prefs, 'real_events', () => communityEvents.map((e) => e.toJson()).toList());
+    await _putJson(prefs, 'real_points_logs', () => pointsLogs.map((p) => p.toJson()).toList());
+    await _putJson(prefs, 'real_competitions', () => competitions.map((c) => c.toJson()).toList());
+    await _putJson(
+        prefs, 'real_memorization_records', () => memorizationRecords.map((m) => m.toJson()).toList());
+    await _putJson(prefs, 'real_attendance_records', () => attendanceRecords.map((a) => a.toJson()).toList());
+    await _putJson(prefs, 'real_messages', () => messages.map((m) => m.toJson()).toList());
+    await _putJson(prefs, 'real_rewards', () => rewards.map((r) => r.toJson()).toList());
+    await _putJson(prefs, 'real_redemptions', () => redemptions.map((r) => r.toJson()).toList());
+    await _putJson(prefs, 'real_intensive_courses', () => intensiveCourses.map((c) => c.toJson()).toList());
+    await _putStringList(prefs, 'registration_tokens', registrationTokens);
+    await _putJson(prefs, 'token_usage_history', () => tokenUsageHistory);
+    await _putJson(prefs, 'real_trips', () => trips.map((t) => t.toJson()).toList());
+    await _putJson(prefs, 'real_recitation_tracks', () => recitationTracks.map((t) => t.toJson()).toList());
+    await _putJson(prefs, 'real_subject_recitation_records',
+        () => subjectRecitationRecords.map((r) => r.toJson()).toList());
+    await _putJson(prefs, 'real_event_questions', () => eventQuestions.map((q) => q.toJson()).toList());
+    await _putStringList(prefs, 'deleted_entity_tombstones', deletedEntityIds.toList());
   }
 
   /// Records a tombstone for a deleted entity so it is never re-imported or resurrected.
@@ -434,7 +329,7 @@ class LocalStorageDataSource {
     }
     // Async persistent backup immediately
     SharedPreferences.getInstance().then((prefs) {
-      prefs.setStringList('deleted_entity_tombstones', deletedEntityIds.toList());
+      _putStringList(prefs, 'deleted_entity_tombstones', deletedEntityIds.toList());
     }).catchError((_) {});
   }
 

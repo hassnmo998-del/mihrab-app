@@ -12,6 +12,7 @@ import '../../../presentation/widgets/unified_badge.dart';
 import '../../../services/adhan_service.dart';
 import 'adhan_activation_floating_banner.dart';
 import 'adhan_audio_card.dart';
+import 'sky_day_strip.dart';
 
 /// Accurate Prayer Times & Live Dynamic Qibla Compass
 /// Rotates dynamically with real device magnetometer/heading,
@@ -169,6 +170,12 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
     final double userLat = _currentPosition?.latitude ?? AdhanService.instance.latitude;
     final double userLng = _currentPosition?.longitude ?? AdhanService.instance.longitude;
     final double qiblaBearing = _calculateQiblaBearing(userLat, userLng);
+
+    // لوحة السماء تأخذ الشروق والغروب من الجدول نفسه المعروض في الشبكة تحتها
+    DateTime? scheduleTime(String name) =>
+        schedule.where((p) => p['name'] == name).map((p) => p['time'] as DateTime).firstOrNull;
+    final sunrise = scheduleTime('الشروق');
+    final sunset = scheduleTime('المغرب');
     final double distanceToMeccaKm = Geolocator.distanceBetween(userLat, userLng, _meccaLat, _meccaLng) / 1000.0;
     final double distanceToAqsaKm = Geolocator.distanceBetween(userLat, userLng, _aqsaLat, _aqsaLng) / 1000.0;
 
@@ -268,7 +275,7 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
 
             // Countdown Hero Card (Dynamic Adhan & Iqama Countdown)
             Container(
-              padding: const EdgeInsets.all(20),
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: isIqamaPhase
@@ -295,6 +302,18 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
               ),
               child: Column(
                 children: [
+                  // سماء اليوم الحقيقية: الشمس من الشروق إلى الغروب، والقمر بطوره وميلانه
+                  if (sunrise != null && sunset != null)
+                    SkyDayStrip(
+                      latitude: AdhanService.instance.latitude,
+                      longitude: AdhanService.instance.longitude,
+                      sunrise: sunrise,
+                      sunset: sunset,
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                    child: Column(
+                      children: [
                   Center(
                     child: UnifiedBadge(
                       label: isIqamaPhase
@@ -347,6 +366,9 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
                       'متبقي حتى رفع أذان ${prayerState.nextPrayerName}',
                       style: const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),

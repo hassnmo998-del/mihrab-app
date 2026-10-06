@@ -43,7 +43,9 @@ Write-Output 'OK'
   static Future<String?> compress(String wavPath) async {
     if (kIsWeb || !Platform.isWindows) return wavPath;
 
-    final wav = File(wavPath);
+    // واجهة ويندوز (StorageFile) ترفض أي مسار فيه «/» أو مسار نسبي، فتفشل معها
+    // كل محاولة ضغط: يُوحَّد المسار هنا مهما كان شكل ما وصل.
+    final wav = File(wavPath.replaceAll('/', Platform.pathSeparator)).absolute;
     if (!wav.existsSync()) return null;
 
     final dir = wav.parent.path;

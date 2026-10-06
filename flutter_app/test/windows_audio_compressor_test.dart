@@ -66,4 +66,24 @@ void main() {
     skip: !Platform.isWindows,
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  test(
+    'a path with "/" in it, as the recording screen used to build it, still compresses',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('mihrab_compress_test');
+      try {
+        // "C:\...\Documents/lesson_x.wav": Windows refused this and every lesson failed to save
+        _writeWav('${dir.path}${Platform.pathSeparator}lesson_slash.wav', seconds: 5);
+        final out = await WindowsAudioCompressor.compress('${dir.path}/lesson_slash.wav');
+
+        expect(out, isNotNull);
+        expect(out, isNot(contains('/')));
+        expect(File(out!).lengthSync(), greaterThan(0));
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    },
+    skip: !Platform.isWindows,
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }

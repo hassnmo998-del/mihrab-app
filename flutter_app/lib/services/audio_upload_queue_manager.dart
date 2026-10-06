@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,12 +69,42 @@ class AudioUploadQueueManager extends ChangeNotifier {
   final List<PendingUpload> _queue = [];
   bool _isUploading = false;
 
+  // رفعٌ فشل (لا إنترنت غالباً) يُعاد وحده: بعد 30 ثانية ثم أطول حتى 5 دقائق.
+  // قبل ذلك كان ينتظر إعادة فتح التطبيق.
+  Timer? _retryTimer;
+  int _failures = 0;
+
+  /// أقصى انتظار لرفع ملف واحد: اتصال علِق لا يُبقي الطابور كله واقفاً.
+  static const Duration uploadTimeout = Duration(minutes: 20);
+
+  /// الانتظار قبل أول إعادة محاولة؛ يتضاعف مع كل فشل متتالٍ حتى خمس دقائق.
+  @visibleForTesting
+  Duration retryBase = const Duration(seconds: 30);
+
+  /// للاختبارات: بديل عن الرفع الفعلي إلى أرشيف تيليجرام.
+  @visibleForTesting
+  Future<bool> Function(PendingUpload upload, File file)? debugUploader;
+
   List<PendingUpload> get queue => List.unmodifiable(_queue);
   bool get isUploading => _isUploading;
 
   Future<void> init() async {
     await _loadFromStorage();
     _processQueue();
+  }
+
+  /// يحاول الآن ما ينتظر الرفع (عند عودة التطبيق للواجهة أو عند المزامنة).
+  void retryNow() {
+    if (_queue.isEmpty) return;
+    _retryTimer?.cancel();
+    _processQueue();
+  }
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    final wait = retryBase * (1 << math.min(_failures - 1, 4));
+    const longest = Duration(minutes: 5);
+    _retryTimer = Timer(wait > longest ? longest : wait, _processQueue);
   }
 
   Future<void> addToQueue({
@@ -126,6 +158,7 @@ class AudioUploadQueueManager extends ChangeNotifier {
 
   Future<void> _processQueue() async {
     if (_isUploading || _queue.isEmpty) return;
+    _retryTimer?.cancel();
     _isUploading = true;
     notifyListeners();
 
@@ -152,13 +185,16 @@ class AudioUploadQueueManager extends ChangeNotifier {
         continue;
       }
 
-      bool success = await _performUpload(current, file);
+      bool success = await (debugUploader ?? _performUpload)(current, file);
       if (success) {
+        _failures = 0;
         _queue.removeAt(0);
         await _saveToStorage();
         notifyListeners();
       } else {
-        // Break on failure (likely network) to retry later
+        // Break on failure (likely network) and try again by itself later
+        _failures++;
+        _scheduleRetry();
         break;
       }
     }
@@ -206,10 +242,11 @@ class AudioUploadQueueManager extends ChangeNotifier {
         request.files.add(await http.MultipartFile.fromPath('audio', file.path));
       }
 
-      final response = await request.send();
+      final response = await request.send().timeout(uploadTimeout);
       if (response.statusCode != 200) return false;
 
-      final responseBody = await response.stream.bytesToString();
+      final responseBody =
+          await response.stream.bytesToString().timeout(const Duration(minutes: 2));
       final jsonResponse = jsonDecode(responseBody);
 
       if (jsonResponse['ok'] == true) {

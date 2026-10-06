@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/messages_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -41,7 +42,7 @@ class MessagesRepositoryImpl implements MessagesRepository {
     String messageType = 'general',
   }) {
     final msg = AppMessage(
-      id: 'msg-${DateTime.now().millisecondsSinceEpoch}',
+      id: AccessCodeGenerator.entityId('msg'),
       studentId: studentId,
       halaqaId: halaqaId,
       senderType: senderType,

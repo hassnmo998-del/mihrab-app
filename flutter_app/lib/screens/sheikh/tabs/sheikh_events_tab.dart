@@ -54,6 +54,9 @@ class SheikhEventsTab extends StatelessWidget {
         .where((e) => e.involvesSheikh(sheikhId: sheikh.id, name: sheikh.fullName) && e.eventStatus != 'archived')
         .toList();
 
+    // معلمة القسم النسائي لا تعلن دروساً عامة: لا زر إضافة، وما أُعلن سابقاً يبقى قابلاً للإدارة
+    final womenBranch = data.branchOfSession(session) == 'female';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -63,10 +66,13 @@ class SheikhEventsTab extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'إدارة دروسي العامة (${myEvents.length})',
-                style: AppTypography.verveHeaderTitle(context),
+              Flexible(
+                child: Text(
+                  'إدارة دروسي العامة (${myEvents.length})',
+                  style: AppTypography.verveHeaderTitle(context),
+                ),
               ),
+              if (!womenBranch)
               ElevatedButton.icon(
                 onPressed: () => DiscoverEventDialog.showSheikhAddPublicEventModal(context, data, session),
                 icon: const Icon(Icons.add, size: 18),
@@ -85,7 +91,9 @@ class SheikhEventsTab extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Text(
-            'هنا يمكنك التحكم في دروسك التي تظهر للعامة، تفعيلها أو إيقافها وتعديل محتواها.',
+            womenBranch
+                ? 'القسم النسائي لا يعلن دروساً عامة. الدروس العامة والعائلية وأرشيف الدروس متاحة لكنّ للاستماع من شاشة الفعاليات.'
+                : 'هنا يمكنك التحكم في دروسك التي تظهر للعامة، تفعيلها أو إيقافها وتعديل محتواها.',
             style: AppTypography.verveSubtitle(context),
           ),
         ),

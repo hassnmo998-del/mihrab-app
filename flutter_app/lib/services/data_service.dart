@@ -8,6 +8,7 @@ import '../data/datasources/datasources.dart';
 import '../data/repositories/repositories.dart';
 import '../models/models.dart';
 import 'audio_upload_queue_manager.dart';
+import 'lesson_schedule.dart';
 
 /// نتيجة محاولة دخول المشرف العام — تفصل بين "بيانات خاطئة" و"لا صلاحية"
 /// و"تعذر الوصول للخادم" حتى تعرض الواجهة رسالة دقيقة لكل حالة.
@@ -796,6 +797,8 @@ class DataService extends ChangeNotifier {
   Future<void> syncWithSupabase() async {
     if (_isSyncing) return;
     _isSyncing = true;
+    // تسجيلات دروس تنتظر الرفع: تُحاوَل مع كل مزامنة (سحب للتحديث، عودة للتطبيق)
+    audioUploadQueue.retryNow();
     try {
       // تفريغ طابور العمليات العالقة أولاً
       await _syncQueueManager.processQueue(_remoteDataSource);
@@ -1492,6 +1495,12 @@ class DataService extends ChangeNotifier {
   /// archive recordings, so no women's audio or video can ever be stored.
   bool get canRecordArchive => viewerBranch != 'female';
 
+  /// الجهاز في «الحالة النسائية»: فيه جلسة لقسم نسائي بأي صفة (إدارة، معلمة،
+  /// صرّافة، طالبة) ولو كانت الجلسة النشطة الآن غيرها. في هذه الحالة لا يُعلَن
+  /// درس عام من شاشة الفعاليات، ويبقى الأرشيف والدروس العامة للاستماع.
+  bool get isWomenMode => [currentSession, ...savedSessions]
+      .any((s) => s != null && s.role != 'super_admin' && branchOfSession(s) == 'female');
+
   bool canSessionRecordArchive(ActiveSession? session) =>
       branchOfSession(session) != 'female';
 
@@ -1637,6 +1646,7 @@ class DataService extends ChangeNotifier {
     double? latitude,
     double? longitude,
   }) {
+    final before = getMosqueById(id);
     _mosquesRepo.updateMosque(
       id: id,
       name: name,
@@ -1646,6 +1656,24 @@ class DataService extends ChangeNotifier {
       latitude: latitude,
       longitude: longitude,
     );
+
+    // الجلسات المحفوظة تحمل اسم المسجد: تُحدَّث معه حتى لا يبقى الاسم القديم في الواجهة
+    final after = getMosqueById(id);
+    if (before != null && after != null && before.name != after.name) {
+      ActiveSession renamed(ActiveSession s) => s.mosqueId != id
+          ? s
+          : s.copyWith(
+              mosqueName: after.name,
+              name: s.role == 'mosque_admin' ? s.name.replaceAll(before.name, after.name) : null,
+            );
+      final sessions = _localDataSource.savedSessions;
+      for (var i = 0; i < sessions.length; i++) {
+        sessions[i] = renamed(sessions[i]);
+      }
+      final current = _localDataSource.currentSession;
+      if (current != null) _localDataSource.currentSession = renamed(current);
+      _localDataSource.saveToStorage();
+    }
     notifyListeners();
   }
 
@@ -2351,9 +2379,23 @@ class DataService extends ChangeNotifier {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
+  /// أسئلة الجلسة الجارية أو القادمة فقط. الدرس المتكرر يحمل أسئلة كل جلساته
+  /// السابقة تحت المعرّف نفسه: لو عُدّت كلها لامتلأ الحد الأقصى بعد أول أسبوع
+  /// ولظهرت للشيخ أسئلة أُجيبت قبل أسابيع.
+  List<EventQuestion> getCurrentEventQuestions(
+    CommunityEvent ev, {
+    bool forSpeaker = false,
+    DateTime? now,
+  }) {
+    final since = LessonSchedule.questionsSince(ev, now ?? DateTime.now(), forSpeaker: forSpeaker);
+    return getEventQuestions(ev.id).where((q) => q.createdAt.isAfter(since)).toList();
+  }
+
   EventQuestion submitEventQuestion(String eventId, String content) {
     final q = EventQuestion(
-      id: 'q-${DateTime.now().millisecondsSinceEpoch}',
+      // معرّف مقاوم للتصادم: الطابع الزمني وحده يمنح سؤالين طُرحا في اللحظة نفسها
+      // من جهازين المعرّف نفسه، فيمحو أحدهما الآخر عند الرفع.
+      id: AccessCodeGenerator.entityId('q'),
       eventId: eventId,
       content: content.trim(),
       createdAt: DateTime.now(),
@@ -2459,11 +2501,14 @@ class DataService extends ChangeNotifier {
     return true;
   }
 
-  void finalizeLiveSession(String eventId) {
+  /// ينهي جلسة الدرس ويعيد معرّف سجل الأرشيف الذي يُربط به تسجيلها: لقطة جديدة
+  /// للدرس المتكرر، والدرس نفسه للدرس لمرة واحدة. null إن لم يُؤرشف شيء.
+  String? finalizeLiveSession(String eventId) {
     final ev = _localDataSource.communityEvents.where((e) => e.id == eventId).firstOrNull;
-    if (ev == null) return;
-    if (!_archiveWriteAllowed(ev.mosqueId)) return;
+    if (ev == null) return null;
+    if (!_archiveWriteAllowed(ev.mosqueId)) return null;
 
+    var archiveId = ev.id;
     if (ev.isRecurring) {
       // 1. إنشاء لقطة الأرشيف فوراً وبشكل دائم ومضمون
       final archivedSnapshot = CommunityEvent(
@@ -2489,6 +2534,7 @@ class DataService extends ChangeNotifier {
         lessonFormat: ev.lessonFormat,
         sheikhIds: ev.sheikhIds,
       );
+      archiveId = archivedSnapshot.id;
       _localDataSource.communityEvents.insert(0, archivedSnapshot);
       _syncQueueManager.queueSync(
         table: 'community_events',
@@ -2522,6 +2568,7 @@ class DataService extends ChangeNotifier {
 
     _localDataSource.saveToStorage();
     notifyListeners();
+    return archiveId;
   }
 
   void setEventAudioUrl(String eventId, String audioUrl) {
@@ -3528,6 +3575,7 @@ class DataService extends ChangeNotifier {
     // 1. Clear Local Storage
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear(); // Complete wipe of all keys
+    _localDataSource.forgetWrittenValues();
 
     // 2. Clear In-Memory Cache
     _localDataSource.mosques.clear();

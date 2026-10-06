@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../presentation/widgets/widgets.dart';
 import '../services/data_service.dart';
 import '../services/audio_upload_queue_manager.dart';
 import '../services/lesson_audio_service.dart';
+import '../services/lesson_schedule.dart';
 import '../services/telegram_media_resolver.dart';
 import '../widgets/app_user_avatar.dart';
 import '../widgets/qr_dialogs.dart';
@@ -40,8 +42,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   String _selectedArchiveMosque = 'all';
   String _archiveSortType = 'newest';
 
-  /// فلتر نوع التسجيل في الأرشيف: 'all' أو 'video' أو 'audio'.
+  /// فلتر الأرشيف: 'all' أو 'audio' (الدروس التي لها تسجيل صوتي).
   String _archiveMediaFilter = 'all';
+
+  /// يعيد بناء القائمة كل دقيقة: درس المرة الواحدة يختفي حين ينقضي موعده،
+  /// وباب الأسئلة يُغلق ويُفتح في وقته، ولو لم يلمس المستخدم الشاشة.
+  Timer? _clockTimer;
 
   final TextEditingController _archiveSearchCtrl = TextEditingController();
 
@@ -60,6 +66,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     _determinePosition();
     _lesson.addListener(_onLessonChanged);
     _lesson.onError = _showLessonError;
+    if (kIsWeb || !Platform.environment.containsKey('FLUTTER_TEST')) {
+      _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   void _onLessonChanged() {
@@ -74,6 +85,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   void dispose() {
     // The lesson keeps playing; this screen just stops listening.
+    _clockTimer?.cancel();
     _lesson.removeListener(_onLessonChanged);
     if (_lesson.onError == _showLessonError) _lesson.onError = null;
     _archiveSearchCtrl.dispose();
@@ -116,17 +128,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   void _playOrPause(CommunityEvent ev) => _lesson.playOrPause(ev);
 
-  /// هل مرفق الدرس تسجيل مرئي فعلاً؟
-  ///
-  /// حقل [CommunityEvent.videoRecordUrl] يُستخدم لأي مرفق (مستند أو رابط أيضاً)،
-  /// لذلك لا يكفي [CommunityEvent.hasVideo] وحده لتصنيف الدرس كفيديو.
-  bool _hasPlayableVideo(CommunityEvent e) {
-    final url = e.videoRecordUrl;
-    if (url == null || url.trim().isEmpty) return false;
-    return AppFileLauncher.getAttachmentInfo(url).type ==
-        AppAttachmentType.video;
-  }
-
   /// يفتح مرفق الدرس بتطبيق الجهاز الافتراضي (مشغّل الفيديو، قارئ PDF...).
   ///
   /// نوقف صوت الدرس أولاً عند فتح فيديو كي لا يتداخل صوتان.
@@ -155,7 +156,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     DataService data,
   ) {
     final questionCtrl = TextEditingController();
-    final existingQuestions = data.getEventQuestions(ev.id);
+    final existingQuestions = data.getCurrentEventQuestions(ev);
     final remainingQuestions = ev.maxQuestions - existingQuestions.length;
 
     showDialog(
@@ -325,9 +326,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         .toList();
     final archiveScope = everyEvent.where(isArchiveVisible).toList();
 
-    // 1. تبويب الدروس القادمة أو المباشرة حصراً (تستثني المؤرشف كلياً)
+    // 1. تبويب الدروس القادمة أو المباشرة حصراً (تستثني المؤرشف كلياً).
+    //    درس المرة الواحدة يختفي حين ينقضي موعده، ما لم يكن تسجيله جارياً الآن؛
+    //    ويبقى لصاحبه في «إدارة دروسي العامة».
+    final now = DateTime.now();
     final activeUpcomingBase = allEvents
-        .where((e) => e.isActive && e.eventStatus != 'archived')
+        .where((e) =>
+            e.isActive &&
+            e.eventStatus != 'archived' &&
+            (e.eventStatus == 'live' || !LessonSchedule.hasEnded(e, now)))
         .toList();
 
     // استخراج تصنيفات الدروس المتوفرة ديناميكياً والتي تحتوي على دروس قادمة
@@ -418,21 +425,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       return true;
     }).toList();
 
-    // أعداد كل نوع تُحسب قبل فلتر النوع نفسه كي تبقى ثابتة على الشرائح
-    final archiveVideoCount = archivedBase.where(_hasPlayableVideo).length;
+    // العدد يُحسب قبل الفلتر نفسه كي يبقى ثابتاً على الشريحة
     final archiveAudioCount = archivedBase.where((e) => e.hasAudio).length;
 
-    // فلترة حسب نوع التسجيل (فيديو / صوت / الكل)
-    final archivedEvents = archivedBase.where((e) {
-      switch (_archiveMediaFilter) {
-        case 'video':
-          return _hasPlayableVideo(e);
-        case 'audio':
-          return e.hasAudio;
-        default:
-          return true;
-      }
-    }).toList();
+    // فلترة حسب وجود تسجيل صوتي (صوت / الكل)
+    final archivedEvents = archivedBase
+        .where((e) => _archiveMediaFilter != 'audio' || e.hasAudio)
+        .toList();
 
     // فرز القائمة
     archivedEvents.sort((a, b) {
@@ -557,6 +556,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 side: const BorderSide(color: Colors.white30),
                               ),
                             ),
+                          if (!data.isWomenMode)
                           ElevatedButton.icon(
                             onPressed: () {
                               void openSheikhScanner() {
@@ -571,7 +571,22 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                       final verified = await data.verifyCode(
                                         code,
                                       );
-                                      if (verified != null) {
+                                      if (verified != null &&
+                                          data.branchOfSession(verified) == 'female') {
+                                        // رمز من قسم نسائي: لا إعلان درس عام من هذه الشاشة
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'إعلان الدروس العامة من هذه الشاشة غير متاح للقسم النسائي.',
+                                              ),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                      } else if (verified != null) {
                                         if (verified.role == 'sheikh') {
                                           if (context.mounted) {
                                             DiscoverEventDialog.showSheikhAddPublicEventModal(
@@ -827,12 +842,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             .firstOrNull;
 
                         final isLive = ev.eventStatus == 'live';
-                        final isCutoff = DateTime.now().isAfter(
-                          ev.eventDateTime.subtract(
-                            const Duration(minutes: 30),
-                          ),
-                        );
-                        final questions = data.getEventQuestions(ev.id);
+                        final isCutoff = !LessonSchedule.questionsOpen(ev, now);
+                        final questions = data.getCurrentEventQuestions(ev);
                         final remainingQ = ev.maxQuestions - questions.length;
                         final isManager = canManageEvents && ownsEvent(ev);
                         // القسم النسائي يدير دروسه لكنه لا يسجّل ولا يؤرشف أبداً
@@ -1258,7 +1269,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ),
               const SizedBox(height: 12),
 
-              // فلتر نوع التسجيل: فيديو أو صوت أو الكل
+              // فلتر نوع التسجيل: صوت أو الكل
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -1274,14 +1285,6 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       icon: Icons.apps_rounded,
                       value: 'all',
                       count: archivedBase.length,
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMediaChip(
-                      label: 'فيديو',
-                      icon: Icons.videocam_rounded,
-                      value: 'video',
-                      count: archiveVideoCount,
                       isDark: isDark,
                     ),
                     const SizedBox(width: 8),
@@ -1446,11 +1449,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       child: Padding(
                         padding: const EdgeInsets.all(36),
                         child: Text(
-                          _archiveMediaFilter == 'video'
-                              ? 'لا توجد تسجيلات مرئية مطابقة ضمن هذا الاختيار'
-                              : (_archiveMediaFilter == 'audio'
-                                    ? 'لا توجد تسجيلات صوتية مطابقة ضمن هذا الاختيار'
-                                    : 'لا توجد تسجيلات في مكتبة الدروس حتى الآن'),
+                          _archiveMediaFilter == 'audio'
+                              ? 'لا توجد تسجيلات صوتية مطابقة ضمن هذا الاختيار'
+                              : 'لا توجد تسجيلات في مكتبة الدروس حتى الآن',
                           textAlign: TextAlign.center,
                           style: AppTypography.verveSubtitle(context),
                         ),

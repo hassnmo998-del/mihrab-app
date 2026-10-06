@@ -18,6 +18,7 @@ import 'services/data_service.dart';
 import 'services/app_update_service.dart';
 import 'services/update/update_background.dart';
 import 'services/app_notification_service.dart';
+import 'services/prefs_file_guard.dart';
 import 'services/adhan_service.dart';
 import 'services/zad_content_service.dart';
 import 'widgets/update_dialog.dart';
@@ -40,6 +41,9 @@ import 'screens/super_admin_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // قبل أي قراءة للإعدادات: ملف بتره انقطاع الكهرباء يُستعاد من نسخته المرآة (ويندوز)
+  await PrefsFileGuard.init();
 
   // Suppress known Windows framework duplicate key-down assertions, mouse tracker assertions, and empty JSON input messages
   final originalOnError = FlutterError.onError;
@@ -459,6 +463,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
         // تمديد جدول منبّهات الأذان أسبوعين من اليوم
         AdhanService.instance.rescheduleNativeAlarms();
       }
+    } else {
+      // التطبيق يُصغَّر أو يُغلق: تُحدَّث النسخة المرآة لملف الإعدادات الآن (ويندوز)
+      PrefsFileGuard.mirrorNow();
     }
   }
 

@@ -268,6 +268,13 @@ private object AdhanPlayer {
 
             mediaPlayer.start()
             player = mediaPlayer
+
+            // Volume up, volume down or the power key silences the adhan at once
+            val appContext = context.applicationContext
+            AdhanSilenceKeys.arm(appContext) {
+                AdhanPlaybackService.stop(appContext)
+                MainActivity.channel?.invokeMethod("silenceAdhan", null)
+            }
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Adhan playback", e)
@@ -278,6 +285,7 @@ private object AdhanPlayer {
     }
 
     fun stop() {
+        AdhanSilenceKeys.disarm()
         try {
             player?.let {
                 if (it.isPlaying) it.stop()

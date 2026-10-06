@@ -8,6 +8,10 @@ class AppColors {
   // Dynamic Mode & Palette State
   static bool isDarkMode = false;
   static String currentPaletteId = 'terracotta';
+
+  /// باقة القسم النسائي: الزهري الموجود أصلاً بين الباقات، لا باقة جديدة.
+  /// يتحول إليها التطبيق وحده حين يُمسح كود لقسم نسائي (انظر `ThemeCubit`).
+  static const String womenPaletteId = 'ruby';
   static AppThemePalette get currentPalette => getPaletteById(currentPaletteId);
 
   // Dynamic Primary & Accents

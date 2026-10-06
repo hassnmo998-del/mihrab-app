@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/attendance_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -35,7 +36,7 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     String? notes,
   }) {
     // 1. Reuse existing record id if this student already had attendance on that date
-    String recordId = 'att-${DateTime.now().millisecondsSinceEpoch}';
+    String recordId = AccessCodeGenerator.entityId('att');
     final existingIdx = _localDataSource.attendanceRecords.indexWhere(
         (a) => a.studentId == studentId && a.sessionDate == sessionDate);
     if (existingIdx != -1) {
@@ -60,7 +61,7 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     if (studentIdx != -1 && pointsEarned > 0) {
       _localDataSource.students[studentIdx].totalPoints += pointsEarned;
       final log = PointsLog(
-        id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+        id: AccessCodeGenerator.entityId('pts'),
         studentId: studentId,
         points: pointsEarned,
         reason:

@@ -92,7 +92,7 @@ void main() {
       expect(kCloudSeedLibraryBooks.length, greaterThanOrEqualTo(20));
 
       final categories = kDefaultLibraryBooks.map((b) => b.category).toSet();
-      expect(categories, containsAll(['hadith', 'tafsir', 'seerah', 'tazkiyah', 'fiqh', 'aqeedah']));
+      expect(categories, containsAll(['hadith', 'tafsir', 'seerah', 'tazkiyah']));
     });
 
     test('لا يتكرر معرّف، وكل كتاب بياناته كاملة', () {

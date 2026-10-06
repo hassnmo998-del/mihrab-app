@@ -1,3 +1,4 @@
+import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/recitation_tracks_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -155,7 +156,7 @@ class RecitationTracksRepositoryImpl implements RecitationTracksRepository {
         reason += ' (سجل خاص - غير محسوب بالإحصائيات العامة)';
       }
       final log = PointsLog(
-        id: 'pts-${DateTime.now().millisecondsSinceEpoch}',
+        id: AccessCodeGenerator.entityId('pts'),
         studentId: studentId,
         points: countsTowardsStatistics ? pointsEarned : 0,
         reason: reason,

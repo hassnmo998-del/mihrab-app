@@ -10,6 +10,9 @@ import '../../../presentation/widgets/widgets.dart';
 /// يعرض لكل عملية: الجامع الذي صُرف له، الطالب وحلقته، الجائزة، قيمتها بالنقاط،
 /// تاريخ الصرف والصراف المنفّذ؛ مع فلاتر حسب الجامع أو الحلقة أو الحالة أو الفترة،
 /// وفرز مرن، وملخص للمستحقات يسهّل التنسيق بين الصراف وإدارة المسجد.
+///
+/// الظاهر دائماً: البحث والفترة (اليوم، الأسبوع، الشهر). الباقي خلف زر «تصفية» واحد
+/// يحمل عدد ما هو مفعّل، مع «إعادة الضبط» بضغطة.
 class CashierHistorySection extends StatefulWidget {
   final List<RewardRedemption> allRedemptions;
   final List<Reward> allRewards;
@@ -46,6 +49,9 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
   String _periodFilter = 'all';
   String _sortMode = 'newest';
   String _search = '';
+
+  /// لوحة «تصفية» مطوية حتى تُطلب
+  bool _filtersOpen = false;
 
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -123,6 +129,29 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
       default:
         return true;
     }
+  }
+
+  /// عدد الفلاتر المفعّلة داخل لوحة «تصفية» (يظهر على زرها).
+  int get _advancedFilterCount => [
+        _statusFilter != 'all',
+        _effectiveHalaqaFilter != 'all',
+        _sortMode != 'newest',
+        _mosqueFilter != widget.activeMosqueId,
+      ].where((on) => on).length;
+
+  bool get _anyFilterActive =>
+      _advancedFilterCount > 0 || _periodFilter != 'all' || _search.trim().isNotEmpty;
+
+  void _resetFilters() {
+    _searchCtrl.clear();
+    setState(() {
+      _mosqueFilter = widget.activeMosqueId;
+      _halaqaFilter = 'all';
+      _statusFilter = 'all';
+      _periodFilter = 'all';
+      _sortMode = 'newest';
+      _search = '';
+    });
   }
 
   String get _periodLabel {
@@ -211,7 +240,17 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
         _buildHeader(context, filtered, students, halaqat),
         const SizedBox(height: 14),
         _buildFilters(context, isDark, dividerColor),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 4),
+          child: Text(
+            _anyFilterActive
+                ? 'النتيجة: ${filtered.length} من ${base.length} عملية'
+                : 'كل العمليات: ${filtered.length}',
+            style: AppTypography.verveSubtitle(context).copyWith(fontSize: 12),
+          ),
+        ),
+        const SizedBox(height: 10),
         _buildSettlementSummary(
           context: context,
           isDark: isDark,
@@ -234,9 +273,19 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
                 Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
                 const SizedBox(height: 8),
                 Text(
-                  'لا توجد عمليات مطابقة للفلاتر المختارة',
+                  _anyFilterActive
+                      ? 'لا توجد عمليات مطابقة للفلاتر المختارة'
+                      : 'لا توجد عمليات صرف بعد',
                   style: AppTypography.bodyRegular(context, color: Colors.grey.shade600),
                 ),
+                if (_anyFilterActive) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _resetFilters,
+                    icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                    label: const Text('عرض كل العمليات'),
+                  ),
+                ],
               ],
             ),
           )
@@ -278,16 +327,18 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
           children: [
             Icon(Icons.receipt_long_rounded, color: AppColors.emeraldPrimary),
             const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('سجل الصرف والمستحقات',
-                    style: AppTypography.verveHeaderTitle(context)),
-                Text(
-                  'كشف تفصيلي لمن صُرف له ومن أي جامع وبكم نقطة',
-                  style: AppTypography.verveSubtitle(context).copyWith(fontSize: 11.5),
-                ),
-              ],
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('سجل الصرف والمستحقات',
+                      style: AppTypography.verveHeaderTitle(context)),
+                  Text(
+                    'كشف تفصيلي لمن صُرف له ومن أي جامع وبكم نقطة',
+                    style: AppTypography.verveSubtitle(context).copyWith(fontSize: 11.5),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -359,6 +410,7 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
   Widget _buildFilters(BuildContext context, bool isDark, Color dividerColor) {
     // الحلقات المعروضة تتبع الجامع المختار
     final halaqaItems = _halaqaScope;
+    final activeCount = _advancedFilterCount;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -370,112 +422,36 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: _searchCtrl,
-            style: AppTypography.bodyRegular(context, fontSize: 13.5),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'ابحث باسم الطالب أو كوده أو اسم الجائزة...',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              suffixIcon: _search.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() => _search = '');
-                      },
-                    ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-            onChanged: (val) => setState(() => _search = val),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 520;
-              final mosqueField = MinisterialDropdownField<String>(
-                label: 'الجامع',
-                value: _mosqueFilter,
-                prefixIcon: const Icon(Icons.mosque_outlined, size: 18),
-                items: [
-                  const DropdownMenuItem(value: 'all', child: Text('كل الجوامع المعتمدة')),
-                  ...widget.mosqueOptions.entries.map(
-                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  ),
-                ],
-                onChanged: (val) => setState(() {
-                  _mosqueFilter = val ?? 'all';
-                  _halaqaFilter = 'all';
-                }),
-              );
-
-              final halaqaField = MinisterialDropdownField<String>(
-                label: 'الحلقة',
-                value: _effectiveHalaqaFilter,
-                prefixIcon: const Icon(Icons.groups_2_outlined, size: 18),
-                items: [
-                  const DropdownMenuItem(value: 'all', child: Text('كل الحلقات')),
-                  ...halaqaItems.map(
-                    (h) => DropdownMenuItem(value: h.id, child: Text(h.name)),
-                  ),
-                ],
-                onChanged: (val) => setState(() => _halaqaFilter = val ?? 'all'),
-              );
-
-              final sortField = MinisterialDropdownField<String>(
-                label: 'الفرز',
-                value: _sortMode,
-                prefixIcon: const Icon(Icons.sort_rounded, size: 18),
-                items: const [
-                  DropdownMenuItem(value: 'newest', child: Text('الأحدث أولاً')),
-                  DropdownMenuItem(value: 'oldest', child: Text('الأقدم أولاً')),
-                  DropdownMenuItem(value: 'points_desc', child: Text('الأعلى نقاطاً')),
-                  DropdownMenuItem(value: 'points_asc', child: Text('الأقل نقاطاً')),
-                  DropdownMenuItem(value: 'student', child: Text('حسب اسم الطالب')),
-                  DropdownMenuItem(value: 'halaqa', child: Text('حسب الحلقة')),
-                ],
-                onChanged: (val) => setState(() => _sortMode = val ?? 'newest'),
-              );
-
-              if (isNarrow) {
-                return Column(
-                  children: [
-                    mosqueField,
-                    const SizedBox(height: 10),
-                    halaqaField,
-                    const SizedBox(height: 10),
-                    sortField,
-                  ],
-                );
-              }
-
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: mosqueField),
-                  const SizedBox(width: 10),
-                  Expanded(child: halaqaField),
-                  const SizedBox(width: 10),
-                  Expanded(child: sortField),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
+          Row(
             children: [
-              _filterChip('الكل', _statusFilter == 'all',
-                  () => setState(() => _statusFilter = 'all')),
-              _filterChip('تم التسليم', _statusFilter == 'dispensed',
-                  () => setState(() => _statusFilter = 'dispensed')),
-              _filterChip('قيد الانتظار', _statusFilter == 'pending',
-                  () => setState(() => _statusFilter = 'pending')),
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  style: AppTypography.bodyRegular(context, fontSize: 13.5),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'ابحث باسم الطالب أو كوده أو الجائزة',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                    suffixIcon: _search.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _search = '');
+                            },
+                          ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
+                  onChanged: (val) => setState(() => _search = val),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _filtersToggleButton(isDark, activeCount),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
+          // الفترة: أكثر ما يُسأل عنه، فتبقى ظاهرة بضغطة واحدة
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -490,7 +466,163 @@ class _CashierHistorySectionState extends State<CashierHistorySection> {
                   () => setState(() => _periodFilter = 'month')),
             ],
           ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: !_filtersOpen
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Divider(height: 1, thickness: 0.8, color: dividerColor),
+                        const SizedBox(height: 12),
+                        Text('حالة الجائزة', style: AppTypography.titleBold(context, fontSize: 12.5)),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _filterChip('الكل', _statusFilter == 'all',
+                                () => setState(() => _statusFilter = 'all')),
+                            _filterChip('تم التسليم', _statusFilter == 'dispensed',
+                                () => setState(() => _statusFilter = 'dispensed')),
+                            _filterChip('قيد الانتظار', _statusFilter == 'pending',
+                                () => setState(() => _statusFilter = 'pending')),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isNarrow = constraints.maxWidth < 520;
+                            final fields = <Widget>[
+                              // صراف جامع واحد لا يحتاج هذا الاختيار
+                              if (widget.mosqueOptions.length > 1)
+                                MinisterialDropdownField<String>(
+                                  label: 'الجامع',
+                                  value: _mosqueFilter,
+                                  prefixIcon: const Icon(Icons.mosque_outlined, size: 18),
+                                  items: [
+                                    const DropdownMenuItem(value: 'all', child: Text('كل الجوامع المعتمدة')),
+                                    ...widget.mosqueOptions.entries.map(
+                                      (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                                    ),
+                                  ],
+                                  onChanged: (val) => setState(() {
+                                    _mosqueFilter = val ?? 'all';
+                                    _halaqaFilter = 'all';
+                                  }),
+                                ),
+                              MinisterialDropdownField<String>(
+                                label: 'الحلقة',
+                                value: _effectiveHalaqaFilter,
+                                prefixIcon: const Icon(Icons.groups_2_outlined, size: 18),
+                                items: [
+                                  const DropdownMenuItem(value: 'all', child: Text('كل الحلقات')),
+                                  ...halaqaItems.map(
+                                    (h) => DropdownMenuItem(value: h.id, child: Text(h.name)),
+                                  ),
+                                ],
+                                onChanged: (val) => setState(() => _halaqaFilter = val ?? 'all'),
+                              ),
+                              MinisterialDropdownField<String>(
+                                label: 'الترتيب',
+                                value: _sortMode,
+                                prefixIcon: const Icon(Icons.sort_rounded, size: 18),
+                                items: const [
+                                  DropdownMenuItem(value: 'newest', child: Text('الأحدث أولاً')),
+                                  DropdownMenuItem(value: 'oldest', child: Text('الأقدم أولاً')),
+                                  DropdownMenuItem(value: 'points_desc', child: Text('الأعلى نقاطاً')),
+                                  DropdownMenuItem(value: 'points_asc', child: Text('الأقل نقاطاً')),
+                                  DropdownMenuItem(value: 'student', child: Text('حسب اسم الطالب')),
+                                  DropdownMenuItem(value: 'halaqa', child: Text('حسب الحلقة')),
+                                ],
+                                onChanged: (val) => setState(() => _sortMode = val ?? 'newest'),
+                              ),
+                            ];
+
+                            if (isNarrow) {
+                              return Column(
+                                children: [
+                                  for (var i = 0; i < fields.length; i++) ...[
+                                    if (i > 0) const SizedBox(height: 10),
+                                    fields[i],
+                                  ],
+                                ],
+                              );
+                            }
+
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (var i = 0; i < fields.length; i++) ...[
+                                  if (i > 0) const SizedBox(width: 10),
+                                  Expanded(child: fields[i]),
+                                ],
+                              ],
+                            );
+                          },
+                        ),
+                        if (_anyFilterActive)
+                          Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: TextButton.icon(
+                              onPressed: _resetFilters,
+                              icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                              label: const Text('إعادة الضبط'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// زر «تصفية»: يفتح بقية الفلاتر ويطويها، وعليه عدد المفعّل منها.
+  Widget _filtersToggleButton(bool isDark, int activeCount) {
+    final highlighted = _filtersOpen || activeCount > 0;
+    final color = highlighted
+        ? AppColors.terracottaPrimary
+        : (isDark ? Colors.white70 : Colors.grey.shade800);
+    return Tooltip(
+      message: _filtersOpen ? 'إخفاء التصفية' : 'تصفية حسب الحالة والحلقة والترتيب',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() => _filtersOpen = !_filtersOpen),
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: highlighted ? AppColors.terracottaPrimary.withValues(alpha: 0.10) : null,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: highlighted
+                  ? AppColors.terracottaPrimary.withValues(alpha: 0.6)
+                  : (isDark ? Colors.white24 : Colors.black26),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.tune_rounded, size: 18, color: color),
+              const SizedBox(width: 6),
+              Text(
+                activeCount > 0 ? 'تصفية ($activeCount)' : 'تصفية',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color),
+              ),
+              Icon(
+                _filtersOpen ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                size: 18,
+                color: color,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

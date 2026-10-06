@@ -278,7 +278,7 @@ void main() {
       await tester.pumpWidget(buildTestScaffold(child: const CashierScreen()));
       await tester.pumpAndSettle();
       expect(find.text('بوابة الصراف المعتمد'), findsOneWidget);
-      expect(find.text('مسح هوية الطالب وصرف المكافأة 📍'), findsOneWidget);
+      expect(find.text('مسح باركود الطالب'), findsOneWidget);
     });
   });
 

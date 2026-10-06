@@ -38,6 +38,9 @@ class _AdminEventsTabState extends State<AdminEventsTab> {
 
     final mosqueEvents = data.getCommunityEvents().where((e) => e.mosqueId == widget.mosque.id && e.eventStatus != 'archived').toList();
 
+    // القسم النسائي لا يعلن دروساً عامة: لا زر إضافة، وما أُعلن سابقاً يبقى قابلاً للإدارة
+    final womenBranch = widget.mosque.gender == 'female';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -47,10 +50,13 @@ class _AdminEventsTabState extends State<AdminEventsTab> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'الدروس والفعاليات العامة للمسجد (${mosqueEvents.length})',
-                style: AppTypography.verveHeaderTitle(context),
+              Flexible(
+                child: Text(
+                  'الدروس والفعاليات العامة للمسجد (${mosqueEvents.length})',
+                  style: AppTypography.verveHeaderTitle(context),
+                ),
               ),
+              if (!womenBranch)
               ElevatedButton.icon(
                 onPressed: () => DiscoverEventDialog.showAdminAddPublicEventModal(
                   context,
@@ -75,7 +81,9 @@ class _AdminEventsTabState extends State<AdminEventsTab> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Text(
-            'مواعيد مجالس العلم، دورات التجويد، والدروس الفقهية المرتبطة بمواقيت الصلاة والمتاحة للمصلين.',
+            womenBranch
+                ? 'القسم النسائي لا يعلن دروساً عامة. الدروس العامة والعائلية وأرشيف الدروس متاحة لكنّ للاستماع من شاشة الفعاليات.'
+                : 'مواعيد مجالس العلم، دورات التجويد، والدروس الفقهية المرتبطة بمواقيت الصلاة والمتاحة للمصلين.',
             style: AppTypography.verveSubtitle(context),
           ),
         ),
