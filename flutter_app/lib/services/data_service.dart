@@ -3394,43 +3394,6 @@ class DataService extends ChangeNotifier {
   }
 
 
-  /// أرقام الأجهزة التي عليها التطبيق (`InstallPresence`). الخادم يعيدها للمشرف العام
-  /// وحده، بجلسته في Supabase Auth لا بالجلسة المحلية.
-  Future<InstallStats> fetchInstallStats() async {
-    final client = _remoteDataSource.client;
-    if (client == null) throw const InstallStatsException(InstallStatsError.unavailable);
-    await _remoteDataSource.waitForSessionRestore(timeout: const Duration(seconds: 4));
-    if (client.auth.currentSession == null) {
-      throw const InstallStatsException(InstallStatsError.notSignedIn);
-    }
-
-    Future<InstallStats> call() async {
-      final raw = await client.rpc('app_install_stats').timeout(const Duration(seconds: 20));
-      return InstallStats.fromJson(Map<String, dynamic>.from(raw as Map));
-    }
-
-    try {
-      try {
-        return await call();
-      } on PostgrestException catch (e) {
-        // رمز انتهت مدته والجهاز كان بلا إنترنت حين حان تجديده: يُجدَّد ويُعاد الطلب مرة
-        if (e.code != 'PGRST301' && !e.message.contains('JWT expired')) rethrow;
-        await client.auth.refreshSession();
-        return await call();
-      }
-    } on PostgrestException catch (e) {
-      if (e.code == '42501') throw const InstallStatsException(InstallStatsError.notAuthorized);
-      if (e.code == 'PGRST301') throw const InstallStatsException(InstallStatsError.notSignedIn);
-      throw const InstallStatsException(InstallStatsError.unavailable);
-    } on AuthException {
-      throw const InstallStatsException(InstallStatsError.notSignedIn);
-    } on InstallStatsException {
-      rethrow;
-    } catch (_) {
-      throw const InstallStatsException(InstallStatsError.unavailable);
-    }
-  }
-
   // ---- أكواد تسجيل المساجد: مخزّنة سحابياً ليراها كل أجهزة المشرف العام ----
   static const String _tokensTable = 'registration_tokens';
 

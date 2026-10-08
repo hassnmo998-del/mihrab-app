@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_app/core/di/injection.dart';
 import 'package:flutter_app/presentation/blocs/blocs.dart';
+import 'package:flutter_app/screens/install_stats/install_stats_screen.dart';
 import 'package:flutter_app/screens/settings_screen.dart';
 import 'package:flutter_app/services/data_service.dart';
 import 'package:flutter_app/core/theme/app_colors.dart';
@@ -64,6 +65,38 @@ void main() {
       expect(find.text('إدارة وكوادر المسجد'), findsNothing);
 
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('سبع نقرات على رقم الإصدار تفتح أرقام التطبيق المقفلة، ونقرة واحدة لا', (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [BlocProvider<ThemeCubit>(create: (_) => sl<ThemeCubit>())],
+          child: ChangeNotifierProvider<DataService>.value(
+            value: sl<DataService>(),
+            child: const MaterialApp(home: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final badge = find.byKey(const ValueKey('versionBadge'));
+      await tester.ensureVisible(badge);
+      await tester.pumpAndSettle();
+
+      await tester.tap(badge);
+      await tester.pumpAndSettle();
+      expect(find.byType(InstallStatsScreen), findsNothing);
+
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(badge);
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(InstallStatsScreen), findsOneWidget);
+      expect(find.text('هذه الصفحة بكلمة سر'), findsOneWidget);
     });
   });
 }

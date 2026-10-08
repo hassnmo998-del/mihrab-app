@@ -203,7 +203,61 @@ void main() {
     });
   });
 
-  group('أرقام المشرف العام', () {
+  group('جلب الأرقام بكلمة السر', () {
+    test('كلمة السر تُرسل بأحرف صغيرة بلا مسافات ولا شرطات', () async {
+      Map<String, dynamic>? body;
+      InstallPresence.statsRequester = (b) async {
+        body = b;
+        return {'error': 'wrong_secret'};
+      };
+      await expectLater(InstallPresence.fetchStats(' AbCd-eFgH ijkl–MNOP '), throwsA(isA<InstallStatsException>()));
+      expect(body, {'p_secret': 'abcdefghijklmnop'});
+    });
+
+    Future<InstallStatsError?> errorOf(Future<Map<String, dynamic>> Function() reply) async {
+      InstallPresence.statsRequester = (_) => reply();
+      try {
+        await InstallPresence.fetchStats('x');
+        return null;
+      } on InstallStatsException catch (e) {
+        return e.error;
+      }
+    }
+
+    test('ردود الخادم: خطأ كلمة السر، كثرة المحاولات، وما سواها تعذّر', () async {
+      expect(await errorOf(() async => {'error': 'wrong_secret'}), InstallStatsError.wrongSecret);
+      expect(await errorOf(() async => {'error': 'too_many_attempts'}), InstallStatsError.tooManyAttempts);
+      expect(await errorOf(() async => {'error': 'something_new'}), InstallStatsError.unavailable);
+      expect(await errorOf(() async => throw Exception('no network')), InstallStatsError.unavailable);
+      expect(await errorOf(() async => {'today': 'not a date', 'daily': 'oops'}), InstallStatsError.unavailable);
+    });
+
+    test('ردّ سليم يُقرأ أرقاماً', () async {
+      InstallPresence.statsRequester = (_) async => {
+            'today': '2026-10-08',
+            'counting_since': '2026-10-08T14:52:31+00:00',
+            'installed': 3,
+            'total': 3,
+            'opened_today': 2,
+            'opened_7d': 3,
+            'new_7d': 3,
+            'by_platform': [
+              {'key': 'android', 'count': 3},
+            ],
+            'by_version': [
+              {'key': '1.0.15', 'count': 3},
+            ],
+            'daily': [
+              {'day': '2026-10-08', 'seen': 3, 'opened': 2},
+            ],
+          };
+      final s = await InstallPresence.fetchStats('anything');
+      expect(s.installed, 3);
+      expect(s.byPlatform.single.key, 'android');
+    });
+  });
+
+  group('قراءة الأرقام', () {
     test('تُقرأ كما يعيدها app_install_stats', () {
       final json = jsonDecode('''
         {"daily":[{"day":"2026-10-07","seen":0,"opened":0},{"day":"2026-10-08","seen":4,"opened":3}],

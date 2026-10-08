@@ -7,20 +7,23 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/arabic_time.dart';
 import '../../../models/install_stats.dart';
 
-/// «الأجهزة التي عليها التطبيق» في لوحة المشرف العام.
+/// «الأجهزة التي عليها التطبيق»: تُعرض في شاشة الأرقام المقفلة بكلمة سر.
 ///
 /// الرقم الكبير: أجهزة ظهرت خلال آخر 30 يوماً. تحته: ما فُتح عليه التطبيق اليوم وخلال
 /// الأسبوع وما انضم هذا الأسبوع، ثم التوزيع على المنصات، ومنحنى الفتح اليومي، والإصدارات.
 class InstallStatsCard extends StatefulWidget {
   final Future<InstallStats> Function() load;
 
-  /// إعادة دخول المشرف العام حين انتهت جلسته في Supabase. يعيد true إن نجح.
-  final Future<bool> Function()? onSignIn;
+  /// أرقام وصلت قبل بناء البطاقة (عند فتح القفل): تُعرض فوراً بلا طلب ثانٍ.
+  final InstallStats? initial;
+
+  /// كلمة السر لم تعد صالحة (غُيّرت على الخادم): العودة إلى خانتها.
+  final VoidCallback? onEnterSecret;
 
   /// ساعة «حُدّث الساعة ...» (الاختبارات تثبّتها).
   final DateTime Function() clock;
 
-  const InstallStatsCard({super.key, required this.load, this.onSignIn, this.clock = DateTime.now});
+  const InstallStatsCard({super.key, required this.load, this.initial, this.onEnterSecret, this.clock = DateTime.now});
 
   @override
   State<InstallStatsCard> createState() => InstallStatsCardState();
@@ -37,7 +40,14 @@ class InstallStatsCardState extends State<InstallStatsCard> {
   @override
   void initState() {
     super.initState();
-    reload();
+    final initial = widget.initial;
+    if (initial == null) {
+      reload();
+    } else {
+      _stats = initial;
+      _loadedAt = widget.clock();
+      _loading = false;
+    }
   }
 
   /// يجلب الأرقام من جديد. الأرقام السابقة تبقى ظاهرة أثناء الجلب.
@@ -58,11 +68,6 @@ class InstallStatsCardState extends State<InstallStatsCard> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _signIn() async {
-    final ok = await widget.onSignIn?.call() ?? false;
-    if (ok) await reload();
   }
 
   @override
@@ -316,32 +321,36 @@ class InstallStatsCardState extends State<InstallStatsCard> {
 
   Widget _staleNote(bool isDark) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      _error == InstallStatsError.unavailable
-          ? 'تعذّر التحديث الآن، هذه آخر أرقام وصلت.'
-          : 'انتهت جلسة الدخول، هذه آخر أرقام وصلت.',
-      style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
-    ),
+    child: Text(switch (_error) {
+      InstallStatsError.wrongSecret => 'كلمة السر لم تعد صالحة، هذه آخر أرقام وصلت.',
+      InstallStatsError.tooManyAttempts => 'محاولات خاطئة كثيرة، أعد المحاولة بعد دقائق. هذه آخر أرقام وصلت.',
+      _ => 'تعذّر التحديث الآن، هذه آخر أرقام وصلت.',
+    }, style: TextStyle(fontSize: 11, color: Colors.orange.shade800)),
   );
 
   Widget _errorView(InstallStatsError error, bool isDark) {
     return switch (error) {
-      InstallStatsError.notSignedIn => _message(
+      InstallStatsError.wrongSecret => _message(
         isDark,
-        icon: Icons.lock_clock_outlined,
-        text: 'انتهت جلسة دخول المشرف العام على هذا الجهاز. ادخل من جديد لعرض الأرقام.',
-        action: widget.onSignIn == null
+        icon: Icons.lock_outline_rounded,
+        text: 'كلمة السر المحفوظة على هذا الجهاز لم تعد صالحة.',
+        action: widget.onEnterSecret == null
             ? null
             : FilledButton.icon(
-                onPressed: _signIn,
-                icon: const Icon(Icons.login_rounded, size: 18),
-                label: const Text('الدخول من جديد'),
+                onPressed: widget.onEnterSecret,
+                icon: const Icon(Icons.key_rounded, size: 18),
+                label: const Text('إدخال كلمة السر'),
               ),
       ),
-      InstallStatsError.notAuthorized => _message(
+      InstallStatsError.tooManyAttempts => _message(
         isDark,
-        icon: Icons.block_rounded,
-        text: 'هذا الحساب لا يملك صلاحية عرض الأرقام.',
+        icon: Icons.hourglass_top_rounded,
+        text: 'محاولات خاطئة كثيرة. أعد المحاولة بعد دقائق.',
+        action: OutlinedButton.icon(
+          onPressed: _loading ? null : reload,
+          icon: const Icon(Icons.refresh_rounded, size: 18),
+          label: const Text('إعادة المحاولة'),
+        ),
       ),
       InstallStatsError.unavailable => _message(
         isDark,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/models/install_stats.dart';
-import 'package:flutter_app/screens/super_admin/widgets/install_stats_card.dart';
+import 'package:flutter_app/screens/install_stats/install_stats_card.dart';
 
 /// بطاقة «الأجهزة التي عليها التطبيق»: الأرقام كما وصلت، لا شيء يفيض على عرض الهاتف،
 /// ولكل خطأ رسالته وطريقه.
@@ -41,7 +41,8 @@ void main() {
     WidgetTester tester, {
     required Size size,
     required Future<InstallStats> Function() load,
-    Future<bool> Function()? onSignIn,
+    VoidCallback? onEnterSecret,
+    InstallStats? initial,
     Brightness brightness = Brightness.light,
   }) async {
     tester.view.physicalSize = size;
@@ -57,7 +58,8 @@ void main() {
               padding: const EdgeInsets.all(14),
               child: InstallStatsCard(
                 load: load,
-                onSignIn: onSignIn,
+                initial: initial,
+                onEnterSecret: onEnterSecret,
                 clock: () => DateTime(2026, 10, 8, 17, 52),
               ),
             ),
@@ -147,31 +149,49 @@ void main() {
     expect(find.text('0'), findsNothing);
   });
 
-  testWidgets('انتهت جلسة المشرف: زر الدخول من جديد، ثم تظهر الأرقام', (tester) async {
-    var signedIn = false;
+  testWidgets('كلمة السر المحفوظة لم تعد صالحة: زر يعيد إلى خانتها', (tester) async {
+    var asked = 0;
+    await pump(
+      tester,
+      size: const Size(390, 900),
+      load: () async => throw const InstallStatsException(InstallStatsError.wrongSecret),
+      onEnterSecret: () => asked++,
+    );
+    expect(find.text('كلمة السر المحفوظة على هذا الجهاز لم تعد صالحة.'), findsOneWidget);
+    await tester.tap(find.text('إدخال كلمة السر'));
+    expect(asked, 1);
+  });
+
+  testWidgets('محاولات خاطئة كثيرة: رسالتها وإعادة المحاولة', (tester) async {
+    var locked = true;
     await pump(
       tester,
       size: const Size(390, 1600),
       load: () async {
-        if (!signedIn) throw const InstallStatsException(InstallStatsError.notSignedIn);
+        if (locked) throw const InstallStatsException(InstallStatsError.tooManyAttempts);
         return sample();
       },
-      onSignIn: () async => signedIn = true,
     );
-    expect(find.textContaining('انتهت جلسة دخول المشرف العام'), findsOneWidget);
-    await tester.tap(find.text('الدخول من جديد'));
+    expect(find.text('محاولات خاطئة كثيرة. أعد المحاولة بعد دقائق.'), findsOneWidget);
+    locked = false;
+    await tester.tap(find.text('إعادة المحاولة'));
     await tester.pumpAndSettle();
     expect(find.text('1,284'), findsOneWidget);
   });
 
-  testWidgets('حساب بلا صلاحية: رسالته ولا زر', (tester) async {
+  testWidgets('أرقام وصلت عند فتح القفل تُعرض فوراً بلا طلب ثانٍ', (tester) async {
+    var calls = 0;
     await pump(
       tester,
-      size: const Size(390, 900),
-      load: () async => throw const InstallStatsException(InstallStatsError.notAuthorized),
+      size: const Size(390, 1600),
+      initial: sample(),
+      load: () async {
+        calls++;
+        return sample();
+      },
     );
-    expect(find.text('هذا الحساب لا يملك صلاحية عرض الأرقام.'), findsOneWidget);
-    expect(find.byType(FilledButton), findsNothing);
+    expect(calls, 0);
+    expect(find.text('1,284'), findsOneWidget);
   });
 
   testWidgets('لا إنترنت: إعادة المحاولة تجلب الأرقام', (tester) async {

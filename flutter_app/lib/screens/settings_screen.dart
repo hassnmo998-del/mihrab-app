@@ -8,7 +8,9 @@ import '../presentation/blocs/theme/theme_cubit.dart';
 import '../presentation/blocs/theme/theme_state.dart';
 import '../presentation/widgets/widgets.dart';
 import '../services/app_update_service.dart';
+import '../widgets/secret_tap_target.dart';
 import '../widgets/update_dialog.dart';
+import 'install_stats/install_stats_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -382,19 +384,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text('الإصدار المثبت حالياً', style: AppTypography.font(fontSize: 14.5)),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: primaryColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                  // مدخل مخفي لأرقام التطبيق (لصاحب المشروع، وبكلمة سر)
+                  SecretTapTarget(
+                    key: const ValueKey('versionBadge'),
+                    onTriggered: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const InstallStatsScreen()),
                     ),
-                    child: Text(
-                      'v${AppUpdateService.currentVersion}',
-                      style: AppTypography.font(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: primaryColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        'v${AppUpdateService.currentVersion}',
+                        style: AppTypography.font(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.bold,
+                          color: primaryColor,
+                        ),
                       ),
                     ),
                   ),

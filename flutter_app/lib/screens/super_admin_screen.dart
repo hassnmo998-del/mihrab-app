@@ -3,17 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../core/theme/app_theme.dart';
-import '../models/install_stats.dart';
 import '../services/data_service.dart';
-import '../widgets/super_admin_login_dialog.dart';
 import 'super_admin/dialogs/delete_mosque_confirm_dialog.dart';
-import 'super_admin/widgets/install_stats_card.dart';
 
 class SuperAdminScreen extends StatefulWidget {
-  /// مصدر أرقام الأجهزة (الاختبارات تمرّر غيره). الافتراضي من الخادم.
-  final Future<InstallStats> Function()? loadInstallStats;
-
-  const SuperAdminScreen({super.key, this.loadInstallStats});
+  const SuperAdminScreen({super.key});
 
   @override
   State<SuperAdminScreen> createState() => _SuperAdminScreenState();
@@ -22,7 +16,6 @@ class SuperAdminScreen extends StatefulWidget {
 class _SuperAdminScreenState extends State<SuperAdminScreen> {
   String? _currentToken;
   bool _isGenerating = false;
-  final GlobalKey<InstallStatsCardState> _installStatsKey = GlobalKey<InstallStatsCardState>();
 
   @override
   void initState() {
@@ -76,11 +69,8 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await Future.wait([
-            data.syncWithSupabase(),
-            data.syncRegistrationTokens(),
-            _installStatsKey.currentState?.reload() ?? Future<void>.value(),
-          ]);
+          await data.syncWithSupabase();
+          await data.syncRegistrationTokens();
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -91,18 +81,6 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              InstallStatsCard(
-                key: _installStatsKey,
-                load: widget.loadInstallStats ?? data.fetchInstallStats,
-                onSignIn: () async =>
-                    await showDialog<bool>(
-                      context: context,
-                      builder: (_) => SuperAdminLoginDialog(onLogin: data.superAdminLoginAsync),
-                    ) ??
-                    false,
-              ),
-              const SizedBox(height: 24),
-
               // بنر الترحيب والتوليد
               Container(
                 padding: const EdgeInsets.all(20),

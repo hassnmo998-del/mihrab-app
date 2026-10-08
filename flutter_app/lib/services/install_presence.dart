@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../data/datasources/supabase_remote_datasource.dart';
+import '../models/install_stats.dart';
 import 'update/update_background.dart';
 
 /// يرسل جسم الطلب إلى `app_install_ping` ويعيد رده، أو يرمي إن لم يصل.
@@ -255,12 +256,14 @@ class InstallPresence {
     }
   }
 
+  static Future<Map<String, dynamic>> _postPing(Map<String, dynamic> body) => _rpc('app_install_ping', body);
+
   /// طلب مباشر بلا عميل Supabase: يعمل كما هو في مهمة الخلفية حيث لا تهيئة.
-  static Future<Map<String, dynamic>> _postPing(Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>> _rpc(String function, Map<String, dynamic> body) async {
     const key = SupabaseRemoteDataSource.defaultSupabaseAnonKey;
     final res = await http
         .post(
-          Uri.parse('${SupabaseRemoteDataSource.defaultSupabaseUrl}/rest/v1/rpc/app_install_ping'),
+          Uri.parse('${SupabaseRemoteDataSource.defaultSupabaseUrl}/rest/v1/rpc/$function'),
           headers: {
             'apikey': key,
             'Authorization': 'Bearer $key',
@@ -274,6 +277,43 @@ class InstallPresence {
     }
     return Map<String, dynamic>.from(jsonDecode(res.body) as Map);
   }
+
+  // ── الأرقام: لصاحب المشروع وحده، بكلمة سر يفحصها الخادم ───────────────
+
+  /// يرسل جسم الطلب إلى `app_install_stats` ويعيد ردّه (الاختبارات تستبدله).
+  @visibleForTesting
+  static Future<Map<String, dynamic>> Function(Map<String, dynamic> body) statsRequester = _postStats;
+
+  /// كلمة السر كما تُرسل: أحرف صغيرة بلا مسافات ولا شرطات، فتُكتب كيفما كان.
+  static String normalizeSecret(String raw) => raw.toLowerCase().replaceAll(RegExp(r'[\s\-–—_]'), '');
+
+  /// أرقام الأجهزة. يرمي [InstallStatsException] بسببه: كلمة سر خاطئة، محاولات كثيرة،
+  /// أو لا اتصال. طلب مباشر بالمفتاح العام: لا يتأثر بجلسة دخول على الجهاز.
+  static Future<InstallStats> fetchStats(String secret) async {
+    final Map<String, dynamic> reply;
+    try {
+      reply = await statsRequester({'p_secret': normalizeSecret(secret)});
+    } catch (_) {
+      throw const InstallStatsException(InstallStatsError.unavailable);
+    }
+    switch (reply['error']) {
+      case null:
+        break;
+      case 'wrong_secret':
+        throw const InstallStatsException(InstallStatsError.wrongSecret);
+      case 'too_many_attempts':
+        throw const InstallStatsException(InstallStatsError.tooManyAttempts);
+      default:
+        throw const InstallStatsException(InstallStatsError.unavailable);
+    }
+    try {
+      return InstallStats.fromJson(reply);
+    } catch (_) {
+      throw const InstallStatsException(InstallStatsError.unavailable);
+    }
+  }
+
+  static Future<Map<String, dynamic>> _postStats(Map<String, dynamic> body) => _rpc('app_install_stats', body);
 
   /// مهمة WorkManager دورية (أندرويد): تُبقي الجهاز معدوداً ولو لم يُفتح التطبيق.
   static Future<void> _scheduleBackground() async {
@@ -298,6 +338,7 @@ class InstallPresence {
     _timer = null;
     _inFlight = null;
     sender = _postPing;
+    statsRequester = _postStats;
     clock = DateTime.now;
   }
 }

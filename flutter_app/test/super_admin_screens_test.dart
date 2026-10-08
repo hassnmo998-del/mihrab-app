@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_app/models/install_stats.dart';
 import 'package:flutter_app/screens/super_admin_screen.dart';
 import 'package:flutter_app/services/data_service.dart';
 import 'package:flutter_app/widgets/super_admin_login_dialog.dart';
@@ -144,20 +143,6 @@ void main() {
 
   group('لوحة المشرف العام', () {
     late DataService data;
-    final installStats = InstallStats(
-      today: DateTime(2026, 10, 8),
-      countingSince: DateTime(2026, 10, 1, 9),
-      installed: 1204,
-      total: 1250,
-      openedToday: 300,
-      opened7d: 800,
-      new7d: 60,
-      byPlatform: const [InstallCount('android', 1000), InstallCount('windows', 204)],
-      byVersion: const [InstallCount('1.0.14', 1204)],
-      daily: [
-        for (var i = 7; i >= 0; i--) InstallDay(DateTime(2026, 10, 8 - i), 1000, 250 + i),
-      ],
-    );
 
     setUpAll(() async {
       SharedPreferences.setMockInitialValues({
@@ -207,11 +192,8 @@ void main() {
         await tester.pumpWidget(
           ChangeNotifierProvider<DataService>.value(
             value: data,
-            child: MaterialApp(
-              home: Directionality(
-                textDirection: TextDirection.rtl,
-                child: SuperAdminScreen(loadInstallStats: () async => installStats),
-              ),
+            child: const MaterialApp(
+              home: Directionality(textDirection: TextDirection.rtl, child: SuperAdminScreen()),
             ),
           ),
         );
@@ -219,11 +201,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(tester.takeException(), isNull);
-        // أرقام الأجهزة أول اللوحة، داخل عرض الشاشة
-        expect(find.text('الأجهزة التي عليها التطبيق'), findsOneWidget);
-        final installed = tester.getRect(find.text('1,204'));
-        expect(installed.left, greaterThanOrEqualTo(0));
-        expect(installed.right, lessThanOrEqualTo(size.width));
+        // أرقام الأجهزة ليست هنا: للمنصة أكثر من مشرف، والأرقام لصاحبها بكلمة سر
+        expect(find.text('الأجهزة التي عليها التطبيق'), findsNothing);
         expect(find.text(longName), findsOneWidget);
         expect(find.textContaining('المساجد المسجلة في المنصة'), findsOneWidget);
         expect(find.text('REG-ABCD2345'), findsOneWidget);
