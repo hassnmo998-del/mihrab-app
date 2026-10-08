@@ -1,3 +1,5 @@
+import '../../services/points_ledger.dart';
+import 'points_writer.dart';
 import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/rewards_repository.dart';
 import '../../models/models.dart';
@@ -11,6 +13,8 @@ class RewardsRepositoryImpl implements RewardsRepository {
   final LocalStorageDataSource _localDataSource;
   final OfflineSyncQueueManager _syncQueueManager;
   final SupabaseRemoteDataSource? _remoteDataSource;
+
+  PointsWriter get _points => PointsWriter(_localDataSource, _syncQueueManager, _remoteDataSource);
 
   RewardsRepositoryImpl(
     this._localDataSource,
@@ -210,10 +214,7 @@ class RewardsRepositoryImpl implements RewardsRepository {
       };
     }
 
-    // 1. Deduct Points
-    student.totalPoints -= reward.pointsCost;
-
-    // 2. Create Redemption Record (Directly as dispensed)
+    // 1. Create Redemption Record (Directly as dispensed)
     final redemption = RewardRedemption(
       id: AccessCodeGenerator.entityId('rdm'),
       studentId: student.id,
@@ -238,33 +239,16 @@ class RewardsRepositoryImpl implements RewardsRepository {
       cashierName: cashierName,
     );
 
-    // 3. Create Points Log
-    final log = PointsLog(
-      id: AccessCodeGenerator.entityId('pts'),
+    // 2. Deduct the points (ledger entry + balance) and save
+    _localDataSource.redemptions.insert(0, redemption);
+    _points.apply(
       studentId: student.id,
       points: -reward.pointsCost,
       reason: 'استلام جائزة (صرف مباشر): ${reward.title}',
-      category: 'reward',
-      createdAt: DateTime.now(),
+      category: PointsLedger.rewardCategory,
     );
-
-    // 4. Save and Sync
-    _localDataSource.redemptions.insert(0, redemption);
-    _localDataSource.pointsLogs.insert(0, log);
     _localDataSource.saveToStorage();
 
-    _syncQueueManager.queueSync(
-      table: 'students',
-      action: 'upsert',
-      data: student.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
-    _syncQueueManager.queueSync(
-      table: 'points_logs',
-      action: 'upsert',
-      data: log.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
     _syncQueueManager.queueSync(
       table: 'reward_redemptions',
       action: 'upsert',
@@ -317,19 +301,15 @@ class RewardsRepositoryImpl implements RewardsRepository {
       };
     }
 
-    // Deduct points smoothly
-    student.totalPoints -= red.pointsSpent;
-
-    // Log the deduction
-    final log = PointsLog(
-      id: AccessCodeGenerator.entityId('pts'),
+    // خصم النقاط: الحركة تحمل معرّف القسيمة، فصرف القسيمة نفسها من جهازين (صرّافان
+    // لم يتزامنا بعد) حركة واحدة لا خصمان.
+    _points.apply(
       studentId: student.id,
       points: -red.pointsSpent,
       reason: 'استلام جائزة: ${red.rewardTitle}',
-      category: 'reward',
-      createdAt: DateTime.now(),
+      category: PointsLedger.rewardCategory,
+      logId: 'pts-rdm-${red.id}',
     );
-    _localDataSource.pointsLogs.insert(0, log);
 
     // Update redemption status
     red.status = 'dispensed';
@@ -337,18 +317,6 @@ class RewardsRepositoryImpl implements RewardsRepository {
     red.cashierName = cashierName;
 
     _localDataSource.saveToStorage();
-    _syncQueueManager.queueSync(
-      table: 'students',
-      action: 'upsert',
-      data: student.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
-    _syncQueueManager.queueSync(
-      table: 'points_logs',
-      action: 'upsert',
-      data: log.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
     _syncQueueManager.queueSync(
       table: 'reward_redemptions',
       action: 'upsert',

@@ -1,4 +1,5 @@
-import '../../core/utils/access_code_generator.dart';
+import '../../services/points_ledger.dart';
+import 'points_writer.dart';
 import '../../domain/repositories/attendance_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -11,6 +12,8 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
   final LocalStorageDataSource _localDataSource;
   final OfflineSyncQueueManager _syncQueueManager;
   final SupabaseRemoteDataSource? _remoteDataSource;
+
+  PointsWriter get _points => PointsWriter(_localDataSource, _syncQueueManager, _remoteDataSource);
 
   AttendanceRepositoryImpl(
     this._localDataSource,
@@ -26,6 +29,12 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
         .toList();
   }
 
+  /// يرصد حالة الطالب في يوم. **الرصد يُعاد بأمان**: لليوم الواحد سجل حضور واحد وحركة
+  /// نقاط واحدة تحمل نقاط حالته الحالية، فتغيير الحالة (حاضر ← متأخر ← غائب) أو الضغط
+  /// مرتين يعدّل النقاط إلى قيمتها الجديدة ولا يضيف فوق السابقة.
+  ///
+  /// كان كل ضغطة تضيف نقاطها من جديد: «حاضر» مرتين = النقاط مضاعفة، و«حاضر» ثم
+  /// «غائب» = الطالب يحتفظ بنقاط الحضور.
   @override
   void recordAttendance({
     required String studentId,
@@ -35,13 +44,26 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     int pointsEarned = 0,
     String? notes,
   }) {
-    // 1. Reuse existing record id if this student already had attendance on that date
-    String recordId = AccessCodeGenerator.entityId('att');
-    final existingIdx = _localDataSource.attendanceRecords.indexWhere(
-        (a) => a.studentId == studentId && a.sessionDate == sessionDate);
-    if (existingIdx != -1) {
-      recordId = _localDataSource.attendanceRecords[existingIdx].id;
-      _localDataSource.attendanceRecords.removeAt(existingIdx);
+    // الحضور يمنح نقاطاً ولا يخصم؛ الخصم له طريقه اليدوي
+    final points = pointsEarned < 0 ? 0 : pointsEarned;
+
+    // 1) سجل واحد لليوم: يُحتفظ بمعرّف القائم، وما تكرر من نسخ أقدم يُحذف
+    final sameDay = _localDataSource.attendanceRecords
+        .where((a) => a.studentId == studentId && a.sessionDate == sessionDate)
+        .toList();
+    final recordId =
+        sameDay.isNotEmpty ? sameDay.first.id : PointsLedger.attendanceRecordId(studentId, sessionDate);
+    for (final old in sameDay) {
+      _localDataSource.attendanceRecords.remove(old);
+      if (old.id != recordId) {
+        _syncQueueManager.queueSync(
+          table: 'attendance',
+          action: 'delete',
+          data: {},
+          id: old.id,
+          remoteDataSource: _remoteDataSource,
+        );
+      }
     }
 
     final record = AttendanceRecord(
@@ -50,37 +72,31 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
       halaqaId: halaqaId,
       sessionDate: sessionDate,
       status: status,
-      pointsEarned: pointsEarned,
+      pointsEarned: points,
       notes: notes,
     );
     _localDataSource.attendanceRecords.insert(0, record);
 
-    // 2. Award points to student if positive
-    final studentIdx =
-        _localDataSource.students.indexWhere((s) => s.id == studentId);
-    if (studentIdx != -1 && pointsEarned > 0) {
-      _localDataSource.students[studentIdx].totalPoints += pointsEarned;
-      final log = PointsLog(
-        id: AccessCodeGenerator.entityId('pts'),
+    // 2) نقاط اليوم = [points] بالضبط. حركات اليوم من نسخ أقدم (بمعرّفات عشوائية)
+    //    محسوبة في الرصيد أصلاً، فتحمل حركة اليوم الفرق عنها.
+    final logId = PointsLedger.attendanceLogId(studentId, sessionDate);
+    final prefix = PointsLedger.attendanceReasonPrefix(sessionDate);
+    final legacy = _localDataSource.pointsLogs
+        .where((l) =>
+            l.studentId == studentId &&
+            l.id != logId &&
+            l.category == PointsLedger.attendanceCategory &&
+            l.reason.startsWith(prefix))
+        .fold<int>(0, (sum, l) => sum + l.points);
+    final target = points - legacy;
+    final hasEntry = _localDataSource.pointsLogs.any((l) => l.id == logId);
+    if (target != 0 || hasEntry) {
+      _points.apply(
         studentId: studentId,
-        points: pointsEarned,
-        reason:
-            'حضور جلسة $sessionDate (${status == "present" ? "حضور نظامي" : "حضور متأخر"})',
-        category: 'attendance',
-        createdAt: DateTime.now(),
-      );
-      _localDataSource.pointsLogs.insert(0, log);
-      _syncQueueManager.queueSync(
-        table: 'points_logs',
-        action: 'upsert',
-        data: log.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-      _syncQueueManager.queueSync(
-        table: 'students',
-        action: 'upsert',
-        data: _localDataSource.students[studentIdx].toJson(),
-        remoteDataSource: _remoteDataSource,
+        points: target,
+        reason: PointsLedger.attendanceReason(sessionDate, status),
+        category: PointsLedger.attendanceCategory,
+        logId: logId,
       );
     }
 

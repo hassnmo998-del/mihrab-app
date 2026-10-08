@@ -251,6 +251,55 @@ void main() {
       expect(service.downloadProgress, 1.0);
     });
 
+    test('التنزيل التلقائي: فحص الفتح ينزّل الإصدار الجديد وحده، والنافذة عند الجاهزية فقط', () async {
+      final ready = Completer<UpdateInfo>();
+      service.onReadyToInstall = ready.complete;
+
+      // ما يجري عند فتح التطبيق: لا ضغط على شيء
+      final info = await service.checkAndDownload();
+
+      expect(info!.version, '1.0.10');
+      expect(service.state, SilentUpdateState.downloading);
+      expect((await ready.future.timeout(const Duration(seconds: 20))).version, '1.0.10');
+      expect(service.state, SilentUpdateState.readyToInstall);
+      expect(File(service.downloadedFilePath!).readAsBytesSync(), apk);
+    });
+
+    test('التنزيل التلقائي: لا إصدار أحدث، لا شيء يُنزَّل', () async {
+      boot(current: '1.0.10');
+      expect(await service.checkAndDownload(), isNull);
+      expect(service.state, SilentUpdateState.idle);
+      expect(server.requests, isEmpty);
+    });
+
+    test('التنزيل التلقائي: كل عودة إلى التطبيق أثناء التنزيل لا تبدأه من جديد', () async {
+      server.plan.add(const Reply(stallAfter: 150 * 1024));
+      await service.checkAndDownload();
+      await until(() => service.receivedBytes >= 150 * 1024);
+      states.clear();
+
+      await service.checkAndDownload();
+      await service.checkAndDownload();
+
+      expect(states, isNot(contains(SilentUpdateState.updateAvailable)));
+      await until(() => service.state == SilentUpdateState.readyToInstall);
+      expect(server.requests.length, 2); // الذي صمت والذي أكمل
+      expect(File(service.downloadedFilePath!).readAsBytesSync(), apk);
+    });
+
+    test('التنزيل التلقائي: الملف جاهز من قبل، الفتح التالي لا ينزّله ثانية', () async {
+      await service.checkAndDownload();
+      await until(() => service.state == SilentUpdateState.readyToInstall);
+      final before = server.requests.length;
+
+      boot();
+      await service.resumePendingUpdate();
+      await service.checkAndDownload();
+      await until(() => service.state == SilentUpdateState.readyToInstall);
+
+      expect(server.requests.length, before);
+    });
+
     test('فحص التحديث أثناء التنزيل لا يعيد الحالة إلى «متاح» ولا يبدأ تنزيلاً ثانياً', () async {
       server.plan.add(const Reply(stallAfter: 150 * 1024));
       final info = (await service.checkForUpdate())!;

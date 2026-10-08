@@ -27,6 +27,10 @@ class AdhanAlarmReceiver : BroadcastReceiver() {
         if (action == AdhanAlarmManager.ACTION_PRAYER_ALARM) {
             val prayerName = intent.getStringExtra("prayer_name") ?: "الصلاة"
             val triggerTime = intent.getLongExtra("trigger_time", 0L)
+            // دخل الوقت: شريط المواقيت ينتقل إلى عدّاد الإقامة الآن، من هذا المنبّه (منبّه
+            // ساعة، أدقّ ما في النظام)، ولا ينتظر منبّهه هو الذي يؤخّره النظام على بعض
+            // الأجهزة فيكمل العدّاد بالسالب طوال الأذان.
+            PrayerNotificationManager.refresh(context)
             // This alarm is spent: set the following ones from the stored schedule
             AdhanAlarmManager.scheduleUpcoming(context)
             handlePrayerArrival(context, prayerName, triggerTime)

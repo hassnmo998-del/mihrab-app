@@ -1,3 +1,6 @@
+import '../core/utils/arabic_time.dart';
+import '../core/utils/wall_clock.dart';
+
 class CommunityEvent {
   final String id;
   final String mosqueId;
@@ -108,8 +111,12 @@ class CommunityEvent {
     }
   }
 
+  /// قاعدة الموعد بلا تاريخ اليوم: «كل السبت، الاثنين • 6:00 م»، «مباشرة بعد صلاة العصر»،
+  /// «الأربعاء 2026/10/07 • 6:00 م». الجلسة القادمة نفسها من `LessonSchedule.sessionLabel`.
+  ///
+  /// الدرس المتكرر لا يُذكر معه تاريخ: كان يُعرض تاريخ أول جلسة («كل السبت • 2026/09/01
+  /// الساعة 18:00») ولو مضى عليها شهر.
   String get timingDescription {
-    String timingBase;
     if (timingType == 'prayer_linked' && prayerName != null) {
       final prayerAr = {
         'fajr': 'صلاة الفجر',
@@ -126,18 +133,22 @@ class CommunityEvent {
         'before': 'قبل أذان',
       }[prayerRelation] ?? 'بعد';
 
-      timingBase = '$relAr $prayerAr';
-    } else {
-      timingBase = '${eventDateTime.year}/${eventDateTime.month.toString().padLeft(2, '0')}/${eventDateTime.day.toString().padLeft(2, '0')} الساعة ${eventDateTime.hour.toString().padLeft(2, '0')}:${eventDateTime.minute.toString().padLeft(2, '0')}';
+      final base = '$relAr $prayerAr';
+      if (!isRecurring) return base;
+      // صلاة الجمعة يوم الجمعة وحده، أياً كانت الأيام المختارة
+      if (prayerName == 'jumua') return 'كل جمعة • $base';
+      return '$_recurrenceText • $base';
     }
 
-    if (isRecurring) {
-      if (recurringDays != null && recurringDays!.trim().isNotEmpty) {
-        return 'كل $recurringDays • $timingBase';
-      }
-      return 'درس متكرر • $timingBase';
-    }
-    return timingBase;
+    final clock = ArabicTime.clock(eventDateTime);
+    if (isRecurring) return '$_recurrenceText • $clock';
+    return '${ArabicTime.weekday(eventDateTime)} ${ArabicTime.date(eventDateTime)} • $clock';
+  }
+
+  String get _recurrenceText {
+    final days = ArabicTime.orderedDays(recurringDays);
+    if (days.isEmpty || days.length == ArabicTime.weekOrder.length) return 'يومياً';
+    return 'كل ${days.join('، ')}';
   }
 
   factory CommunityEvent.fromJson(Map<String, dynamic> json) {
@@ -154,9 +165,7 @@ class CommunityEvent {
       targetAudience: json['target_audience'] ?? json['targetAudience'] ?? 'general',
       latitude: (json['latitude'] as num?)?.toDouble() ?? 33.5138,
       longitude: (json['longitude'] as num?)?.toDouble() ?? 36.2765,
-      eventDateTime: json['event_datetime'] != null
-          ? DateTime.parse(json['event_datetime'])
-          : DateTime.now(),
+      eventDateTime: parseWallClock(json['event_datetime']),
       durationMinutes: json['duration_minutes'] ?? json['durationMinutes'] ?? 60,
       organizerType: json['organizer_type'] ?? json['organizerType'] ?? 'sheikh',
       organizerName: json['organizer_name'] ?? json['organizerName'] ?? '',
@@ -192,7 +201,7 @@ class CommunityEvent {
     'target_audience': targetAudience,
     'latitude': latitude,
     'longitude': longitude,
-    'event_datetime': eventDateTime.toIso8601String(),
+    'event_datetime': wallClockJson(eventDateTime),
     'duration_minutes': durationMinutes,
     'organizer_type': organizerType,
     'organizer_name': organizerName,

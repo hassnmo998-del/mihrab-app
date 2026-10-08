@@ -625,6 +625,9 @@ class DataService extends ChangeNotifier {
           break;
       }
 
+      if (table == 'students' || table == 'points_logs') {
+        _localDataSource.recomputePointBalances();
+      }
       await _localDataSource.saveToStorage();
       notifyListeners();
     } catch (e) {
@@ -709,6 +712,8 @@ class DataService extends ChangeNotifier {
         }
         return;
       }
+      // تعديل محلي لهذا السجل ما زال ينتظر الرفع: هو الأحدث، وصدى نسخة أقدم لا يعيده
+      if (table != null && _syncQueueManager.isPendingUpsert(table, newId)) return;
       final existingIndex = list.indexWhere((item) => getId(item) == newId);
       if (existingIndex != -1) {
         list[existingIndex] = newItem;
@@ -724,6 +729,7 @@ class DataService extends ChangeNotifier {
         }
         return;
       }
+      if (table != null && _syncQueueManager.isPendingUpsert(table, updatedId)) return;
       final existingIndex = list.indexWhere((item) => getId(item) == updatedId);
       if (existingIndex != -1) {
         list[existingIndex] = updatedItem;
@@ -1056,6 +1062,11 @@ class DataService extends ChangeNotifier {
 
       await syncRegistrationTokens();
 
+      // الرصيد يُشتق من سجل النقاط بعد كل دمج: عدّاد الرصيد القادم مع سجل الطالب قد
+      // يكون كتبه جهاز بنسخة قديمة فوق حركات جهاز آخر
+      if (remotePoints != null) _localDataSource.markPointsLedgerComplete();
+      _localDataSource.recomputePointBalances();
+
       // التحقق من صلاحية الجلسات النشطة بعد تحديث البيانات
       _authSessionRepo.validateActiveSessions();
 
@@ -1285,6 +1296,7 @@ class DataService extends ChangeNotifier {
             getId: (p) => p.id,
             fromJson: (json) => PointsLog.fromJson(json),
           );
+          _localDataSource.markPointsLedgerComplete();
           break;
 
         case 'event_questions':
@@ -1298,6 +1310,9 @@ class DataService extends ChangeNotifier {
           break;
       }
 
+      if (table == 'students' || table == 'points_logs') {
+        _localDataSource.recomputePointBalances();
+      }
       _authSessionRepo.validateActiveSessions();
       await _localDataSource.saveToStorage();
       notifyListeners();
@@ -2503,10 +2518,56 @@ class DataService extends ChangeNotifier {
 
   /// ينهي جلسة الدرس ويعيد معرّف سجل الأرشيف الذي يُربط به تسجيلها: لقطة جديدة
   /// للدرس المتكرر، والدرس نفسه للدرس لمرة واحدة. null إن لم يُؤرشف شيء.
-  String? finalizeLiveSession(String eventId) {
+  ///
+  /// [part] > 1: جزء تالٍ من الجلسة نفسها (تجاوز الدرس حد الساعة فتابع الشيخ التسجيل).
+  /// له لقطة أرشيف مستقلة «— الجزء n»، ولا يُمسّ الدرس نفسه: الجزء الأول أرشفه وقدّم
+  /// موعد المتكرر، ورفع تسجيلين على سجل واحد كان سيكتب الثاني فوق الأول.
+  String? finalizeLiveSession(String eventId, {int part = 1}) {
     final ev = _localDataSource.communityEvents.where((e) => e.id == eventId).firstOrNull;
     if (ev == null) return null;
     if (!_archiveWriteAllowed(ev.mosqueId)) return null;
+
+    if (part > 1) {
+      final partSnapshot = CommunityEvent(
+        id: 'archived-${ev.id}-p$part-${DateTime.now().millisecondsSinceEpoch}',
+        mosqueId: ev.mosqueId,
+        title: '${ev.title} — الجزء $part',
+        description: ev.description,
+        eventType: ev.eventType,
+        customTypeName: ev.customTypeName,
+        timingType: 'custom_time',
+        eventDateTime: DateTime.now(),
+        organizerType: ev.organizerType,
+        organizerName: ev.organizerName,
+        targetAudience: ev.targetAudience,
+        latitude: ev.latitude,
+        longitude: ev.longitude,
+        durationMinutes: ev.durationMinutes,
+        eventStatus: 'archived',
+        isRecurring: false,
+        sheikhId: ev.sheikhId,
+        lessonFormat: ev.lessonFormat,
+        sheikhIds: ev.sheikhIds,
+      );
+      _localDataSource.communityEvents.insert(0, partSnapshot);
+      _syncQueueManager.queueSync(
+        table: 'community_events',
+        action: 'upsert',
+        data: partSnapshot.toJson(),
+        remoteDataSource: _remoteDataSource,
+      );
+      // بدء الجزء جعله «مباشر»: يعود إلى ما تركه الجزء الأول
+      ev.eventStatus = ev.isRecurring ? 'upcoming' : 'archived';
+      _syncQueueManager.queueSync(
+        table: 'community_events',
+        action: 'upsert',
+        data: ev.toJson(),
+        remoteDataSource: _remoteDataSource,
+      );
+      _localDataSource.saveToStorage();
+      notifyListeners();
+      return partSnapshot.id;
+    }
 
     var archiveId = ev.id;
     if (ev.isRecurring) {
@@ -2609,11 +2670,16 @@ class DataService extends ChangeNotifier {
   /// لقطة الأرشيف التابعة لهذا الدرس. المطابقة مقيَّدة بنفس المسجد حتى لا تُكتب
   /// تسجيلات درس على درس آخر (أو على فرع آخر) عند تشابه المعرّفات.
   CommunityEvent? _archivedSnapshotFor(String eventId, CommunityEvent? owner) {
+    bool archivedHere(CommunityEvent e) =>
+        e.eventStatus == 'archived' && (owner == null || e.mosqueId == owner.mosqueId);
+    // السجل نفسه أولاً: للدرس لمرة واحدة الجزء الأول هو الدرس، و«الجزء 2» لقطة اسمها
+    // يحوي معرّفه؛ المطابقة الجزئية وحدها كانت تضع تسجيل الجزء الأول على الجزء الثاني.
+    final exact = _localDataSource.communityEvents.where((e) => e.id == eventId && archivedHere(e)).firstOrNull;
+    if (exact != null) return exact;
+    // طلبات رفع قديمة موجّهة إلى الدرس المتكرر نفسه: لقطة جلسته، لا جزءاً تالياً منها
+    final part = RegExp('^archived-${RegExp.escape(eventId)}' r'-p\d+-');
     return _localDataSource.communityEvents
-        .where((e) =>
-            e.eventStatus == 'archived' &&
-            (e.id == eventId || e.id.contains('archived-$eventId-')) &&
-            (owner == null || e.mosqueId == owner.mosqueId))
+        .where((e) => archivedHere(e) && e.id.contains('archived-$eventId-') && !part.hasMatch(e.id))
         .firstOrNull;
   }
 
@@ -3327,6 +3393,43 @@ class DataService extends ChangeNotifier {
     }
   }
 
+
+  /// أرقام الأجهزة التي عليها التطبيق (`InstallPresence`). الخادم يعيدها للمشرف العام
+  /// وحده، بجلسته في Supabase Auth لا بالجلسة المحلية.
+  Future<InstallStats> fetchInstallStats() async {
+    final client = _remoteDataSource.client;
+    if (client == null) throw const InstallStatsException(InstallStatsError.unavailable);
+    await _remoteDataSource.waitForSessionRestore(timeout: const Duration(seconds: 4));
+    if (client.auth.currentSession == null) {
+      throw const InstallStatsException(InstallStatsError.notSignedIn);
+    }
+
+    Future<InstallStats> call() async {
+      final raw = await client.rpc('app_install_stats').timeout(const Duration(seconds: 20));
+      return InstallStats.fromJson(Map<String, dynamic>.from(raw as Map));
+    }
+
+    try {
+      try {
+        return await call();
+      } on PostgrestException catch (e) {
+        // رمز انتهت مدته والجهاز كان بلا إنترنت حين حان تجديده: يُجدَّد ويُعاد الطلب مرة
+        if (e.code != 'PGRST301' && !e.message.contains('JWT expired')) rethrow;
+        await client.auth.refreshSession();
+        return await call();
+      }
+    } on PostgrestException catch (e) {
+      if (e.code == '42501') throw const InstallStatsException(InstallStatsError.notAuthorized);
+      if (e.code == 'PGRST301') throw const InstallStatsException(InstallStatsError.notSignedIn);
+      throw const InstallStatsException(InstallStatsError.unavailable);
+    } on AuthException {
+      throw const InstallStatsException(InstallStatsError.notSignedIn);
+    } on InstallStatsException {
+      rethrow;
+    } catch (_) {
+      throw const InstallStatsException(InstallStatsError.unavailable);
+    }
+  }
 
   // ---- أكواد تسجيل المساجد: مخزّنة سحابياً ليراها كل أجهزة المشرف العام ----
   static const String _tokensTable = 'registration_tokens';

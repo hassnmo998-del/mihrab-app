@@ -1,5 +1,6 @@
 // ignore_for_file: avoid_print
 
+import 'update/update_progress_notification.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -42,8 +43,9 @@ enum SilentUpdateState {
 
 /// التحديث داخل التطبيق: الفحص، التنزيل، التثبيت.
 ///
-/// من لحظة ضغط «تحديث» يصير التحديث مهمة محفوظة على القرص ([UpdateSession])
-/// لا تنتهي إلا بتثبيت الإصدار:
+/// حين يُعرف إصدار أحدث يبدأ تنزيله وحده بلا نافذة ([checkAndDownload])، ويصير مهمة
+/// محفوظة على القرص ([UpdateSession]) لا تنتهي إلا بتثبيت الإصدار. النافذة للتثبيت فقط:
+/// تظهر حين يكتمل الملف.
 ///  - انقطاع الشبكة ليس فشلاً: يبقى التنزيل "قيد التنفيذ" وينتظر، ويكمل من آخر
 ///    بايت حين يعود الاتصال.
 ///  - إغلاق التطبيق أو إعادة تشغيل الجهاز لا يلغيها: [resumePendingUpdate]
@@ -236,9 +238,10 @@ class AppUpdateService extends ChangeNotifier {
 
   Future<UpdateInfo?>? _inFlightCheck;
 
-  /// يتحقق من وجود تحديث، وإذا وُجد يظهر نافذة التحديث فوراً في السياق الحالي
+  /// فحص طلبه المستخدم (زر في الإعدادات): التنزيل يبدأ كالعادة، والنافذة تُفتح
+  /// فوراً ليرى تقدّمه.
   Future<UpdateInfo?> checkAndPromptUpdate({BuildContext? context}) async {
-    final info = await checkForUpdate();
+    final info = await checkAndDownload();
     if (info != null && isNewerVersion(info.version, currentVersion)) {
       final targetContext = context ?? appNavigatorKey.currentContext;
       if (targetContext != null && targetContext.mounted) {
@@ -249,7 +252,20 @@ class AppUpdateService extends ChangeNotifier {
     return null;
   }
 
-  Future<UpdateInfo?> checkForUpdate({bool ignoreDismissed = true}) async {
+  /// ما يجري عند فتح التطبيق والعودة إليه وكل بضع ساعات: إن صدر إصدار أحدث يبدأ تنزيله
+  /// وحده، بلا نافذة ولا سؤال، على أي اتصال. النافذة تظهر حين يجهز للتثبيت
+  /// ([onReadyToInstall])، وتقدّمه في الإعدادات وشريط الإشعارات.
+  Future<UpdateInfo?> checkAndDownload() async {
+    final info = await checkForUpdate(announce: false);
+    if (info != null && state == SilentUpdateState.updateAvailable) {
+      await startDownload(info);
+    }
+    return info;
+  }
+
+  /// فحص فقط: يعرف إن كان هناك إصدار أحدث ولا ينزّل شيئاً. [announce] يظهر إشعار
+  /// «يتوفر تحديث»؛ [checkAndDownload] يطفئه لأن شريط التنزيل يظهر مكانه.
+  Future<UpdateInfo?> checkForUpdate({bool announce = true}) async {
     // نسخة الويب (الآيفون) تتحدث وحدها مع كل فتح: لا ملف تحديث ولا مثبّت
     if (kIsWeb) return null;
     if (_packageVersion.isEmpty) await init();
@@ -259,7 +275,7 @@ class AppUpdateService extends ChangeNotifier {
       return await _inFlightCheck;
     }
 
-    final future = _performCheckForUpdate();
+    final future = _performCheckForUpdate(announce: announce);
     _inFlightCheck = future;
     try {
       return await future;
@@ -268,7 +284,7 @@ class AppUpdateService extends ChangeNotifier {
     }
   }
 
-  Future<UpdateInfo?> _performCheckForUpdate() async {
+  Future<UpdateInfo?> _performCheckForUpdate({required bool announce}) async {
     // متابعة تحديث سابق تسبق أي فحص: به نعرف إن كان هناك تنزيل قائم
     if (_resumeFuture != null) await _resumeFuture;
 
@@ -317,7 +333,7 @@ class AppUpdateService extends ChangeNotifier {
     }
 
     _setState(SilentUpdateState.updateAvailable, msg: 'يتوفر إصدار جديد: v${info.version}');
-    if (_notifiedAvailableVersion != info.version) {
+    if (announce && _notifiedAvailableVersion != info.version) {
       _notifiedAvailableVersion = info.version;
       AppNotificationService.instance.showUpdateAvailableNotification(info);
     }
@@ -363,6 +379,8 @@ class AppUpdateService extends ChangeNotifier {
     if (_sessionRunning) return;
     _sessionRunning = true;
     _stopRequested = false;
+    // شريط التقدّم في الإشعارات يُرسل بإضافة الإشعارات المهيّأة في الواجهة
+    UpdateProgressNotification.poster ??= AppNotificationService.instance.postUpdateProgress;
     _setState(SilentUpdateState.downloading, msg: 'جارٍ تنزيل التحديث...');
     unawaited(_runSession());
   }
@@ -394,6 +412,8 @@ class AppUpdateService extends ChangeNotifier {
       if (kDebugMode) print('[AppUpdateService] session: $e');
     } finally {
       _sessionRunning = false;
+      // اكتمل أو توقف: الشريط يختفي (إشعار «جاهز للتثبيت» يظهر وحده عند الاكتمال)
+      unawaited(UpdateProgressNotification.clear());
     }
   }
 
@@ -416,6 +436,8 @@ class AppUpdateService extends ChangeNotifier {
     if (state != SilentUpdateState.readyToInstall && state != SilentUpdateState.installing) {
       state = SilentUpdateState.downloading;
     }
+    // التقدّم نفسه في شريط الإشعارات: يُرى دون فتح التطبيق والإعدادات
+    unawaited(UpdateProgressNotification.show(status));
 
     // النبضة كل ثانية تقريباً؛ الواجهة لا تحتاج أكثر، وتغيّر الطور يُبلَّغ فوراً
     final now = DateTime.now();
@@ -490,16 +512,17 @@ class AppUpdateService extends ChangeNotifier {
   // 5. المساعدات
   // ══════════════════════════════════════════════
 
-  /// فحص دوري والتطبيق مفتوح. إن وُجد إصدار جديد لم يُضغط عليه بعد يُستدعى
-  /// [onUpdateFound] (لعرض النافذة)؛ لا يُنزَّل شيء بلا طلب المستخدم.
+  /// فحص دوري والتطبيق مفتوح (شاشة مسجد تبقى مفتوحة أياماً): إصدار جديد يبدأ تنزيله
+  /// وحده ([checkAndDownload]). [onReadyFound] لتحديث كان جاهزاً للتثبيت من قبل؛ ما
+  /// يكتمل الآن تظهر نافذته من [onReadyToInstall].
   void startPeriodicSilentCheck({
     Duration interval = const Duration(hours: 12),
-    void Function(UpdateInfo)? onUpdateFound,
+    void Function(UpdateInfo)? onReadyFound,
   }) {
     _periodicTimer?.cancel();
     _periodicTimer = Timer.periodic(interval, (_) async {
-      final info = await checkForUpdate();
-      if (info != null && !_sessionRunning) onUpdateFound?.call(info);
+      final info = await checkAndDownload();
+      if (info != null && state == SilentUpdateState.readyToInstall) onReadyFound?.call(info);
     });
   }
 

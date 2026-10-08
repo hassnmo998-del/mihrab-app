@@ -1,3 +1,4 @@
+import '../../services/points_ledger.dart';
 import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/competitions_repository.dart';
 import '../../models/models.dart';
@@ -159,6 +160,14 @@ class CompetitionsRepositoryImpl implements CompetitionsRepository {
 
     final results = <Map<String, dynamic>>[];
 
+    // الترتيب بما اكتسبه الطالب (كل الحركات ما عدا صرف الجوائز)، في الفترة أو منذ
+    // البداية: من يستبدل نقاطه بجائزة لا ينزل ترتيبه. كان الترتيب العام يقرأ الرصيد
+    // المتبقي، وترتيب الفترة يطرح الجوائز المصروفة فيها.
+    final hasPeriod = startDate != null || endDate != null;
+    final earned = isCourseRank
+        ? const <String, int>{}
+        : PointsLedger.earned(_localDataSource.pointsLogs, from: startDate, to: endDate);
+
     for (var student in candidateStudents) {
       final mosque = _localDataSource.mosques.firstWhere(
         (m) => m.id == student.mosqueId,
@@ -192,17 +201,14 @@ class CompetitionsRepositoryImpl implements CompetitionsRepository {
                 s.countsTowardsStatistics)
             .fold<int>(0, (sum, s) => sum + s.pointsEarned);
         score = quranPts + subjectPts;
-      } else if (startDate != null || endDate != null) {
-        // حساب النقاط بناءً على فترة زمنية محددة
-        score = _localDataSource.pointsLogs.where((log) {
-          if (log.studentId != student.id) return false;
-          bool afterStart = startDate == null || log.createdAt.isAfter(startDate) || log.createdAt.isAtSameMomentAs(startDate);
-          bool beforeEnd = endDate == null || log.createdAt.isBefore(endDate) || log.createdAt.isAtSameMomentAs(endDate);
-          return afterStart && beforeEnd;
-        }).fold<int>(0, (sum, log) => sum + log.points);
+      } else if (hasPeriod) {
+        // النقاط المكتسبة في الفترة المحددة
+        score = earned[student.id] ?? 0;
       } else {
-        // الترتيب العام الشامل (الكل)
-        score = student.totalPoints;
+        // الترتيب العام: كل ما اكتسبه. جهاز جديد لم تصله الحركات بعد يعرض الرصيد
+        // مؤقتاً بدل صفر.
+        score = earned[student.id] ??
+            (_localDataSource.pointsLedgerComplete ? 0 : student.totalPoints);
       }
 
       results.add({
@@ -213,8 +219,12 @@ class CompetitionsRepositoryImpl implements CompetitionsRepository {
       });
     }
 
-    // Sort descending
-    results.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+    // Sort descending؛ المتساوون بترتيب الاسم كي لا يتبدل ترتيبهم بين عرض وآخر
+    results.sort((a, b) {
+      final byScore = (b['score'] as int).compareTo(a['score'] as int);
+      if (byScore != 0) return byScore;
+      return (a['student'] as Student).fullName.compareTo((b['student'] as Student).fullName);
+    });
 
     for (int i = 0; i < results.length; i++) {
       results[i]['rank'] = i + 1;

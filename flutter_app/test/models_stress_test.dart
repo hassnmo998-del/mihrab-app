@@ -310,7 +310,8 @@ void main() {
         timingType: 'custom_time',
       );
       expect(custom.displayCategory, equals('ندوة فكرية 💡'));
-      expect(custom.timingDescription.contains('2026/10/01 الساعة 19:00'), isTrue);
+      // متكرر بلا أيام محددة: كل يوم، ولا يُذكر تاريخ أول جلسة
+      expect(custom.timingDescription, equals('يومياً • 7:00 م'));
     });
 
     test('Halaqa schedule and sheikh assignment checks', () {

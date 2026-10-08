@@ -2,6 +2,7 @@ package com.masjed.mihrab
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -95,6 +96,10 @@ class MainActivity : AudioServiceActivity() {
                 "silenceNativeAdhan" -> {
                     AdhanAlarmReceiver.stopAdhan(this)
                     result.success(true)
+                }
+                // معرّف ثابت لهذا الجهاز ولتطبيقنا، لعدّ الأجهزة: التطبيق يرسل بصمته لا قيمته
+                "getDeviceKey" -> {
+                    result.success(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID))
                 }
                 // تسجيل درس جارٍ: الشاشة تبقى مضاءة، فأندرويد يُسكت الميكروفون حين تُطفأ
                 "setKeepScreenOn" -> {

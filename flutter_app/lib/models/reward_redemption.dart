@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class RewardRedemption {
   final String id;
   final String studentId;
@@ -43,8 +45,8 @@ class RewardRedemption {
     pointsSpent: json['points_spent'] ?? json['pointsSpent'] ?? 0,
     redemptionCode: json['redemption_code'] ?? json['redemptionCode'] ?? '',
     status: json['status'] ?? 'pending',
-    redeemedAt: json['redeemed_at'] != null ? DateTime.parse(json['redeemed_at']) : DateTime.now(),
-    dispensedAt: json['dispensed_at'] != null ? DateTime.parse(json['dispensed_at']) : null,
+    redeemedAt: parseWallClock(json['redeemed_at']),
+    dispensedAt: tryParseWallClock(json['dispensed_at']),
     cashierName: json['cashier_name'] ?? json['cashierName'],
   );
 

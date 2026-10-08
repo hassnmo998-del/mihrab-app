@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/utils/access_code_generator.dart';
 import '../../models/models.dart';
+import '../../services/points_ledger.dart';
 
 /// Dedicated local data source handling instant in-memory cache and
 /// synchronous SharedPreferences serialization across all 17 entity lists,
@@ -48,6 +49,40 @@ class LocalStorageDataSource {
   final Set<String> deletedEntityIds = {};
 
   static String genId(String prefix) => AccessCodeGenerator.entityId(prefix);
+
+  /// سجل النقاط على هذا الجهاز مكتمل: جُلب كاملاً من السحابة مرة على الأقل. قبلها
+  /// (جهاز جديد لم يُكمل أول مزامنة) يُعرض عدّاد الرصيد كما ورد، كي لا يظهر الرصيد
+  /// صفراً لأن الحركات لم تصل بعد.
+  bool pointsLedgerComplete = false;
+
+  static const String _ledgerCompleteKey = 'points_ledger_complete';
+
+  /// يُستدعى حين ينجح جلب جدول الحركات كاملاً.
+  void markPointsLedgerComplete() {
+    if (pointsLedgerComplete) return;
+    pointsLedgerComplete = true;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setBool(_ledgerCompleteKey, true))
+        .catchError((_) => false);
+  }
+
+  /// يشتق رصيد كل طالب من سجل النقاط، ويعيد true إن تغيّر رصيد.
+  ///
+  /// السجل هو مصدر الحقيقة (انظر [PointsLedger]): عدّاد الرصيد القادم مع سجل الطالب
+  /// من السحابة قد يكون كتبه جهاز بنسخة قديمة.
+  bool recomputePointBalances() {
+    if (!pointsLedgerComplete) return false;
+    final sums = PointsLedger.balances(pointsLogs);
+    var changed = false;
+    for (final student in students) {
+      final balance = sums[student.id] ?? 0;
+      if (student.totalPoints != balance) {
+        student.totalPoints = balance;
+        changed = true;
+      }
+    }
+    return changed;
+  }
 
   /// آخر ما كُتب تحت كل مفتاح: مفتاح لم يتغير لا يُعاد حفظه.
   ///
@@ -129,6 +164,7 @@ class LocalStorageDataSource {
       appMode = prefs.getString('app_mode') ?? 'personal';
       hasCompletedOnboarding = prefs.getBool('has_completed_onboarding') ?? false;
       isSuperAdminAuthenticated = prefs.getBool('super_admin_authenticated') ?? false;
+      pointsLedgerComplete = prefs.getBool(_ledgerCompleteKey) ?? false;
     });
 
     // Load Sessions
@@ -193,6 +229,8 @@ class LocalStorageDataSource {
           ..addAll(delList);
       }
     });
+
+    recomputePointBalances();
   }
 
   /// Persists theme mode to SharedPreferences

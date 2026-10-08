@@ -24,6 +24,23 @@ enum QuranStopAfter {
   never, // لا تتوقف
 }
 
+/// ما يفعله المشغّل حين تنتهي آية.
+enum QuranAfterAyah {
+  /// تُعاد الآية نفسها (لم تُتمّ تكرارها).
+  repeatAyah,
+
+  /// الآية التالية في الصفحة الجارية.
+  nextInQueue,
+
+  /// أول آية في الصفحة التالية من النطاق.
+  nextPage,
+
+  /// انتهى النطاق والتلاوة لا تتوقف: يبدأ من أوله.
+  restartRange,
+
+  stop,
+}
+
 /// Metadata for one ayah in the playback queue.
 class QuranAyahAudioTag {
   final int surahNumber;
@@ -47,7 +64,10 @@ class QuranAyahAudioTag {
 /// single ayah), so the active ayah is always the one we asked for — no reliance on
 /// platform playlist/index reporting, which is unreliable on Windows.
 /// - Tapping an ayah starts it immediately, exactly like pressing play.
-/// - Repeat scope (ayah / page / juz / whole Quran) × repeat count (1..10, ∞).
+/// - ثلاثة إعدادات مستقلة، لكلٍّ معنى واحد (انظر [afterAyah]):
+///   **النطاق** ما يُتلى (هذه الآية / الصفحة / الجزء / القرآن)،
+///   **تكرار كل آية** كم مرة تُعاد كل آية قبل الانتقال (1..10، بلا نهاية)،
+///   **الإيقاف التلقائي** أين تقف التلاوة داخل النطاق (بعد الآية / السورة / الجزء / لا تتوقف).
 /// - Playback speed cycling (0.75x - 1.5x).
 class QuranAudioService implements BackgroundAudioSource {
   QuranAudioService._() {
@@ -114,7 +134,7 @@ class QuranAudioService implements BackgroundAudioSource {
   final ValueNotifier<bool> isPlayingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isBufferingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<double> speedNotifier = ValueNotifier<double>(1.0);
-  final ValueNotifier<int> repeatCountNotifier = ValueNotifier<int>(-1); // -1 = continuous without stop ('بلا توقف')
+  final ValueNotifier<int> repeatCountNotifier = ValueNotifier<int>(1); // Default: 1 (each ayah plays once)
   final ValueNotifier<QuranStopAfter> stopAfterNotifier =
       ValueNotifier<QuranStopAfter>(QuranStopAfter.never);
   final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(Duration.zero);
@@ -132,8 +152,17 @@ class QuranAudioService implements BackgroundAudioSource {
   bool _sourceReady = false;
   String? _loadedUrl;
 
-  /// عدد الدورات المكتملة للنطاق الحالي.
-  int _passesDone = 0;
+  /// عدد مرات تشغيل الآية الحالية المكتملة (لتكرار كل آية).
+  int _ayahPassesDone = 0;
+
+  /// للاختبار: يستبدل تحميل المصدر وتشغيله (المشغّل، الجلسة الخلفية، التنزيل المسبق)
+  /// ليُختبر تسلسل الآيات كله بلا منصة.
+  @visibleForTesting
+  Future<void> Function(QuranAyahAudioTag tag)? debugPlay;
+
+  /// للاختبار: كأن المشغّل أنهى الآية الجارية.
+  @visibleForTesting
+  void debugCompleteCurrent() => _onTrackComplete();
 
   /// حدود الصفحات للنطاقات المبنية على الصفحات (صفحة / جزء / القرآن).
   int _rangeStartPage = 1;
@@ -157,11 +186,6 @@ class QuranAudioService implements BackgroundAudioSource {
   }
 
   void _logStreamError(Object e) => debugPrint('⚠️ QuranAudioService stream error: $e');
-
-  bool get _hasMorePasses {
-    final target = repeatCountNotifier.value;
-    return target == -1 || _passesDone < target;
-  }
 
   // =========================================================================
   // Options
@@ -218,18 +242,43 @@ class QuranAudioService implements BackgroundAudioSource {
     );
   }
 
-  /// Stops (and returns true) instead of moving on to [next] when that would pass the
-  /// "stop after" point. Only automatic transitions check this; skip buttons don't.
-  bool _stopsBefore(QuranAyahAudioTag finished, QuranAyahAudioTag? next) {
-    if (next == null || !crossesStopBoundary(stopAfterNotifier.value, finished, next)) return false;
-    stop();
-    return true;
-  }
-
-  /// Set repeat count (1, 2, 3, 5, 7, 10, -1 for infinite).
+  /// كم مرة تُعاد كل آية قبل الانتقال إلى التالية (1, 2, 3, 5, 7, 10، و-1 بلا نهاية).
   void setRepeatCount(int count) {
     repeatCountNotifier.value = count;
-    _passesDone = 0;
+    _ayahPassesDone = 0;
+  }
+
+  /// قرار ما بعد انتهاء آية، بلا أي حالة داخلية كي يُختبر بكل التركيبات.
+  ///
+  /// 1. **تكرار كل آية**: تُعاد الآية حتى تُتمّ [repeatCount] مرة ([playsDone] يشمل
+  ///    المرة التي انتهت الآن)؛ و-1 يعيدها بلا نهاية حتى يتخطاها المستمع أو يوقفها.
+  /// 2. **نطاق «هذه الآية»**: تُتلى بعدد تكرارها ثم تقف، فلا شيء بعدها يُتلى. (لتكرار
+  ///    كل آية ثم متابعة ما بعدها يُختار نطاق أوسع.)
+  /// 3. **الانتقال**: إلى الآية التالية في النطاق، إلا إذا خرج بها عن حدّ الإيقاف
+  ///    التلقائي (الآية / السورة / الجزء) فتقف.
+  /// 4. **نهاية النطاق**: مع «لا تتوقف» يبدأ النطاق من أوله، ومع أي حدّ إيقاف تقف.
+  ///
+  /// عدد التكرار لا يُعيد النطاق: كان يُستعمل للأمرين معاً فتُتلى الصفحة ثلاث مرات
+  /// وكل آية فيها ثلاثاً.
+  @visibleForTesting
+  static QuranAfterAyah afterAyah({
+    required QuranRepeatScope scope,
+    required QuranStopAfter stopAfter,
+    required int repeatCount,
+    required int playsDone,
+    required QuranAyahAudioTag finished,
+    QuranAyahAudioTag? nextInQueue,
+    QuranAyahAudioTag? firstOfNextPage,
+  }) {
+    if (repeatCount == -1 || playsDone < repeatCount) return QuranAfterAyah.repeatAyah;
+    if (scope == QuranRepeatScope.ayah) return QuranAfterAyah.stop;
+
+    final next = nextInQueue ?? firstOfNextPage;
+    if (next != null) {
+      if (crossesStopBoundary(stopAfter, finished, next)) return QuranAfterAyah.stop;
+      return nextInQueue != null ? QuranAfterAyah.nextInQueue : QuranAfterAyah.nextPage;
+    }
+    return stopAfter == QuranStopAfter.never ? QuranAfterAyah.restartRange : QuranAfterAyah.stop;
   }
 
   /// Set playback speed (0.75x, 1.0x, 1.25x, 1.5x).
@@ -261,7 +310,7 @@ class QuranAudioService implements BackgroundAudioSource {
     bool autoPlay = true,
   }) async {
     final page = pageNumber ?? QuranService.getPageForAyah(surahNumber, ayahNumber) ?? 1;
-    _passesDone = 0;
+    _ayahPassesDone = 0;
 
     switch (scopeNotifier.value) {
       case QuranRepeatScope.ayah:
@@ -340,6 +389,7 @@ class QuranAudioService implements BackgroundAudioSource {
     _queue = tags;
     _index = startIndex;
     _sourceReady = false;
+    _ayahPassesDone = 0;
     _publish(tags[startIndex]);
   }
 
@@ -355,6 +405,18 @@ class QuranAudioService implements BackgroundAudioSource {
     final tag = _queue[_index];
     final reciter = reciterNotifier.value;
     final url = reciter.getAyahAudioUrl(tag.surahNumber, tag.ayahNumber);
+
+    final fake = debugPlay;
+    if (fake != null) {
+      _publish(tag);
+      isPlayingNotifier.value = true;
+      _sourceReady = false;
+      await fake(tag);
+      if (gen != _generation) return;
+      _loadedUrl = url;
+      _sourceReady = true;
+      return;
+    }
 
     unawaited(BackgroundAudio.claim(this));
     _publish(tag);
@@ -417,45 +479,51 @@ class QuranAudioService implements BackgroundAudioSource {
     QuranAudioCache.instance.prefetch(reciter, ahead);
   }
 
-  /// Called when the current ayah finishes: next ayah, next page, next pass, or stop.
+  /// Called when the current ayah finishes: repeat ayah, next ayah, next page, next pass, or stop.
   void _onTrackComplete() {
     if (!_sourceReady || !isPlayingNotifier.value) return; // stale or mid-load event
     _sourceReady = false;
     _loadedUrl = null; // the player releases the source on completion
     final finished = _queue[_index];
 
-    if (_index + 1 < _queue.length) {
-      if (_stopsBefore(finished, _queue[_index + 1])) return;
-      _index++;
-      _playCurrent();
-      return;
-    }
-
-    if (scopeNotifier.value == QuranRepeatScope.ayah) {
-      _passesDone++;
-      if (_hasMorePasses) {
-        _playCurrent();
-      } else {
-        stop();
-      }
-      return;
-    }
-
-    // Page-based scopes: advance through the range, then loop it.
+    _ayahPassesDone++;
+    final hasNextInQueue = _index + 1 < _queue.length;
     final currentPage = finished.pageNumber;
-    if (currentPage < _rangeEndPage) {
-      if (_stopsBefore(finished, _firstTagOfPage(currentPage + 1))) return;
-      _loadPage(currentPage + 1);
-      return;
-    }
-    _passesDone++;
-    if (_hasMorePasses) {
-      if (_stopsBefore(finished, _firstTagOfPage(_rangeStartPage))) return;
-      _loadPage(_rangeStartPage);
-    } else {
-      stop();
+    final step = afterAyah(
+      scope: scopeNotifier.value,
+      stopAfter: stopAfterNotifier.value,
+      repeatCount: repeatCountNotifier.value,
+      playsDone: _ayahPassesDone,
+      finished: finished,
+      nextInQueue: hasNextInQueue ? _queue[_index + 1] : null,
+      firstOfNextPage:
+          !hasNextInQueue && currentPage < _rangeEndPage ? _firstTagOfPage(currentPage + 1) : null,
+    );
+
+    switch (step) {
+      case QuranAfterAyah.repeatAyah:
+        _playCurrent();
+      case QuranAfterAyah.nextInQueue:
+        _ayahPassesDone = 0;
+        _index++;
+        _playCurrent();
+      case QuranAfterAyah.nextPage:
+        _loadPage(currentPage + 1);
+      case QuranAfterAyah.restartRange:
+        _loadPage(_rangeStartPage);
+      case QuranAfterAyah.stop:
+        stop();
     }
   }
+
+  @visibleForTesting
+  int get ayahPassesDone => _ayahPassesDone;
+
+  @visibleForTesting
+  int get queueIndex => _index;
+
+  @visibleForTesting
+  List<QuranAyahAudioTag> get queue => _queue;
 
   // =========================================================================
   // Playback Controls
@@ -473,6 +541,10 @@ class QuranAudioService implements BackgroundAudioSource {
     BackgroundAudio.onUserPlaybackAction();
     if (activeTagNotifier.value == null || _queue.isEmpty) return;
     if (!_sourceReady) return _playCurrent(); // not loaded yet, released, or failed
+    if (debugPlay != null) {
+      isPlayingNotifier.value = true;
+      return;
+    }
     unawaited(BackgroundAudio.claim(this));
     isPlayingNotifier.value = true;
     try {
@@ -499,7 +571,7 @@ class QuranAudioService implements BackgroundAudioSource {
     BackgroundAudio.onUserPlaybackAction();
     _generation++;
     _bufferingTimer?.cancel();
-    _passesDone = 0;
+    _ayahPassesDone = 0;
     _sourceReady = false;
     _loadedUrl = null;
     _queue = [];
@@ -520,6 +592,7 @@ class QuranAudioService implements BackgroundAudioSource {
   /// Next ayah within the queue, otherwise re-anchors the scope on the next ayah.
   Future<void> skipNext() async {
     if (_queue.isEmpty) return;
+    _ayahPassesDone = 0;
     if (_index + 1 < _queue.length) {
       _index++;
       return _playCurrent();
@@ -536,6 +609,7 @@ class QuranAudioService implements BackgroundAudioSource {
   /// Previous ayah within the queue, otherwise re-anchors the scope on the previous ayah.
   Future<void> skipPrevious() async {
     if (_queue.isEmpty) return;
+    _ayahPassesDone = 0;
     if (_index > 0) {
       _index--;
       return _playCurrent();

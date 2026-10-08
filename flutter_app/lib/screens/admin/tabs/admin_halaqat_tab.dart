@@ -1,4 +1,4 @@
-import 'dart:io';
+import '../../../core/utils/profile_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -28,15 +28,7 @@ class AdminHalaqatTab extends StatefulWidget {
 
 class _AdminHalaqatTabState extends State<AdminHalaqatTab> {
   Widget _buildSheikhAvatar(Sheikh s, {double radius = 13}) {
-    ImageProvider? provider;
-    final url = s.profileImageUrl?.trim();
-    if (url != null && url.isNotEmpty) {
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        provider = NetworkImage(url);
-      } else {
-        provider = FileImage(File(url));
-      }
-    }
+    final provider = ProfileImage.provider(s.profileImageUrl, radius: radius);
     final firstLetter = s.fullName.trim().isNotEmpty
         ? s.fullName.trim().substring(0, 1)
         : 'ش';
@@ -44,17 +36,16 @@ class _AdminHalaqatTabState extends State<AdminHalaqatTab> {
     return CircleAvatar(
       radius: radius,
       backgroundColor: AppColors.terracottaPrimary.withValues(alpha: 0.15),
-      backgroundImage: provider,
-      child: provider == null
-          ? Text(
+      foregroundImage: provider,
+      onForegroundImageError: provider == null ? null : (_, __) {},
+      child: Text(
         firstLetter,
         style: TextStyle(
           fontSize: radius * 0.9,
           fontWeight: FontWeight.bold,
           color: AppColors.terracottaPrimary,
         ),
-      )
-          : null,
+      ),
     );
   }
 

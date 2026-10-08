@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class MemorizationRecord {
   final String id;
   final String studentId;
@@ -49,7 +51,7 @@ class MemorizationRecord {
       pointsEarned: json['points_earned'] ?? json['pointsEarned'] ?? 0,
       notes: json['notes'],
       countsTowardsStatistics: json['counts_towards_statistics'] ?? json['countsTowardsStatistics'] ?? true,
-      recordedAt: json['recorded_at'] != null ? DateTime.parse(json['recorded_at']) : DateTime.now(),
+      recordedAt: parseWallClock(json['recorded_at']),
     );
   }
 

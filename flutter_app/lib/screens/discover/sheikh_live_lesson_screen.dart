@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +15,10 @@ import '../../../services/telegram_media_resolver.dart';
 import '../../../services/windows_audio_compressor.dart';
 
 class SheikhLiveLessonScreen extends StatefulWidget {
+  /// أطول جزء تسجيل قبل أن يُحفظ وحده ويُسأل الشيخ أيتابع. حدّه [MediaLimits.maxRecording]
+  /// (ساعة: ملف تقبله أرشفة تيليجرام)؛ يُقصَّر فقط لتجربة المسار كاملاً على جهاز حقيقي.
+  static Duration partLimit = MediaLimits.maxRecording;
+
   final CommunityEvent event;
 
   const SheikhLiveLessonScreen({
@@ -40,6 +45,15 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
   String _busyMessage = 'جاري أرشفة الدرس الصوتي في السحابة...';
   bool _showUnansweredOnly = false;
   bool _limitWarningShown = false;
+
+  /// رقم الجزء الجاري: الجزء الواحد ساعة على الأكثر ([MediaLimits.maxRecording])، فإن
+  /// طال الدرس تابع الشيخ في جزء ثانٍ يُحفظ في المكتبة مستقلاً.
+  int _part = 1;
+
+  /// إنهاء جارٍ (يدوي أو عند الحد): يمنع إنهاءً ثانياً من نبضة المؤقت التالية.
+  bool _finishing = false;
+
+  int get _maxMinutes => SheikhLiveLessonScreen.partLimit.inMinutes;
   late DataService _dataService;
 
   /// الويندوز يسجّل WAV ثم يُضغط، لأن مرمّز AAC فيه لا ينزل تحت 96kbps.
@@ -86,7 +100,11 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     unawaited(AppNotificationService.instance.setKeepScreenOn(false));
 
     if (widget.event.eventStatus == 'live') {
-      _dataService.changeEventStatus(widget.event.id, 'upcoming');
+      // جزء ثانٍ تُرك: الجزء الأول أرشف درس المرة الواحدة، فيبقى مؤرشفاً
+      _dataService.changeEventStatus(
+        widget.event.id,
+        _part > 1 && !widget.event.isRecurring ? 'archived' : 'upcoming',
+      );
     }
 
     super.dispose();
@@ -102,22 +120,21 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     _pulseController.repeat(reverse: true);
   }
 
-  /// تنبيه قبل 5 دقائق من الحد، ثم إنهاء وأرشفة تلقائية عند بلوغه.
+  /// قبل 5 دقائق من الحد: شريط ظاهر في الشاشة نفسها (لا إشعار يختفي) واهتزاز. عند
+  /// الحد: يُحفظ الجزء وحده ويُسأل الشيخ أيتابع أم انتهى الدرس.
   void _enforceRecordingLimit() {
-    final max = MediaLimits.maxRecording.inSeconds;
+    final max = SheikhLiveLessonScreen.partLimit.inSeconds;
     if (!_limitWarningShown && _secondsElapsed >= max - 5 * 60) {
       _limitWarningShown = true;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('بقي 5 دقائق على الحد الأقصى للتسجيل (60 دقيقة)'),
-          duration: Duration(seconds: 6),
-        ),
-      );
+      HapticFeedback.mediumImpact();
     }
-    if (_isRecording && _secondsElapsed >= max) {
+    if (_isRecording && !_finishing && _secondsElapsed >= max) {
       _finishLesson(auto: true);
     }
   }
+
+  /// الثواني الباقية من الجزء الجاري.
+  int get _secondsLeft => SheikhLiveLessonScreen.partLimit.inSeconds - _secondsElapsed;
 
   void _pauseTimer() {
     _timer?.cancel();
@@ -205,8 +222,10 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
 
   Future<void> _stopAndFinishLesson() => _finishLesson();
 
-  /// ينهي الدرس ويؤرشفه. [auto] عند بلوغ الحد الأقصى: بلا سؤال تأكيد.
+  /// ينهي الدرس ويؤرشفه. [auto] عند بلوغ الحد الأقصى: بلا سؤال تأكيد، ثم يُسأل الشيخ
+  /// أيتابع في جزء ثانٍ.
   Future<void> _finishLesson({bool auto = false}) async {
+    if (_finishing) return;
     if (!auto) {
       final confirm = await showDialog<bool>(
         context: context,
@@ -230,6 +249,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       if (confirm != true) return;
     }
 
+    _finishing = true;
     _pauseTimer();
     String? finalPath;
     if (_isRecording) {
@@ -241,16 +261,10 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
 
     if (finalPath == null || !File(finalPath).existsSync()) {
       if (mounted) {
-        _dataService.finalizeLiveSession(widget.event.id);
+        _dataService.finalizeLiveSession(widget.event.id, part: _part);
         Navigator.pop(context);
       }
       return;
-    }
-
-    if (auto && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('بلغ التسجيل الحد الأقصى (60 دقيقة) وتم إنهاؤه وحفظه')),
-      );
     }
 
     if (_recordsWavThenCompresses) {
@@ -282,8 +296,86 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     _stopForegroundTask();
     // التسجيل يُربط بلقطة الأرشيف التي أُنشئت لهذه الجلسة بعينها، لا بالدرس
     // المتكرر: جلستان تنتظران الرفع لا تكتبان على لقطة واحدة.
-    final archiveId = _dataService.finalizeLiveSession(widget.event.id) ?? widget.event.id;
-    await _addToUploadQueue(File(finalPath), archiveId);
+    final archiveId = _dataService.finalizeLiveSession(widget.event.id, part: _part) ?? widget.event.id;
+    final queued = await _addToUploadQueue(File(finalPath), archiveId, closeAfter: !auto);
+    if (!auto || !queued || !mounted) return;
+
+    // بلغ الجزء الحد: حُفظ. الشيخ يقرر، والنافذة تبقى حتى يضغط (قد لا ينظر إلى الهاتف)
+    final continueRecording = await _showPartSavedDialog();
+    if (!mounted) return;
+    if (continueRecording) {
+      setState(() {
+        _part += 1;
+        _secondsElapsed = 0;
+        _limitWarningShown = false;
+        _isUploading = false;
+        _finishing = false;
+      });
+      await _startRecording();
+    } else {
+      Navigator.pop(context);
+      _showSavedSnackBar();
+    }
+  }
+
+  /// يُعرض عند بلوغ الجزء ساعة: ماذا حدث، وماذا يفعل الآن.
+  Future<bool> _showPartSavedDialog() async {
+    HapticFeedback.heavyImpact();
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          icon: Icon(Icons.check_circle_rounded, color: AppColors.emeraldPrimary, size: 44),
+          title: Text('اكتملت ساعة التسجيل وحُفظت', textAlign: TextAlign.center),
+          content: Text(
+            'التسجيل الواحد ساعة على الأكثر، فتوقف التسجيل الآن.\n\n'
+            '✅ ${_part == 1 ? 'الساعة الأولى من الدرس' : 'الجزء $_part من الدرس'} محفوظة، '
+            'وستُرفع إلى مكتبة الدروس وحدها فور توفر الإنترنت.\n\n'
+            'هل ما زال الدرس مستمراً؟ تابع التسجيل في جزء جديد يُحفظ في المكتبة بعد هذا الجزء.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actionsOverflowDirection: VerticalDirection.down,
+          actions: [
+            ElevatedButton.icon(
+              key: const ValueKey('continueNextPart'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.emeraldPrimary,
+                foregroundColor: Colors.white,
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.mic_rounded),
+              label: Text('نعم، تابع التسجيل (الجزء ${_part + 1})'),
+            ),
+            TextButton(
+              key: const ValueKey('lessonEndedAtLimit'),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('لا، انتهى الدرس'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _showSavedSnackBar() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _part > 1
+              ? 'تم إنهاء الدرس وحفظ أجزائه الـ$_part ✨ ستُرفع لمكتبة الدروس تلقائياً فور توفر الإنترنت.'
+              : 'تم إنهاء الدرس وحفظ التسجيل ✨ سيُرفع لمكتبة الدروس تلقائياً فور توفر الإنترنت.',
+        ),
+        backgroundColor: AppColors.emeraldPrimary,
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 
   Future<void> _showArchiveProblem(String message) async {
@@ -298,43 +390,39 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         ],
       ),
     );
-    _dataService.finalizeLiveSession(widget.event.id);
+    _dataService.finalizeLiveSession(widget.event.id, part: _part);
     if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _addToUploadQueue(File file, String archiveId) async {
+  /// يضع التسجيل في طابور الرفع. [closeAfter]: يغلق الشاشة بعدها (إنهاء يدوي)؛ عند حد
+  /// الساعة تبقى الشاشة ليُسأل الشيخ. يعيد true إن دخل الطابور.
+  Future<bool> _addToUploadQueue(File file, String archiveId, {bool closeAfter = true}) async {
     setState(() {
       _isUploading = true;
-      _busyMessage = 'جاري أرشفة الدرس الصوتي في السحابة...';
+      _busyMessage = 'جاري حفظ التسجيل في مكتبة الدروس...';
     });
 
     try {
       final data = context.read<DataService>();
       await data.audioUploadQueue.addToQueue(
         eventId: archiveId,
-        title: widget.event.title,
+        title: _part > 1 ? '${widget.event.title} — الجزء $_part' : widget.event.title,
         speaker: widget.event.organizerName,
         filePath: file.path,
         durationSeconds: _secondsElapsed,
       );
 
-      if (mounted) {
+      if (mounted && closeAfter) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'تم إنهاء الدرس وحفظ التسجيل ✨ سيُرفع لمكتبة الدروس تلقائياً فور توفر الإنترنت.',
-            ),
-            backgroundColor: AppColors.emeraldPrimary,
-            duration: const Duration(seconds: 5),
-          ),
-        );
+        _showSavedSnackBar();
       }
+      return true;
     } catch (_) {
       if (mounted) {
         setState(() => _isUploading = false);
         Navigator.pop(context);
       }
+      return false;
     }
   }
 
@@ -549,7 +637,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'من أصل 60 دقيقة',
+                            _part > 1 ? 'الجزء $_part • من أصل $_maxMinutes دقيقة' : 'من أصل $_maxMinutes دقيقة',
                             style: GoogleFonts.amiri(
                               fontSize: 14,
                               color: isDark ? Colors.white54 : Colors.black45,
@@ -558,6 +646,36 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
                         ],
                       ),
                     ),
+                    if (_isRecording && _secondsLeft <= 5 * 60) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        key: const ValueKey('recordingLimitBanner'),
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.amber.shade700),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.timer_outlined, color: Colors.amber.shade800),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'بقي ${_formatTime(_secondsLeft.clamp(0, 5 * 60))} على تمام الساعة. '
+                                'عندها يُحفظ هذا الجزء وحده، ويمكنك متابعة الدرس في جزء جديد.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.amber.shade200 : Colors.brown.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 40),
                     Wrap(
                       spacing: 14,

@@ -3,11 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../core/theme/app_theme.dart';
+import '../models/install_stats.dart';
 import '../services/data_service.dart';
+import '../widgets/super_admin_login_dialog.dart';
 import 'super_admin/dialogs/delete_mosque_confirm_dialog.dart';
+import 'super_admin/widgets/install_stats_card.dart';
 
 class SuperAdminScreen extends StatefulWidget {
-  const SuperAdminScreen({super.key});
+  /// مصدر أرقام الأجهزة (الاختبارات تمرّر غيره). الافتراضي من الخادم.
+  final Future<InstallStats> Function()? loadInstallStats;
+
+  const SuperAdminScreen({super.key, this.loadInstallStats});
 
   @override
   State<SuperAdminScreen> createState() => _SuperAdminScreenState();
@@ -16,6 +22,7 @@ class SuperAdminScreen extends StatefulWidget {
 class _SuperAdminScreenState extends State<SuperAdminScreen> {
   String? _currentToken;
   bool _isGenerating = false;
+  final GlobalKey<InstallStatsCardState> _installStatsKey = GlobalKey<InstallStatsCardState>();
 
   @override
   void initState() {
@@ -69,15 +76,33 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          await data.syncWithSupabase();
-          await data.syncRegistrationTokens();
+          await Future.wait([
+            data.syncWithSupabase(),
+            data.syncRegistrationTokens(),
+            _installStatsKey.currentState?.reload() ?? Future<void>.value(),
+          ]);
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.symmetric(
+            horizontal: MediaQuery.sizeOf(context).width < 600 ? 14 : 24,
+            vertical: 20,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              InstallStatsCard(
+                key: _installStatsKey,
+                load: widget.loadInstallStats ?? data.fetchInstallStats,
+                onSignIn: () async =>
+                    await showDialog<bool>(
+                      context: context,
+                      builder: (_) => SuperAdminLoginDialog(onLogin: data.superAdminLoginAsync),
+                    ) ??
+                    false,
+              ),
+              const SizedBox(height: 24),
+
               // بنر الترحيب والتوليد
               Container(
                 padding: const EdgeInsets.all(20),
@@ -152,14 +177,16 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
                         children: [
                           Text(
                             _currentToken!,
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 2),
                           ),
-                          const SizedBox(width: 12),
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.emeraldPrimary,
@@ -181,6 +208,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                       const SizedBox(height: 4),
                       const Text(
                         'اجعل مدير الجامع الجديد يصور هذا الكود لفتح شاشة التسجيل',
+                        textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
@@ -194,7 +222,10 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                 children: [
                   Icon(Icons.history, color: AppColors.goldDark),
                   const SizedBox(width: 8),
-                  Text('الأكواد النشطة غير المستخدمة (${tokens.length})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Text('الأكواد النشطة غير المستخدمة (${tokens.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -254,9 +285,11 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                 children: [
                   Icon(Icons.mosque_rounded, color: AppColors.emeraldPrimary),
                   const SizedBox(width: 8),
-                  Text(
-                    'المساجد المسجلة في المنصة (${mosques.length})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  Expanded(
+                    child: Text(
+                      'المساجد المسجلة في المنصة (${mosques.length})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
                   ),
                 ],
               ),
@@ -356,27 +389,14 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                                   ],
                                 ),
                               ),
-                              if (regDate != null && regDate.isNotEmpty) ...[
-                                Container(
-                                  margin: const EdgeInsets.only(left: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.calendar_today_outlined, size: 11, color: isDark ? Colors.white60 : Colors.black54),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'بتاريخ: $regDate',
-                                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          // الشارات في سطر يلتفّ: كانت تزاحم الاسم على عرض الهاتف
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
@@ -393,6 +413,26 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                                   ),
                                 ),
                               ),
+                              if (regDate != null && regDate.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.calendar_today_outlined,
+                                          size: 11, color: isDark ? Colors.white60 : Colors.black54),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'سُجّل في $regDate',
+                                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                             ],
                           ),
                           const SizedBox(height: 14),
@@ -432,23 +472,34 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                               children: [
                                 Icon(Icons.qr_code_2, size: 20, color: AppColors.emeraldPrimary),
                                 const SizedBox(width: 8),
-                                const Text(
-                                  'كود الباركود:',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(width: 6),
                                 Expanded(
-                                  child: Text(
-                                    m.accessCode,
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 14,
-                                      letterSpacing: 1,
-                                      color: AppColors.emeraldPrimary,
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'كود الباركود',
+                                        style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                                      ),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: AlignmentDirectional.centerStart,
+                                        child: Text(
+                                          m.accessCode,
+                                          maxLines: 1,
+                                          textDirection: TextDirection.ltr,
+                                          style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 14,
+                                            letterSpacing: 1,
+                                            color: AppColors.emeraldPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.emeraldPrimary,
@@ -460,7 +511,7 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                                   ),
                                   icon: const Icon(Icons.copy, size: 14),
                                   label: const Text(
-                                    'نسخ كود الباركود',
+                                    'نسخ',
                                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
                                   onPressed: () {
@@ -491,20 +542,33 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                                 children: [
                                   Icon(Icons.vpn_key_outlined, size: 15, color: isDark ? Colors.white60 : Colors.black54),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    'الكود المستخدم للتسجيل: ',
-                                    style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
-                                  ),
-                                  Text(
-                                    usedToken,
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDark ? Colors.white70 : Colors.black87,
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'الكود المستخدم للتسجيل',
+                                          style: TextStyle(fontSize: 11, color: isDark ? Colors.white60 : Colors.black54),
+                                        ),
+                                        FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: AlignmentDirectional.centerStart,
+                                          child: Text(
+                                            usedToken,
+                                            maxLines: 1,
+                                            textDirection: TextDirection.ltr,
+                                            style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark ? Colors.white70 : Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const Spacer(),
+                                  const SizedBox(width: 8),
                                   InkWell(
                                     onTap: () {
                                       Clipboard.setData(ClipboardData(text: usedToken));
@@ -538,14 +602,21 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
 
                           const SizedBox(height: 12),
                           // 5. الإحصائيات وزر الحذف النهائي بعشر ثوانٍ
-                          Row(
+                          Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 10,
                             children: [
-                              _buildStatChip(Icons.menu_book, '$halaqatCount حلقات', isDark),
-                              const SizedBox(width: 6),
-                              _buildStatChip(Icons.person, '$sheikhsCount مشايخ', isDark),
-                              const SizedBox(width: 6),
-                              _buildStatChip(Icons.people, '$studentsCount طلاب', isDark),
-                              const Spacer(),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  _buildStatChip(Icons.menu_book, '$halaqatCount حلقات', isDark),
+                                  _buildStatChip(Icons.person, '$sheikhsCount مشايخ', isDark),
+                                  _buildStatChip(Icons.people, '$studentsCount طلاب', isDark),
+                                ],
+                              ),
                               OutlinedButton.icon(
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.redAccent,
@@ -579,9 +650,11 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                   children: [
                     const Icon(Icons.history_toggle_off_rounded, color: Colors.grey),
                     const SizedBox(width: 8),
-                    Text(
-                      'سجلات تسجيل سابقة أخرى (${orphanHistory.length})',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
+                    Expanded(
+                      child: Text(
+                        'سجلات تسجيل سابقة أخرى (${orphanHistory.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
+                      ),
                     ),
                   ],
                 ),
@@ -608,11 +681,12 @@ class _SuperAdminScreenState extends State<SuperAdminScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                h['mosqueName'] ?? 'مسجد سابق',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              Expanded(
+                                child: Text(
+                                  (h['mosqueName'] ?? 'مسجد سابق').toString(),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
                               ),
                               if (mosqueAccessCode.isNotEmpty)
                                 Row(

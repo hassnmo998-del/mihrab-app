@@ -1,3 +1,4 @@
+import 'points_writer.dart';
 import '../../core/utils/access_code_generator.dart';
 import '../../domain/repositories/recitation_repository.dart';
 import '../../models/models.dart';
@@ -12,6 +13,8 @@ class RecitationRepositoryImpl implements RecitationRepository {
   final LocalStorageDataSource _localDataSource;
   final OfflineSyncQueueManager _syncQueueManager;
   final SupabaseRemoteDataSource? _remoteDataSource;
+
+  PointsWriter get _points => PointsWriter(_localDataSource, _syncQueueManager, _remoteDataSource);
 
   RecitationRepositoryImpl(
     this._localDataSource,
@@ -53,6 +56,8 @@ class RecitationRepositoryImpl implements RecitationRepository {
     bool countsTowardsStatistics = true,
   }) {
     if (items.isEmpty) return;
+    // التسميع يمنح نقاطاً ولا يخصم
+    if (points < 0) points = 0;
 
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
@@ -86,9 +91,6 @@ class RecitationRepositoryImpl implements RecitationRepository {
     final studentIdx =
         _localDataSource.students.indexWhere((s) => s.id == studentId);
     if (studentIdx != -1) {
-      if (countsTowardsStatistics) {
-        _localDataSource.students[studentIdx].totalPoints += points;
-      }
       final typeAr = sessionType == 'new_memorization'
           ? 'حفظ جديد'
           : (sessionType == 'review' ? 'مراجعة' : 'اختبار إتقان');
@@ -123,28 +125,11 @@ class RecitationRepositoryImpl implements RecitationRepository {
         summaryDescription += ' (سجل خاص - غير محسوب بالإحصائيات العامة)';
       }
 
-      final log = PointsLog(
-        id: AccessCodeGenerator.entityId('pts'),
+      _points.apply(
         studentId: studentId,
         points: countsTowardsStatistics ? points : 0,
         reason: summaryDescription,
         category: 'memorization',
-        createdAt: DateTime.now(),
-      );
-      _localDataSource.pointsLogs.insert(0, log);
-
-      _syncQueueManager.queueSync(
-        table: 'points_logs',
-        action: 'upsert',
-        data: log.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-
-      _syncQueueManager.queueSync(
-        table: 'students',
-        action: 'upsert',
-        data: _localDataSource.students[studentIdx].toJson(),
-        remoteDataSource: _remoteDataSource,
       );
     }
 
@@ -194,33 +179,13 @@ class RecitationRepositoryImpl implements RecitationRepository {
     required String hadithTitle,
     required int points,
   }) {
-    final studentIdx =
-        _localDataSource.students.indexWhere((s) => s.id == studentId);
-    if (studentIdx != -1) {
-      _localDataSource.students[studentIdx].totalPoints += points;
-      final log = PointsLog(
-        id: AccessCodeGenerator.entityId('pts'),
-        studentId: studentId,
-        points: points,
-        reason: 'تسميع حديث نبوي شريف: $hadithTitle',
-        category: 'hadith',
-        createdAt: DateTime.now(),
-      );
-      _localDataSource.pointsLogs.insert(0, log);
-      _localDataSource.saveToStorage();
-      _syncQueueManager.queueSync(
-        table: 'points_logs',
-        action: 'upsert',
-        data: log.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-      _syncQueueManager.queueSync(
-        table: 'students',
-        action: 'upsert',
-        data: _localDataSource.students[studentIdx].toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-    }
+    final log = _points.apply(
+      studentId: studentId,
+      points: points < 0 ? 0 : points,
+      reason: 'تسميع حديث نبوي شريف: $hadithTitle',
+      category: 'hadith',
+    );
+    if (log != null) _localDataSource.saveToStorage();
   }
 
   @override

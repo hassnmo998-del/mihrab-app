@@ -77,6 +77,8 @@ class AppUserAvatar extends StatelessWidget {
         width: radius * 2,
         height: radius * 2,
         fit: BoxFit.cover,
+        // تُفكّ بحجم الدائرة لا بحجم صورة الكاميرا
+        cacheWidth: (radius * 2 * 3).round().clamp(48, 512),
         errorBuilder: (_, __, ___) => _buildInitials(),
       );
     } else if (hasValidUrl && (imageUrl!.startsWith('http://') || imageUrl!.startsWith('https://'))) {
@@ -85,6 +87,7 @@ class AppUserAvatar extends StatelessWidget {
         width: radius * 2,
         height: radius * 2,
         fit: BoxFit.cover,
+        cacheWidth: (radius * 2 * 3).round().clamp(48, 512),
         errorBuilder: (_, __, ___) => _buildInitials(),
       );
     } else {

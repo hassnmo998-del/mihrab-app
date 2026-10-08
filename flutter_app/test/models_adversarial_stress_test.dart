@@ -593,7 +593,7 @@ void main() {
         expect(ev.timingDescription, 'قبل أذان صلاة العصر');
 
         ev.timingType = 'custom_time';
-        expect(ev.timingDescription, '2026/09/15 الساعة 16:30');
+        expect(ev.timingDescription, 'الثلاثاء 2026/09/15 • 4:30 م');
       });
 
       test('fromJson and toJson Roundtrip with Lat/Lng Precision', () {

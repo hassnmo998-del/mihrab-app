@@ -19,4 +19,4 @@ export 'event_question.dart';
 export 'quran_reciter.dart';
 export 'women_branch_provision.dart';
 export 'library_book.dart';
-
+export 'install_stats.dart';

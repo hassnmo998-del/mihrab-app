@@ -769,8 +769,10 @@ class AdhanService implements BackgroundAudioSource {
   }
 
   /// Evaluates current state: whether counting down to next Adhan or counting down to Iqama!
-  CurrentPrayerState getCurrentPrayerState() {
-    final now = DateTime.now();
+  ///
+  /// [at] لحظة بديلة عن الساعة (للاختبار).
+  CurrentPrayerState getCurrentPrayerState({DateTime? at}) {
+    final now = at ?? DateTime.now();
     final todaySchedule = calculateTodaySchedule(forDate: now);
 
     // 1. Check if we are currently in an Iqama interval for any prayer!
@@ -782,8 +784,8 @@ class AdhanService implements BackgroundAudioSource {
 
       if (hasIqama) {
         final iqamaTime = pTime.add(Duration(minutes: iqamaMin));
-        // If current time is between Adhan and Iqama
-        if (now.isAfter(pTime) && now.isBefore(iqamaTime)) {
+        // من لحظة دخول الوقت نفسها (لا بعدها بجزء من الثانية) حتى الإقامة: عدّاد الإقامة
+        if (!now.isBefore(pTime) && now.isBefore(iqamaTime)) {
           final rawRemaining = iqamaTime.difference(now);
           // Clamp to zero — avoids negative display if system clock ticks
           // past the target between UI frames.

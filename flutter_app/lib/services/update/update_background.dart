@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../install_presence.dart';
 import 'update_models.dart';
+import 'update_progress_notification.dart';
 import 'update_session.dart';
 
 /// متابعة تنزيل التحديث في الخلفية على أندرويد.
@@ -22,15 +24,16 @@ class UpdateBackground {
 
   static const String uniqueName = 'mihrab_update_download';
   static const String taskName = 'mihrabUpdateDownload';
-  static const int progressNotificationId = 1003;
+  static const int progressNotificationId = UpdateProgressNotification.notificationId;
   static const int readyNotificationId = 1001;
 
   static bool get _supported => !kIsWeb && Platform.isAndroid;
   static bool _initialized = false;
 
-  /// يُستدعى مرة عند إقلاع التطبيق.
-  static Future<void> initialize() async {
-    if (!_supported || _initialized) return;
+  /// يُستدعى مرة عند إقلاع التطبيق. يعيد true إن صار WorkManager جاهزاً.
+  static Future<bool> initialize() async {
+    if (!_supported) return false;
+    if (_initialized) return true;
     try {
       await Workmanager().initialize(updateCallbackDispatcher);
       _initialized = true;
@@ -38,6 +41,7 @@ class UpdateBackground {
       // بلا مهمة خلفية يبقى التنزيل يعمل والتطبيق مفتوح، ويكمل عند فتحه
       debugPrint('⚠️ [UpdateBackground] initialize: $e');
     }
+    return _initialized;
   }
 
   /// يضمن وجود المهمة ما دام هناك تحديث قيد التنزيل. استدعاؤه مرتين لا يكررها.
@@ -57,8 +61,8 @@ class UpdateBackground {
         foregroundServiceConfig: ForegroundServiceConfig(
           notificationTitle: 'تحديث محراب',
           notificationText: 'جارٍ تنزيل التحديث… يكتمل وحده ولو أغلقت التطبيق',
-          notificationChannelId: 'mihrab_update_progress',
-          notificationChannelName: 'تنزيل تحديثات محراب',
+          notificationChannelId: UpdateProgressNotification.channelId,
+          notificationChannelName: UpdateProgressNotification.channelName,
           notificationId: progressNotificationId,
           foregroundServiceType: ForegroundServiceType.dataSync,
         ),
@@ -78,10 +82,12 @@ class UpdateBackground {
   }
 }
 
-/// مدخل مهمة الخلفية: يعمل في محرك Flutter بلا واجهة.
+/// مدخل مهام الخلفية: يعمل في محرك Flutter بلا واجهة. للتطبيق مدخل واحد، فمهمة عدّ
+/// الأجهزة الدورية (`InstallPresence`) تمرّ منه أيضاً.
 @pragma('vm:entry-point')
 void updateCallbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    if (task == InstallPresence.backgroundTaskName) return InstallPresence.reportFromBackground();
     if (task != UpdateBackground.taskName) return true;
     final dirPath = inputData?['dir'] as String?;
     if (dirPath == null || dirPath.isEmpty) return true;
@@ -92,12 +98,16 @@ void updateCallbackDispatcher() {
         ownerId: 'bg-$pid-${DateTime.now().microsecondsSinceEpoch}',
       );
       var ownedByTask = false;
+      // التطبيق مغلق: شريط التقدّم في الإشعارات يُحدَّث من هنا (والواجهة تحدّثه حين تكون حيّة)
+      UpdateProgressNotification.poster = UpdateProgressNotification.backgroundPoster;
       final file = await session.run(
         onStatus: (status) {
           // نبضة "جاهز" تحمل هوية من قرأها لا من نزّل؛ المالك يُعرف من نبضات التنزيل
           if (status.phase != UpdatePhase.ready) ownedByTask = status.owner == session.ownerId;
+          if (ownedByTask) UpdateProgressNotification.show(status);
         },
       );
+      if (ownedByTask) await UpdateProgressNotification.clear();
       // الإشعار ممن أكمل التنزيل فقط: إن أكملته الواجهة فهي تعرض نافذتها
       if (file != null && ownedByTask) {
         await _notifyReady(session.readJob()?.version ?? '');

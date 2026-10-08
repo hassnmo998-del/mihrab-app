@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class IntensiveCourse {
   final String id;
   final String mosqueId;
@@ -117,8 +119,8 @@ class IntensiveCourse {
       mosqueId: json['mosque_id']?.toString() ?? json['mosqueId']?.toString() ?? '',
       name: json['name'] ?? '',
       description: json['description'],
-      startDate: json['start_date'] != null ? DateTime.parse(json['start_date']) : DateTime.now(),
-      endDate: json['end_date'] != null ? DateTime.parse(json['end_date']) : DateTime.now().add(const Duration(days: 30)),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date'], fallback: DateTime.now().add(const Duration(days: 30))),
       sheikhIds: (json['sheikh_ids'] as List?)?.map((e) => e.toString()).toList() ?? [],
       halaqaIds: (json['halaqa_ids'] as List?)?.map((e) => e.toString()).toList() ?? [],
       studentIds: (json['student_ids'] as List?)?.map((e) => e.toString()).toList() ?? [],
@@ -126,7 +128,7 @@ class IntensiveCourse {
       startTime: json['start_time'] ?? json['startTime'],
       endTime: json['end_time'] ?? json['endTime'],
       countsTowardsQuranProgress: json['counts_towards_quran_progress'] ?? json['countsTowardsQuranProgress'] ?? true,
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      createdAt: parseWallClock(json['created_at']),
     );
   }
 

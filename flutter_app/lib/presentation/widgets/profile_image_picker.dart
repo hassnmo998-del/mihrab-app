@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/image_helper.dart';
+import '../../core/utils/profile_image.dart';
 
 class ProfileImagePicker extends StatelessWidget {
   final File? selectedImageFile;
@@ -26,14 +27,24 @@ class ProfileImagePicker extends StatelessWidget {
   bool get _isDesktop =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
+  /// يختار صورة ويبلّغ بها؛ أي تعذّر يظهر رسالةً بدل أن يمرّ بصمت.
+  Future<void> _pick(ScaffoldMessengerState? messenger, ImageSource source) async {
+    final file = await ImageHelper.pickAndCropImage(
+      source: source,
+      onProblem: (message) => messenger?.showSnackBar(SnackBar(content: Text(message))),
+    );
+    if (file != null) onImageChanged(file);
+  }
+
   void _onPickerTapped(BuildContext context) async {
     final hasImage = selectedImageFile != null ||
         (initialImageUrl != null && initialImageUrl!.isNotEmpty);
+    // يُلتقط قبل أي انتظار: السياق قد يزول أثناء اختيار الصورة
+    final messenger = ScaffoldMessenger.maybeOf(context);
 
     // إذا كنا على الويندوز وما في صورة سابقة: نفتح مستعرض الملفات فوراً
     if (_isDesktop && !hasImage) {
-      final file = await ImageHelper.pickAndCropImage(source: ImageSource.gallery);
-      if (file != null) onImageChanged(file);
+      await _pick(messenger, ImageSource.gallery);
       return;
     }
 
@@ -71,10 +82,9 @@ class ProfileImagePicker extends StatelessWidget {
                   _isDesktop ? 'اختيار صورة من جهاز الكمبيوتر' : 'اختيار من المعرض',
                   style: AppTypography.bodyRegular(context, fontSize: 14),
                 ),
-                onTap: () async {
+                onTap: () {
                   Navigator.pop(ctx);
-                  final file = await ImageHelper.pickAndCropImage(source: ImageSource.gallery);
-                  if (file != null) onImageChanged(file);
+                  _pick(messenger, ImageSource.gallery);
                 },
               ),
               // خيار الكاميرا يظهر فقط على الموبايل
@@ -82,10 +92,9 @@ class ProfileImagePicker extends StatelessWidget {
                 ListTile(
                   leading: Icon(Icons.camera_alt_outlined, color: AppColors.goldDark),
                   title: Text('التقاط عبر الكاميرا', style: AppTypography.bodyRegular(context, fontSize: 14)),
-                  onTap: () async {
+                  onTap: () {
                     Navigator.pop(ctx);
-                    final file = await ImageHelper.pickAndCropImage(source: ImageSource.camera);
-                    if (file != null) onImageChanged(file);
+                    _pick(messenger, ImageSource.camera);
                   },
                 ),
               if (hasImage) ...[
@@ -109,20 +118,9 @@ class ProfileImagePicker extends StatelessWidget {
     );
   }
 
-  ImageProvider? _resolveImageProvider() {
-    if (selectedImageFile != null) {
-      return FileImage(selectedImageFile!);
-    }
-    if (initialImageUrl != null && initialImageUrl!.trim().isNotEmpty) {
-      final url = initialImageUrl!.trim();
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        return NetworkImage(url);
-      }
-      if (kIsWeb) return null; // مسار ملف على جهاز آخر
-      return FileImage(File(url));
-    }
-    return null;
-  }
+  ImageProvider? _resolveImageProvider() =>
+      ProfileImage.fileProvider(selectedImageFile, radius: radius) ??
+      ProfileImage.provider(initialImageUrl, radius: radius);
 
   @override
   Widget build(BuildContext context) {
@@ -157,23 +155,23 @@ class ProfileImagePicker extends StatelessWidget {
               backgroundColor: isDark
                   ? AppColors.obsidianEspresso
                   : AppColors.terracottaPrimary.withValues(alpha: 0.12),
-              backgroundImage: imageProvider,
-              child: imageProvider == null
-                  ? (firstLetter.isNotEmpty
+              // الصورة فوق الحرف الأول: إن غابت أو تعذّر فكّها بقي الحرف ظاهراً
+              foregroundImage: imageProvider,
+              onForegroundImageError: imageProvider == null ? null : (_, __) {},
+              child: firstLetter.isNotEmpty
                   ? Text(
-                firstLetter,
-                style: AppTypography.font(
-                  fontSize: radius * 0.85,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.terracottaPrimary,
-                ),
-              )
+                      firstLetter,
+                      style: AppTypography.font(
+                        fontSize: radius * 0.85,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.terracottaPrimary,
+                      ),
+                    )
                   : Icon(
-                Icons.person,
-                size: radius * 1.05,
-                color: isDark ? Colors.white54 : AppColors.terracottaPrimary,
-              ))
-                  : null,
+                      Icons.person,
+                      size: radius * 1.05,
+                      color: isDark ? Colors.white54 : AppColors.terracottaPrimary,
+                    ),
             ),
           ),
           // الصورة تُحفظ ملفاً على الجهاز نفسه، والمتصفح (نسخة الآيفون) لا يحفظ ملفات

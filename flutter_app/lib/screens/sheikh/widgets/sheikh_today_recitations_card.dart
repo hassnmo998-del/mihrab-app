@@ -75,7 +75,7 @@ class SheikhTodayRecitationsCard extends StatelessWidget {
                         subtitle: Text(
                           'جزء ${item.juzNumber} • ${item.sessionType == "test" ? "اختبار معتمد" : (item.sessionType == "review" ? "مراجعة" : "حفظ جديد")}',
                         ),
-                        trailing: item.pointsEarned > 0
+                        trailing: item.pointsEarned > 0 && item.countsTowardsStatistics
                             ? Text(
                                 '+${item.pointsEarned}ن',
                                 style: TextStyle(

@@ -80,6 +80,10 @@ class OfflineSyncQueueManager {
     } catch (_) {}
   }
 
+  /// رفض لأن السجل يشير إلى سجل غير موجود في الخادم (قيد المفتاح الأجنبي).
+  static bool _isMissingParent(Object error) =>
+      error is PostgrestException && (error.code ?? '').trim() == '23503';
+
   /// Enqueue an upsert or delete operation into the persistent FIFO queue
   void queueSync({
     required String table,
@@ -193,6 +197,13 @@ class OfflineSyncQueueManager {
               continue;
             }
             break;
+          }
+          if (heldRows.isNotEmpty && _isMissingParent(e)) {
+            // سجل يتبع سجلاً عالقاً تُخطّي في هذه الجولة (حركة نقاط لطالب لم يُرفع بعد):
+            // رفضه سببه غياب أصله مؤقتاً لا عيب فيه، فيبقى معه ولا يُسقط.
+            item['retry_count'] = (item['retry_count'] as int? ?? 0) + 1;
+            heldRows.add(rowKey);
+            continue;
           }
           // الخادم رفض السجل نفسه (بيانات لا يقبلها): إبقاؤه يحجز كل ما بعده.
           debugPrint('⚠️ SyncQueue dropping item rejected by the server for table ${item['table']} ($e)');

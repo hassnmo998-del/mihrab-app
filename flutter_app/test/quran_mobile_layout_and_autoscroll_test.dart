@@ -18,7 +18,9 @@ void main() {
       expect(audio.reciterNotifier.value.id, 'abdul_basit_murattal_192kbps');
       expect(audio.reciterNotifier.value.nameArabic, 'عبد الباسط عبد الصمد');
       expect(audio.scopeNotifier.value, QuranRepeatScope.quran);
-      expect(audio.repeatCountNotifier.value, -1);
+      // تلاوة متصلة بلا توقف: كل آية مرة واحدة، والنطاق لا يتوقف (كان يُعبَّر عنها بـ -1
+      // حين كان العدد يكرر النطاق لا الآية)
+      expect(audio.repeatCountNotifier.value, 1);
       expect(audio.stopAfterNotifier.value, QuranStopAfter.never);
       expect(audio.speedNotifier.value, 1.0);
     });
@@ -64,7 +66,7 @@ void main() {
 
       // Options pills are now visible!
       expect(find.text('القرآن كاملاً'), findsOneWidget);
-      expect(find.text('بلا توقف'), findsOneWidget);
+      expect(find.text('1 مرة'), findsOneWidget);
       expect(find.text('لا يتوقف'), findsOneWidget);
       expect(find.text('عبد الباسط عبد الصمد'), findsOneWidget);
       expect(find.text('1×'), findsOneWidget);
@@ -100,7 +102,7 @@ void main() {
 
       // All options are unfolded and visible immediately
       expect(find.text('القرآن كاملاً'), findsOneWidget);
-      expect(find.text('بلا توقف'), findsOneWidget);
+      expect(find.text('1 مرة'), findsOneWidget);
       expect(find.text('لا يتوقف'), findsOneWidget);
       expect(find.text('عبد الباسط عبد الصمد'), findsOneWidget);
     });

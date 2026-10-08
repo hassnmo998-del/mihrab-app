@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class AppMessage {
   final String id;
   final String studentId;
@@ -31,7 +33,7 @@ class AppMessage {
       content: json['content'] ?? '',
       messageType: json['message_type'] ?? json['messageType'] ?? 'general',
       isRead: json['is_read'] ?? json['isRead'] ?? false,
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      createdAt: parseWallClock(json['created_at']),
     );
   }
 

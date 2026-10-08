@@ -1,4 +1,4 @@
-import '../../core/utils/access_code_generator.dart';
+import 'points_writer.dart';
 import '../../domain/repositories/recitation_tracks_repository.dart';
 import '../../models/models.dart';
 import '../datasources/local_storage_datasource.dart';
@@ -11,6 +11,8 @@ class RecitationTracksRepositoryImpl implements RecitationTracksRepository {
   final LocalStorageDataSource _localDataSource;
   final OfflineSyncQueueManager _syncQueueManager;
   final SupabaseRemoteDataSource? _remoteDataSource;
+
+  PointsWriter get _points => PointsWriter(_localDataSource, _syncQueueManager, _remoteDataSource);
 
   RecitationTracksRepositoryImpl(
     this._localDataSource,
@@ -124,6 +126,8 @@ class RecitationTracksRepositoryImpl implements RecitationTracksRepository {
     bool countsTowardsStatistics = true,
   }) {
     final count = (toUnit - fromUnit + 1).abs();
+    // التسميع يمنح نقاطاً ولا يخصم
+    if (pointsEarned < 0) pointsEarned = 0;
     final rec = SubjectRecitationRecord(
       id: LocalStorageDataSource.genId('srec'),
       studentId: studentId,
@@ -144,39 +148,16 @@ class RecitationTracksRepositoryImpl implements RecitationTracksRepository {
     _localDataSource.subjectRecitationRecords.insert(0, rec);
 
     // Add points to student and points_logs if counted towards statistics
-    final studentIdx =
-        _localDataSource.students.indexWhere((s) => s.id == studentId);
-    if (studentIdx != -1) {
-      if (countsTowardsStatistics) {
-        _localDataSource.students[studentIdx].totalPoints += pointsEarned;
-      }
-      String reason =
-          'تسميع $trackName: من $fromUnit إلى $toUnit ($count وحدة)';
-      if (!countsTowardsStatistics) {
-        reason += ' (سجل خاص - غير محسوب بالإحصائيات العامة)';
-      }
-      final log = PointsLog(
-        id: AccessCodeGenerator.entityId('pts'),
-        studentId: studentId,
-        points: countsTowardsStatistics ? pointsEarned : 0,
-        reason: reason,
-        category: 'recitation',
-        createdAt: DateTime.now(),
-      );
-      _localDataSource.pointsLogs.insert(0, log);
-      _syncQueueManager.queueSync(
-        table: 'points_logs',
-        action: 'upsert',
-        data: log.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-      _syncQueueManager.queueSync(
-        table: 'students',
-        action: 'upsert',
-        data: _localDataSource.students[studentIdx].toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
+    String reason = 'تسميع $trackName: من $fromUnit إلى $toUnit ($count وحدة)';
+    if (!countsTowardsStatistics) {
+      reason += ' (سجل خاص - غير محسوب بالإحصائيات العامة)';
     }
+    _points.apply(
+      studentId: studentId,
+      points: countsTowardsStatistics ? pointsEarned : 0,
+      reason: reason,
+      category: 'recitation',
+    );
 
     _localDataSource.saveToStorage();
     _syncQueueManager.queueSync(

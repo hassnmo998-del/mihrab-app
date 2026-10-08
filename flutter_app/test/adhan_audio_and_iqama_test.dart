@@ -74,6 +74,43 @@ void main() {
       expect(state.nextPrayerName, isNotEmpty);
     });
 
+    test('لحظة دخول الوقت يبدأ عدّاد الإقامة فوراً، لكل صلاة، ولا عدّاد سالب في أي لحظة من اليوم', () {
+      final service = AdhanService.instance;
+      final day = DateTime(2026, 10, 7);
+      final schedule = service.calculateTodaySchedule(forDate: day);
+
+      for (final p in schedule) {
+        final name = p['name'] as String;
+        final time = p['time'] as DateTime;
+        final iqama = service.getIqamaMinutes(name);
+
+        // قبلها بثانية: العدّ نحو أذانها، وثانية واحدة باقية
+        final before = service.getCurrentPrayerState(at: time.subtract(const Duration(seconds: 1)));
+        expect(before.phase, PrayerCountdownPhase.beforeAdhan, reason: name);
+        expect(before.nextPrayerName, name, reason: name);
+        expect(before.remaining, const Duration(seconds: 1), reason: name);
+
+        // عند اللحظة نفسها
+        final at = service.getCurrentPrayerState(at: time);
+        expect(at.remaining.isNegative, isFalse, reason: name);
+        if (name == 'الشروق' || iqama <= 0) {
+          // لا إقامة: العدّ ينتقل إلى الصلاة التالية
+          expect(at.phase, PrayerCountdownPhase.beforeAdhan, reason: name);
+          expect(at.nextPrayerName, isNot(name), reason: name);
+        } else {
+          expect(at.phase, PrayerCountdownPhase.betweenAdhanAndIqama, reason: name);
+          expect(at.prayerName, name, reason: name);
+          expect(at.remaining, Duration(minutes: iqama), reason: name);
+        }
+      }
+
+      // مسح اليوم كله كل عشر ثوانٍ: لا سالب أبداً
+      for (var t = day; t.isBefore(day.add(const Duration(days: 1))); t = t.add(const Duration(seconds: 10))) {
+        final state = service.getCurrentPrayerState(at: t);
+        expect(state.remaining.isNegative, isFalse, reason: '$t');
+      }
+    });
+
     test('Volume clamping and setting operates properly', () async {
       final service = AdhanService.instance;
       await service.setVolume(0.8);

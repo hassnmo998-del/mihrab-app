@@ -47,6 +47,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- شاشة قصّ الصورة الشخصية (image_cropper). الحزمة لا تسجّلها بنفسها: بدون هذا
+             السطر لا تُفتح الشاشة، فلا تُضاف أي صورة من الهاتف. -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/CropTheme" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

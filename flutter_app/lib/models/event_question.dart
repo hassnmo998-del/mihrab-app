@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class EventQuestion {
   final String id;
   final String eventId;
@@ -18,7 +20,7 @@ class EventQuestion {
       id: json['id']?.toString() ?? '',
       eventId: json['event_id']?.toString() ?? json['eventId']?.toString() ?? '',
       content: json['content'] ?? '',
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      createdAt: parseWallClock(json['created_at']),
       isAnswered: json['is_answered'] ?? json['isAnswered'] ?? false,
     );
   }

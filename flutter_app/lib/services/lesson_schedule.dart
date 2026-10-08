@@ -1,5 +1,6 @@
 import 'package:adhan/adhan.dart';
 
+import '../core/utils/arabic_time.dart';
 import '../models/community_event.dart';
 
 /// متى ينعقد الدرس فعلاً، محسوباً من إعداداته (وقت محدد أو صلاة، أيام التكرار)
@@ -11,6 +12,9 @@ import '../models/community_event.dart';
 class LessonSchedule {
   LessonSchedule._();
 
+  /// الساعة التي تقرأ بها شاشات الدروس «الآن». الاختبار يثبّتها على لحظة بعينها.
+  static DateTime Function() clock = DateTime.now;
+
   /// الدروس تتأخر وتطول: لا يُعدّ الدرس منتهياً إلا بعد هذه المهلة من نهايته.
   static const Duration endGrace = Duration(minutes: 30);
 
@@ -19,6 +23,13 @@ class LessonSchedule {
 
   /// درس «بعد الصلاة» يبدأ بعد الأذان بهذه المدة (الإقامة ثم الصلاة).
   static const Duration afterPrayerDelay = Duration(minutes: 20);
+
+  /// علامة «مباشر» تُصدَّق من قبل موعد الجلسة بهذه المدة...
+  static const Duration liveEarly = Duration(hours: 3);
+
+  /// ...وحتى هذه المدة بعد نهايتها ومهلتها. خارج ذلك هي علامة عالقة: هاتف أُطفئ أثناء
+  /// التسجيل فلم يُرجعها، فكان درس المرة الواحدة لا يختفي أبداً و«مباشر الآن» ظاهرة دائماً.
+  static const Duration liveLate = Duration(hours: 4);
 
   static const Map<String, int> _weekdays = {
     'الاثنين': DateTime.monday,
@@ -118,9 +129,78 @@ class LessonSchedule {
     return null;
   }
 
-  /// درس لمرة واحدة انقضى موعده: يختفي من قائمة الدروس القادمة.
+  /// درس لمرة واحدة انقضى موعده (بعد نهايته و[endGrace]).
   static bool hasEnded(CommunityEvent e, DateTime now) =>
       !e.isRecurring && currentOrNextStart(e, now) == null;
+
+  /// درس المرة الواحدة يبقى في القائمة بعد انتهائه حتى آخر يومه، معلَّماً «مضى موعده»:
+  /// قد يُضاف درس بلا تسجيل، فيعرف من فاته أنه كان. وإن امتدّ بعد منتصف الليل يبقى حتى
+  /// نهايته ومهلتها.
+  static DateTime listedUntil(CommunityEvent e) {
+    final start = singleStart(e);
+    final midnight = DateTime(start.year, start.month, start.day + 1);
+    final over = endOf(e, start).add(endGrace);
+    return over.isAfter(midnight) ? over : midnight;
+  }
+
+  /// انتهى موعده لكنه ما زال ظاهراً لبقية يومه.
+  static bool isPastToday(CommunityEvent e, DateTime now) =>
+      hasEnded(e, now) && now.isBefore(listedUntil(e));
+
+  /// يُبث الآن فعلاً: علامة «مباشر» ضمن نافذة جلسة من جلساته (انظر [liveEarly] و[liveLate]).
+  static bool isLive(CommunityEvent e, DateTime now) {
+    if (e.eventStatus != 'live') return false;
+    final today = _dayOf(now);
+    final starts = e.isRecurring
+        ? _recurringStarts(
+            e,
+            DateTime(today.year, today.month, today.day - 2),
+            DateTime(today.year, today.month, today.day + 1),
+          )
+        : [singleStart(e)];
+    return starts.any((start) =>
+        !now.isBefore(start.subtract(liveEarly)) &&
+        now.isBefore(endOf(e, start).add(endGrace).add(liveLate)));
+  }
+
+  /// يظهر في قائمة الدروس: يُبث الآن، أو له جلسة لم تنتهِ، أو انتهى اليوم ([isPastToday]).
+  static bool isListed(CommunityEvent e, DateTime now) =>
+      isLive(e, now) || !hasEnded(e, now) || now.isBefore(listedUntil(e));
+
+  /// ترتيب القائمة: المباشر، ثم القادم الأقرب فالأبعد، ثم ما مضى موعده.
+  static int compareBySchedule(CommunityEvent a, CommunityEvent b, DateTime now) {
+    int group(CommunityEvent e) => isLive(e, now) ? 0 : (hasEnded(e, now) ? 2 : 1);
+    DateTime? when(CommunityEvent e) => currentOrNextStart(e, now) ?? (e.isRecurring ? null : singleStart(e));
+
+    final byGroup = group(a).compareTo(group(b));
+    if (byGroup != 0) return byGroup;
+    final startA = when(a), startB = when(b);
+    if (startA == null || startB == null) {
+      if (startA == null && startB == null) return a.title.compareTo(b.title);
+      return startA == null ? 1 : -1;
+    }
+    final byStart = startA.compareTo(startB);
+    return byStart != 0 ? byStart : a.title.compareTo(b.title);
+  }
+
+  /// موعد بدايته تقريبي: «بعد الصلاة» يتبع إقامة المسجد، والحساب يفترض [afterPrayerDelay].
+  static bool _startIsApproximate(CommunityEvent e) =>
+      _isPrayerLinked(e) && e.prayerRelation != 'before' && e.prayerRelation != 'between_adhan_iqama';
+
+  /// الجلسة الجارية أو القادمة بكلام الناس: «جارٍ الآن • بدأ 6:00 م»، «اليوم • 6:00 م»،
+  /// «غداً • نحو 4:05 م»، «السبت 17/10 • 6:00 م». ودرس المرة الواحدة المنتهي:
+  /// «مضى موعده • اليوم 6:00 م».
+  static String? sessionLabel(CommunityEvent e, DateTime now) {
+    final start = currentOrNextStart(e, now);
+    if (start == null) {
+      if (e.isRecurring) return null;
+      final past = singleStart(e);
+      return 'مضى موعده • ${ArabicTime.relativeDay(past, now)} ${ArabicTime.clock(past)}';
+    }
+    if (!now.isBefore(start)) return 'جارٍ الآن • بدأ ${ArabicTime.clock(start)}';
+    final time = _startIsApproximate(e) ? 'نحو ${ArabicTime.clock(start)}' : ArabicTime.clock(start);
+    return '${ArabicTime.relativeDay(start, now)} • $time';
+  }
 
   /// هل باب الأسئلة مفتوح الآن للجلسة القادمة؟
   static bool questionsOpen(CommunityEvent e, DateTime now) {

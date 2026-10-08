@@ -35,6 +35,14 @@ class DiscoverEventManagementView extends StatelessWidget {
       filteredEvents = [];
     }
 
+    // القادم أولاً بموعده، والمنتهي في آخر القائمة
+    final now = LessonSchedule.clock();
+    filteredEvents.sort((a, b) {
+      final endedA = LessonSchedule.hasEnded(a, now), endedB = LessonSchedule.hasEnded(b, now);
+      if (endedA != endedB) return endedA ? 1 : -1;
+      return LessonSchedule.compareBySchedule(a, b, now);
+    });
+
     final dividerColor = isDark ? Colors.white12 : Colors.black12;
 
     return Column(
@@ -63,6 +71,8 @@ class DiscoverEventManagementView extends StatelessWidget {
                     itemBuilder: (context, idx) {
                 final ev = filteredEvents[idx];
                 final serialNumber = (idx + 1).toString().padLeft(2, '0');
+                final ended = LessonSchedule.hasEnded(ev, now);
+                final nextSession = LessonSchedule.sessionLabel(ev, now);
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
@@ -93,17 +103,35 @@ class DiscoverEventManagementView extends StatelessWidget {
                                   backgroundColor: AppColors.gold.withValues(alpha: 0.15),
                                   textColor: AppColors.goldDark,
                                 ),
-                                UnifiedBadge(
-                                  label: ev.isActive ? 'منشور للجمهور' : 'ملغى / موقوف',
-                                  backgroundColor: ev.isActive
-                                      ? AppColors.emeraldPrimary.withValues(alpha: 0.1)
-                                      : Colors.red.withValues(alpha: 0.1),
-                                  textColor: ev.isActive ? AppColors.emeraldPrimary : Colors.redAccent,
-                                ),
-                                // درس المرة الواحدة يختفي من قائمة الجمهور حين ينقضي موعده
-                                if (LessonSchedule.hasEnded(ev, DateTime.now()))
+                                if (LessonSchedule.isLive(ev, now))
+                                  const UnifiedBadge(
+                                    label: 'مباشر الآن 🔴',
+                                    backgroundColor: Color(0xFFFEE2E2),
+                                    textColor: Colors.red,
+                                  ),
+                                if (!ended)
                                   UnifiedBadge(
-                                    label: 'انتهى موعده ولا يظهر للجمهور',
+                                    label: ev.isActive ? 'منشور للجمهور' : 'ملغى / موقوف',
+                                    backgroundColor: ev.isActive
+                                        ? AppColors.emeraldPrimary.withValues(alpha: 0.1)
+                                        : Colors.red.withValues(alpha: 0.1),
+                                    textColor: ev.isActive ? AppColors.emeraldPrimary : Colors.redAccent,
+                                  ),
+                                if (!ended && ev.isActive && nextSession != null)
+                                  UnifiedBadge(
+                                    label: ev.isRecurring && !nextSession.startsWith('جارٍ')
+                                        ? 'القادم: $nextSession'
+                                        : nextSession,
+                                    icon: Icons.event_rounded,
+                                    backgroundColor: AppColors.terracottaPrimary.withValues(alpha: 0.1),
+                                    textColor: AppColors.terracottaPrimary,
+                                  ),
+                                // درس المرة الواحدة يبقى للجمهور بقية يومه معلَّماً، ثم يختفي
+                                if (ended)
+                                  UnifiedBadge(
+                                    label: LessonSchedule.isPastToday(ev, now)
+                                        ? 'مضى موعده • ظاهر للجمهور حتى نهاية اليوم'
+                                        : 'مضى موعده ولا يظهر للجمهور',
                                     backgroundColor: Colors.grey.withValues(alpha: 0.15),
                                     textColor: isDark ? Colors.white70 : Colors.black54,
                                   ),

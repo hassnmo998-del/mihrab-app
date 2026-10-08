@@ -19,10 +19,12 @@ import 'services/app_update_service.dart';
 import 'services/update/update_background.dart';
 import 'services/app_notification_service.dart';
 import 'services/prefs_file_guard.dart';
+import 'services/install_presence.dart';
 import 'services/adhan_service.dart';
 import 'services/zad_content_service.dart';
 import 'widgets/update_dialog.dart';
 import 'widgets/code_scanner_dialog.dart';
+import 'widgets/super_admin_login_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
 import 'screens/discover_screen.dart';
 import 'screens/discover/widgets/quran_reader_view.dart';
@@ -94,6 +96,11 @@ void main() async {
   if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
     unawaited(UpdateBackground.initialize());
     unawaited(AppUpdateService.instance.resumePendingUpdate());
+  }
+
+  // عدّ الأجهزة التي عليها التطبيق (لوحة المشرف العام): «هذا الجهاز موجود» مرة في اليوم
+  if (kIsWeb || !Platform.environment.containsKey('FLUTTER_TEST')) {
+    unawaited(InstallPresence.start());
   }
 
   // أذكار وأدعية نزلت إلى الجهاز بعد هذا الإصدار تُقرأ قبل أول عرض للتبويب
@@ -284,29 +291,33 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       // نؤخر ثانية واحدة حتى تستقر الواجهة الرئيسية أولاً
       _updateLaunchTimer = Timer(const Duration(milliseconds: 1000), _checkUpdateOnLaunch);
 
-      // فحص دوري كل 6 ساعات: يعرض النافذة إن صدر إصدار، ولا ينزّل شيئاً بلا طلب
+      // فحص دوري كل 6 ساعات: إصدار جديد يُنزَّل وحده، ونافذة التثبيت حين يجهز
       AppUpdateService.instance.startPeriodicSilentCheck(
         interval: const Duration(hours: 6),
-        onUpdateFound: (_) => _checkUpdateOnLaunch(),
+        onReadyFound: (_) => _showInstallDialogIfReady(),
       );
       // تنزيل اكتمل والتطبيق مفتوح: نافذة التثبيت فوراً
       AppUpdateService.instance.onReadyToInstall = _showInstallSnackBar;
     }
   }
 
-  /// فحص التحديث عند فتح التطبيق والعودة إليه، وعرض نافذة التحديث إن وُجد إصدار جديد.
-  /// تحديث قيد التنزيل لا تُعرض له نافذة: هو ماضٍ وحده، وتقدمه في الإعدادات.
+  /// عند فتح التطبيق والعودة إليه: إصدار جديد يبدأ تنزيله وحده بلا نافذة (تقدّمه في
+  /// الإعدادات وشريط الإشعارات). النافذة للتثبيت فقط: الآن إن كان الملف جاهزاً، وإلا
+  /// حين يكتمل ([AppUpdateService.onReadyToInstall]).
   Future<void> _checkUpdateOnLaunch() async {
+    await AppUpdateService.instance.checkAndDownload();
+    _showInstallDialogIfReady();
+  }
+
+  void _showInstallDialogIfReady() {
     final service = AppUpdateService.instance;
-    final info = await service.checkForUpdate();
-    if (info == null || !service.isNewerVersion(info.version, AppUpdateService.currentVersion)) {
-      return;
-    }
-    if (service.state == SilentUpdateState.downloading) return;
+    final info = service.latestInfo;
+    if (service.state != SilentUpdateState.readyToInstall || info == null) return;
+    if (!service.isNewerVersion(info.version, AppUpdateService.currentVersion)) return;
 
     final targetContext = appNavigatorKey.currentContext ?? (mounted ? context : null);
     if (targetContext != null && targetContext.mounted) {
-      UpdateDialog.show(targetContext, info, AppUpdateService.instance);
+      UpdateDialog.show(targetContext, info, service);
     }
   }
 
@@ -462,6 +473,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
         _checkUpdateOnLaunch();
         // تمديد جدول منبّهات الأذان أسبوعين من اليوم
         AdhanService.instance.rescheduleNativeAlarms();
+        InstallPresence.onResumed();
       }
     } else {
       // التطبيق يُصغَّر أو يُغلق: تُحدَّث النسخة المرآة لملف الإعدادات الآن (ويندوز)
@@ -520,57 +532,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
       return;
     }
 
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    bool isLoading = false;
-
-    showDialog(
+    showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('دخول المشرف العام (Super Admin)'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'البريد الإلكتروني')),
-              TextField(controller: passCtrl, decoration: const InputDecoration(labelText: 'كلمة المرور'), obscureText: true),
-              if (isLoading) ...[
-                const SizedBox(height: 12),
-                const CircularProgressIndicator(),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-            ElevatedButton(
-              onPressed: isLoading ? null : () async {
-                final scaffoldMsg = ScaffoldMessenger.of(context);
-                setDialogState(() => isLoading = true);
-                final result = await data.superAdminLoginAsync(emailCtrl.text, passCtrl.text);
-                if (!ctx.mounted) return;
-                if (result == SuperAdminLoginResult.success) {
-                  Navigator.pop(ctx);
-                  if (mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SuperAdminScreen()));
-                  }
-                } else {
-                  setDialogState(() => isLoading = false);
-                  final message = switch (result) {
-                    SuperAdminLoginResult.notAuthorized =>
-                      'هذا الحساب لا يملك صلاحية المشرف العام',
-                    SuperAdminLoginResult.unavailable =>
-                      'تعذر الوصول لخادم المصادقة، تحقق من اتصالك بالإنترنت',
-                    _ => 'بيانات الدخول غير صحيحة',
-                  };
-                  scaffoldMsg.showSnackBar(SnackBar(content: Text(message)));
-                }
-              },
-              child: const Text('دخول'),
-            ),
-          ],
-        ),
-      ),
-    );
+      builder: (_) => SuperAdminLoginDialog(onLogin: data.superAdminLoginAsync),
+    ).then((loggedIn) {
+      if (loggedIn == true && mounted) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const SuperAdminScreen()));
+      }
+    });
   }
 
   void _showUserProfileModal() {

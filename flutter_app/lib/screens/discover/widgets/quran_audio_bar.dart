@@ -70,7 +70,8 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
     QuranStopAfter.never: 'لا يتوقف',
   };
 
-  static String _countLabel(int n) => n == -1 ? 'بلا توقف' : (n == 1 ? '1 مرة' : '$n مرات');
+  // «بلا نهاية» لا «بلا توقف»: هي إعادة الآية نفسها دون انتقال، لا تلاوة متصلة.
+  static String _countLabel(int n) => n == -1 ? 'بلا نهاية' : (n == 1 ? '1 مرة' : '$n مرات');
 
   static String _speedLabel(double s) => '${s == s.truncateToDouble() ? s.toInt() : s}×';
 
@@ -454,8 +455,8 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
       valueListenable: audio.scopeNotifier,
       builder: (context, scope, _) {
         return _menu<QuranRepeatScope>(
-          title: 'نطاق التلاوة والتكرار',
-          tooltip: 'اختر نطاق التلاوة',
+          title: 'نطاق التلاوة',
+          tooltip: 'اختر نطاق التلاوة (القرآن كاملاً / جزء / صفحة / هذه الآية)',
           values: QuranRepeatScope.values,
           selected: scope,
           labelOf: (s) => _scopeLabels[s]!,
@@ -477,8 +478,8 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
       valueListenable: audio.repeatCountNotifier,
       builder: (context, count, _) {
         return _menu<int>(
-          title: 'تكرار الآية الواحدة',
-          tooltip: 'عدد مرات تكرار كل آية',
+          title: 'تكرار كل آية',
+          tooltip: 'عدد مرات تكرار كل آية قبل الانتقال للتالية',
           values: QuranAudioService.repeatCounts,
           selected: count,
           labelOf: _countLabel,
@@ -516,6 +517,27 @@ class _QuranAudioBarState extends State<QuranAudioBar> {
   }
 
   Widget _stopAfterPill() {
+    final audio = QuranAudioService.instance;
+    return ValueListenableBuilder<QuranRepeatScope>(
+      valueListenable: audio.scopeNotifier,
+      builder: (context, scope, _) {
+        // نطاق آية واحدة لا «أين يتوقف» فيه: يقف بعد تكرارها. يُعرض ذلك صراحةً بدل
+        // خيار «لا يتوقف» الذي لا يُعمل به هنا.
+        if (scope == QuranRepeatScope.ayah) {
+          return Tooltip(
+            message: 'نطاق «هذه الآية» يتوقف بعد إتمام تكرارها. لتكرار كل آية ثم متابعة التلاوة اختر نطاق الصفحة أو الجزء أو القرآن.',
+            child: Opacity(
+              opacity: 0.55,
+              child: _Pill(isDark: widget.isDark, icon: Icons.timer_outlined, label: 'بعد التكرار'),
+            ),
+          );
+        }
+        return _stopAfterMenu();
+      },
+    );
+  }
+
+  Widget _stopAfterMenu() {
     final audio = QuranAudioService.instance;
     return ValueListenableBuilder<QuranStopAfter>(
       valueListenable: audio.stopAfterNotifier,

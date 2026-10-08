@@ -1,3 +1,4 @@
+import 'update/update_progress_notification.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -242,6 +243,14 @@ class AppNotificationService {
     } catch (e) {
       debugPrint('⚠️ [AppNotificationService] showUpdateAvailableNotification error: $e');
     }
+  }
+
+  /// شريط تقدّم تنزيل التحديث في الإشعارات (`null` يزيله). يُستعمل مرسلاً لـ
+  /// [UpdateProgressNotification] من الواجهة.
+  Future<void> postUpdateProgress(UpdateProgressView? view) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (!_isInitialized) await init();
+    await UpdateProgressNotification.post(_notificationsPlugin, view);
   }
 
   /// إرسال إشعار فوري عند اكتمال تنزيل التحديث في الخلفية وهو جاهز للتثبيت

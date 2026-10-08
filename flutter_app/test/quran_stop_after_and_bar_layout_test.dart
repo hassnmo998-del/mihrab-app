@@ -18,9 +18,10 @@ void main() {
     await QuranService.ensureLoaded();
   });
 
-  tearDown(() {
+  tearDown(() async {
     QuranAudioService.instance.setStopAfter(QuranStopAfter.never);
     QuranAudioService.instance.setRepeatCount(1);
+    await QuranAudioService.instance.setScope(QuranRepeatScope.quran);
   });
 
   group('"يتوقف بعد" boundaries', () {
@@ -88,7 +89,7 @@ void main() {
           QuranAudioService.instance.setStopAfter(QuranStopAfter.surah);
           await pumpBar(tester, width, scale);
           expect(tester.takeException(), isNull);
-          expect(find.text('بلا توقف'), findsOneWidget);
+          expect(find.text('بلا نهاية'), findsOneWidget);
           expect(find.text('بعد السورة'), findsOneWidget);
         });
       }
@@ -122,5 +123,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(QuranAudioService.instance.stopAfterNotifier.value, QuranStopAfter.juz);
     expect(find.text('بعد الجزء'), findsOneWidget);
+  });
+
+  testWidgets('نطاق «هذه الآية»: خانة الإيقاف تقول «بعد التكرار» ولا تعرض «لا يتوقف» الذي لا يُعمل به',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Directionality(
+          textDirection: TextDirection.rtl,
+          child: QuranAudioBar(isDark: false, idleTitle: 'سورة الفاتحة', onStart: () {}),
+        ),
+      ),
+    ));
+    expect(find.text('لا يتوقف'), findsOneWidget);
+    expect(find.text('بعد التكرار'), findsNothing);
+
+    await QuranAudioService.instance.setScope(QuranRepeatScope.ayah);
+    await tester.pumpAndSettle();
+
+    expect(find.text('بعد التكرار'), findsOneWidget);
+    expect(find.text('لا يتوقف'), findsNothing);
+    // لا قائمة تُفتح منها
+    await tester.tap(find.text('بعد التكرار'));
+    await tester.pumpAndSettle();
+    expect(find.text('إيقاف التلاوة تلقائياً'), findsNothing);
+
+    await QuranAudioService.instance.setScope(QuranRepeatScope.page);
+    await tester.pumpAndSettle();
+    expect(find.text('لا يتوقف'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('قائمة «تكرار كل آية» تسمّي خيارها الأخير «بلا نهاية»', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Directionality(
+          textDirection: TextDirection.rtl,
+          child: QuranAudioBar(isDark: false, idleTitle: 'سورة الفاتحة', onStart: () {}),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('1 مرة'));
+    await tester.pumpAndSettle();
+    expect(find.text('تكرار كل آية'), findsWidgets);
+    expect(find.text('بلا توقف'), findsNothing);
+
+    await tester.tap(find.text('بلا نهاية').last);
+    await tester.pumpAndSettle();
+    expect(QuranAudioService.instance.repeatCountNotifier.value, -1);
   });
 }

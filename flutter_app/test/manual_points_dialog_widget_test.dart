@@ -82,12 +82,6 @@ void main() {
   final deductButtonFinder = find.byKey(const ValueKey('manualPointsDeductButton'));
   final amountFieldFinder = find.byKey(const ValueKey('manualPointsAmountField'));
 
-  ElevatedButton resolveButton(WidgetTester tester, Finder wrapper) =>
-      tester.widget<ElevatedButton>(find.descendant(
-        of: wrapper,
-        matching: find.byWidgetPredicate((w) => w is ElevatedButton),
-      ));
-
   group('Manual points dialog in both students pages', () {
     testWidgets('AdminStudentsTab exposes the manual points button and applies +/-',
         (tester) async {
@@ -112,7 +106,13 @@ void main() {
       expect(find.text('الوضع اليدوي للنقاط'), findsOneWidget);
       expect(find.text('الرصيد: 100'), findsOneWidget);
 
-      // الزر الزائد: إضافة المقدار الافتراضي (5)
+      // النافذة مبسّطة: خانة الرقم وزرّا الخصم والإضافة، بلا أزرار أرقام ولا خانة سبب
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.descendant(of: find.byType(ManualPointsDialog), matching: find.byType(TextField)), findsOneWidget);
+      expect(find.text('خصم'), findsOneWidget);
+      expect(find.text('إضافة'), findsOneWidget);
+
+      await tester.enterText(amountFieldFinder, '5');
       await tester.tap(addButtonFinder);
       await tester.pumpAndSettle();
       expect(livePoints(), 105);
@@ -137,12 +137,12 @@ void main() {
       expect(manualLogs.any((l) => l.points == -5), isTrue);
       expect(manualLogs.first.reason, contains(testMosque.name));
 
-      await tester.tap(find.text('إغلاق'));
+      await tester.tap(find.descendant(of: find.byType(ManualPointsDialog), matching: find.byIcon(Icons.close)));
       await tester.pumpAndSettle();
       expect(find.byType(ManualPointsDialog), findsNothing);
     });
 
-    testWidgets('SheikhStudentsTab exposes the manual points button with a preset amount',
+    testWidgets('SheikhStudentsTab exposes the manual points button and deducts the typed amount',
         (tester) async {
       configureViewport(tester);
       await tester.pumpWidget(buildTestScaffold(
@@ -163,8 +163,7 @@ void main() {
 
       expect(find.byType(ManualPointsDialog), findsOneWidget);
 
-      // اختيار مقدار سريع (25) ثم الخصم
-      await tester.tap(find.widgetWithText(ChoiceChip, '25'));
+      await tester.enterText(amountFieldFinder, '25');
       await tester.pumpAndSettle();
 
       await tester.tap(deductButtonFinder);
@@ -216,7 +215,7 @@ void main() {
       expect(find.textContaining('رصيد الطالب صفر'), findsOneWidget);
     });
 
-    testWidgets('A zero amount disables both action buttons', (tester) async {
+    testWidgets('An empty or zero amount changes nothing and says to type a number', (tester) async {
       configureViewport(tester);
       await tester.pumpWidget(buildTestScaffold(
         child: AdminStudentsTab(
@@ -231,12 +230,22 @@ void main() {
       await tester.tap(find.byTooltip('وضع نقاط يدوي (إضافة / خصم)'));
       await tester.pumpAndSettle();
 
+      final logsBefore = dataService.getStudentPointsLog(testStudent.id).length;
+
+      // الخانة فارغة عند الفتح
+      await tester.tap(addButtonFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('اكتب عدد النقاط أولاً'), findsOneWidget);
+
       await tester.enterText(amountFieldFinder, '0');
       await tester.pumpAndSettle();
+      expect(find.text('اكتب عدد النقاط أولاً'), findsNothing);
+      await tester.tap(deductButtonFinder);
+      await tester.pumpAndSettle();
+      expect(find.text('اكتب عدد النقاط أولاً'), findsOneWidget);
 
-      expect(resolveButton(tester, addButtonFinder).onPressed, isNull);
-      expect(resolveButton(tester, deductButtonFinder).onPressed, isNull);
       expect(livePoints(), 100);
+      expect(dataService.getStudentPointsLog(testStudent.id).length, logsBefore);
     });
   });
 }

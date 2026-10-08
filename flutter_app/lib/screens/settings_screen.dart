@@ -24,7 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (AppUpdateService.instance.state == SilentUpdateState.idle &&
           AppUpdateService.instance.latestInfo == null) {
-        AppUpdateService.instance.checkForUpdate();
+        AppUpdateService.instance.checkAndDownload();
       }
     });
   }

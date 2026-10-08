@@ -817,8 +817,21 @@ class _AdminDesignStudioTabState extends State<AdminDesignStudioTab> {
       filteredStudents = filteredStudents.where((s) => s.halaqaId == _posterHalaqaId).toList();
     }
 
-    // Sort by points descending
-    filteredStudents.sort((a, b) => b.totalPoints.compareTo(a.totalPoints));
+    // النقاط نفسها التي تعرضها لوحة الترتيب: ما اكتسبه الطالب (لا رصيده بعد صرف
+    // الجوائز)، وفي ملصق مسابقة ما اكتسبه في فترتها
+    final posterCompetition = _posterFilterScope == 'specific_competition' && _posterCompetitionId != null
+        ? competitions.where((c) => c.id == _posterCompetitionId).firstOrNull
+        : null;
+    final scores = <String, int>{
+      for (final row in context.read<DataService>().getRankings(
+            mosqueId: widget.mosque.id,
+            startDate: posterCompetition?.startDate,
+            endDate: posterCompetition?.endDate,
+          ))
+        (row['student'] as Student).id: row['score'] as int,
+    };
+    int scoreOf(Student s) => scores[s.id] ?? 0;
+    filteredStudents.sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
 
     // If single spotlight chosen, select that student specifically
     if (_posterConfig.layoutType == PosterLayoutType.singleSpotlight) {
@@ -835,7 +848,7 @@ class _AdminDesignStudioTabState extends State<AdminDesignStudioTab> {
           rank: i + 1,
           student: st,
           halaqaName: h?.name,
-          score: st.totalPoints,
+          score: scoreOf(st),
         ),
       );
     }

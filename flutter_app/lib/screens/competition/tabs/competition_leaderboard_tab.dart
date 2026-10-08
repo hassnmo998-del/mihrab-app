@@ -272,6 +272,15 @@ class _CompetitionLeaderboardTabState extends State<CompetitionLeaderboardTab> {
             ),
           ),
           const SizedBox(height: 6),
+        ] else ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Text(
+              'الترتيب بمجموع ما اكتسبه الطالب من نقاط في الفترة المختارة. استبدال النقاط بجائزة لا يُنقص الترتيب.',
+              style: AppTypography.verveSubtitle(context).copyWith(fontSize: 12),
+            ),
+          ),
+          const SizedBox(height: 6),
         ],
 
         // Leaderboard Content (Podium + Open List)

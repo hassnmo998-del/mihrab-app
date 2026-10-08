@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class Reward {
   final String id;
   final String mosqueId;
@@ -24,7 +26,7 @@ class Reward {
     description: json['description'],
     pointsCost: json['points_cost'] ?? json['pointsCost'] ?? 100,
     isActive: json['is_active'] ?? json['isActive'] ?? true,
-    createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+    createdAt: parseWallClock(json['created_at']),
   );
 
   Map<String, dynamic> toJson() => {

@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class RecitationTrack {
   final String id;
   final String mosqueId;
@@ -42,7 +44,7 @@ class RecitationTrack {
         ? (json['target_halaqa_ids'] as List).map((e) => e.toString()).toList()
         : (json['targetHalaqaIds'] != null ? (json['targetHalaqaIds'] as List).map((e) => e.toString()).toList() : const []),
     sheikhId: json['sheikh_id']?.toString() ?? json['sheikhId']?.toString(),
-    createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+    createdAt: parseWallClock(json['created_at']),
   );
 
   Map<String, dynamic> toJson() => {

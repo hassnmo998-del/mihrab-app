@@ -17,4 +17,6 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- شاشة قصّ الصورة الشخصية -->
+    <style name="CropTheme" parent="Theme.AppCompat.Light.NoActionBar" />
 </resources>

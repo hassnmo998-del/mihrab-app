@@ -1,5 +1,4 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../../core/utils/profile_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../models/models.dart';
@@ -21,15 +20,7 @@ class SheikhHeaderBanner extends StatelessWidget {
     required this.isDark,
   });
 
-  ImageProvider? _resolveImage(String? path) {
-    if (path == null || path.trim().isEmpty) return null;
-    final trimmed = path.trim();
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return NetworkImage(trimmed);
-    }
-    if (kIsWeb) return null; // لا ملفات محلية في المتصفح
-    return FileImage(File(trimmed));
-  }
+  ImageProvider? _resolveImage(String? path) => ProfileImage.provider(path, radius: 36);
 
   @override
   Widget build(BuildContext context) {
@@ -135,17 +126,16 @@ class SheikhHeaderBanner extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 36,
                   backgroundColor: Colors.white.withValues(alpha: 0.2),
-                  backgroundImage: imageProvider,
-                  child: imageProvider == null
-                      ? Text(
+                  foregroundImage: imageProvider,
+                  onForegroundImageError: imageProvider == null ? null : (_, __) {},
+                  child: Text(
                     firstLetter,
                     style: AppTypography.font(
                       color: Colors.white,
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
                     ),
-                  )
-                      : null,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),

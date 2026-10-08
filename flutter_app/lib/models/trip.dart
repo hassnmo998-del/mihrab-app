@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 import 'student.dart';
 
 class Trip {
@@ -88,16 +90,16 @@ class Trip {
     mosqueId: json['mosque_id']?.toString() ?? json['mosqueId']?.toString() ?? '',
     title: json['title'] ?? '',
     destination: json['destination'] ?? '',
-    tripDate: json['trip_date'] != null ? DateTime.parse(json['trip_date']) : DateTime.now(),
+    tripDate: parseWallClock(json['trip_date']),
     meetingTime: json['meeting_time'] ?? '08:00 صباحاً',
-    deadlineDate: json['deadline_date'] != null ? DateTime.parse(json['deadline_date']) : null,
+    deadlineDate: tryParseWallClock(json['deadline_date']),
     description: json['description'],
     requiredItems: json['required_items'] ?? json['requiredItems'] ?? 'لباس مريح، مصحف جيب، مياه وطعام خفيف',
     targetHalaqaIds: (json['target_halaqa_ids'] as List?)?.map((e) => e.toString()).toList() ?? [],
     targetStudentIds: (json['target_student_ids'] as List?)?.map((e) => e.toString()).toList() ?? [],
     costPoints: json['cost_points'] ?? json['costPoints'] ?? 0,
     status: json['status'] ?? 'upcoming',
-    createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+    createdAt: parseWallClock(json['created_at']),
   );
 
   Map<String, dynamic> toJson() => {

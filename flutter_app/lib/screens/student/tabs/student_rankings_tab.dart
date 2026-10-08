@@ -64,7 +64,7 @@ class StudentRankingsTab extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Text(
-            'سلم الترتيب التنافسي المعتمد في المسجد وفق مجموع نقاط التسميع والالتزام.',
+            'سلم الترتيب التنافسي المعتمد في المسجد وفق مجموع ما اكتسبه الطالب من نقاط التسميع والالتزام. استبدال النقاط بجائزة لا يُنقص الترتيب.',
             style: AppTypography.verveSubtitle(context),
           ),
         ),

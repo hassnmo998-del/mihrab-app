@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- أندرويد 15 يمدّ كل شاشة تحت شريط الحالة: بدون هذا يغطي الشريط أزرار «تم» و«إلغاء»
+         في شاشة القصّ -->
+    <style name="CropTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>

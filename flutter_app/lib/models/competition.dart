@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class Competition {
   final String id;
   final String mosqueId;
@@ -36,8 +38,8 @@ class Competition {
       mosqueId: json['mosque_id']?.toString() ?? json['mosqueId']?.toString() ?? '',
       title: json['title'] ?? '',
       description: json['description'] ?? '',
-      startDate: json['start_date'] != null ? DateTime.parse(json['start_date']) : DateTime.now(),
-      endDate: json['end_date'] != null ? DateTime.parse(json['end_date']) : DateTime.now().add(const Duration(days: 30)),
+      startDate: parseWallClock(json['start_date']),
+      endDate: parseWallClock(json['end_date'], fallback: DateTime.now().add(const Duration(days: 30))),
       countQuran: json['count_quran'] ?? json['countQuran'] ?? true,
       countHadith: json['count_hadith'] ?? json['countHadith'] ?? true,
       countAttendance: json['count_attendance'] ?? json['countAttendance'] ?? true,

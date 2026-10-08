@@ -133,9 +133,15 @@ class _SheikhAttendanceTabState extends State<SheikhAttendanceTab> {
               ),
               onPressed: () {
                 final newEnable = tempEnable;
-                final newPresent = int.tryParse(presentCtrl.text) ?? 5;
-                final newLate = int.tryParse(lateCtrl.text) ?? 2;
-                final newAbsent = int.tryParse(absentCtrl.text) ?? 0;
+                // الحضور يمنح نقاطاً ولا يخصم: قيمة سالبة كانت تُحفظ ولا يُعمل بها
+                int points(String text, int fallback) {
+                  final value = int.tryParse(text.trim()) ?? fallback;
+                  return value < 0 ? 0 : value;
+                }
+
+                final newPresent = points(presentCtrl.text, 5);
+                final newLate = points(lateCtrl.text, 2);
+                final newAbsent = points(absentCtrl.text, 0);
 
                 setState(() {
                   _enableAttendancePoints = newEnable;

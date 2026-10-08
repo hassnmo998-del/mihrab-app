@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class SubjectRecitationRecord {
   final String id;
   final String studentId;
@@ -45,7 +47,7 @@ class SubjectRecitationRecord {
     courseId: json['course_id']?.toString() ?? json['courseId']?.toString(),
     notes: json['notes'],
     countsTowardsStatistics: json['counts_towards_statistics'] ?? json['countsTowardsStatistics'] ?? true,
-    recordedAt: json['recorded_at'] != null ? DateTime.parse(json['recorded_at']) : DateTime.now(),
+    recordedAt: parseWallClock(json['recorded_at']),
   );
 
   Map<String, dynamic> toJson() => {

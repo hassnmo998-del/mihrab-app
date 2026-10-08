@@ -188,6 +188,9 @@ class AdhanPlaybackService : Service() {
             return START_NOT_STICKY
         }
 
+        // الأذان بدأ: شريط المواقيت يعرض عدّاد الإقامة من الآن
+        PrayerNotificationManager.refresh(this)
+
         val started = AdhanPlayer.play(this, prayerName) {
             Log.d(TAG, "Adhan playback finished")
             MainActivity.channel?.invokeMethod("onAdhanCompleted", prayerName)
@@ -203,6 +206,8 @@ class AdhanPlaybackService : Service() {
     }
 
     private fun finish() {
+        // انتهى الأذان أو أُسكت: يُعاد رسم الشريط بالمرحلة الحالية
+        PrayerNotificationManager.refresh(this)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

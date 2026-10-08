@@ -80,8 +80,8 @@ void main() {
       expect(QuranAudioService.instance.speedNotifier.value, 1.0);
     });
 
-    test('Default repeat count is -1 (بلا توقف / continuous)', () {
-      expect(QuranAudioService.instance.repeatCountNotifier.value, -1);
+    test('Default repeat count is 1 (مرة واحدة)', () {
+      expect(QuranAudioService.instance.repeatCountNotifier.value, 1);
     });
 
     test('setScope updates scopeNotifier correctly', () async {
@@ -135,6 +135,7 @@ void main() {
       expect(QuranAudioService.instance.activeAyahNotifier.value, isNull);
       expect(QuranAudioService.instance.activePageNotifier.value, isNull);
       expect(QuranAudioService.instance.activeTagNotifier.value, isNull);
+      expect(QuranAudioService.instance.ayahPassesDone, 0);
     });
   });
 

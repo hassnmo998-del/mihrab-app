@@ -1,3 +1,5 @@
+import '../core/utils/wall_clock.dart';
+
 class PointsLog {
   final String id;
   final String studentId;
@@ -24,7 +26,7 @@ class PointsLog {
       points: json['points'] ?? 0,
       reason: json['reason'] ?? '',
       category: json['category'] ?? 'memorization',
-      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : DateTime.now(),
+      createdAt: parseWallClock(json['created_at']),
       competitionId: json['competition_id'] ?? json['competitionId'],
     );
   }

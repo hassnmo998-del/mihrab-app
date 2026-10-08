@@ -21,8 +21,13 @@ import java.util.Calendar
  * عبر [sync]، وهنا نحسب المرحلة الحالية (قبل الأذان / بين الأذان والإقامة)، ونعرض عدّاداً
  * تنازلياً، ونضبط منبّهات دقيقة متعددة على لحظة انتهائه فيُعاد الرسم بالمرحلة التالية.
  *
- * لمنع ظهور عدّاد سالب إذا أخّر نظام التشغيل أو مصنّع الجهاز المنبّه (Doze, OEM battery
- * killers)، تُضبط ثلاثة منبّهات بديلة ومنبّه حارس (watchdog) دوري كل 5 دقائق.
+ * العدّاد في الإشعار لا يقف عند الصفر من نفسه: إن لم يُعَد رسم الإشعار عند انتهائه أكمل
+ * بالسالب. لذلك:
+ *  - لحظة دخول الوقت يُعاد الرسم من منبّه الأذان نفسه ([AdhanAlarmReceiver])، وهو أدقّ
+ *    منبّه في النظام، فيبدأ عدّاد الإقامة فوراً ولا ينتظر منبّه هذا الشريط.
+ *  - المرحلة تُحسب بسماح [EARLY_MS]، ومنبّه التحديث يسبق الموعد بقليل، فينتقل الشريط قبل
+ *    أن يبلغ العدّاد الصفر.
+ *  - منبّهات احتياطية وحارس دوري لما يؤخّره النظام أو مصنّع الجهاز.
  * يعود بعد إعادة التشغيل ([AdhanBootReceiver]) وحين يمسحه المستخدم (deleteIntent).
  */
 object PrayerNotificationManager {
@@ -39,6 +44,13 @@ object PrayerNotificationManager {
     private const val REQUEST_REFRESH_BACKUP_120 = 3004
     private const val REQUEST_WATCHDOG = 3005
     private const val SUNRISE = "الشروق"
+
+    /** موعد يحين خلال هذه المدة يُعدّ قد حان: منبّه يصل قبل لحظته بكسر ثانية لا يعيد
+     *  رسم المرحلة المنتهية بعدّاد على وشك أن يصير سالباً. */
+    private const val EARLY_MS = 2_000L
+
+    /** منبّه التحديث يسبق الموعد بهذا القدر (أقل من [EARLY_MS]). */
+    private const val REFRESH_LEAD_MS = 1_200L
 
     private data class PrayerEvent(val name: String, val adhan: Long, val iqama: Long) {
         val hasIqama get() = iqama > adhan
@@ -70,11 +82,13 @@ object PrayerNotificationManager {
         }
         val events = parse(prefs.getString(KEY_TIMELINE, null))
         val now = System.currentTimeMillis()
+        // المرحلة تُحسب بلحظة تسبق الساعة قليلاً (انظر [EARLY_MS])؛ العدّاد نفسه بالساعة الحقيقية
+        val phaseNow = now + EARLY_MS
 
         // بين الأذان والإقامة لصلاة ما: العدّ نحو الإقامة
-        val inIqama = events.firstOrNull { it.hasIqama && now >= it.adhan && now < it.iqama }
+        val inIqama = events.firstOrNull { it.hasIqama && phaseNow >= it.adhan && phaseNow < it.iqama }
         // وإلا فالعدّ نحو أول حدث قادم (الشروق يُعرض ولا إقامة له)
-        val upcoming = events.firstOrNull { it.adhan > now }
+        val upcoming = events.firstOrNull { it.adhan > phaseNow }
 
         createChannel(context)
         if (inIqama == null && upcoming == null) {
@@ -253,7 +267,7 @@ object PrayerNotificationManager {
     /**
      * يضبط عدة منبّهات مستقلة لضمان انتقال الشريط للمرحلة التالية حتى لو أخّر
      * Doze أو مصنّع الجهاز بعضها:
-     *   1. المنبّه الرئيسي: ثانية بعد الموعد
+     *   1. المنبّه الرئيسي: قبيل الموعد بـ[REFRESH_LEAD_MS]، فينتقل الشريط قبل الصفر
      *   2. احتياطي أول: 30 ثانية بعد الموعد
      *   3. احتياطي ثانٍ: دقيقتان بعد الموعد
      *   4. حارس دوري (watchdog): كل 5 دقائق — يُعاد ضبطه كل مرة يعمل refresh
@@ -265,9 +279,9 @@ object PrayerNotificationManager {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val now = System.currentTimeMillis()
 
-        // 1. الرئيسي: ثانية بعد الموعد
+        // 1. الرئيسي: قبيل الموعد، فتُرسم المرحلة التالية قبل أن يبلغ العدّاد الصفر
         scheduleOneAlarm(context, alarms,
-            (targetMillis + 1_000).coerceAtLeast(now + 500),
+            (targetMillis - REFRESH_LEAD_MS).coerceAtLeast(now + 300),
             REQUEST_REFRESH_ALARM)
 
         // 2. احتياطي: 30 ثانية بعد الموعد (يلحق تأخيرات Doze القصيرة)

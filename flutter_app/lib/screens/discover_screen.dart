@@ -328,14 +328,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
     // 1. تبويب الدروس القادمة أو المباشرة حصراً (تستثني المؤرشف كلياً).
     //    درس المرة الواحدة يختفي حين ينقضي موعده، ما لم يكن تسجيله جارياً الآن؛
-    //    ويبقى لصاحبه في «إدارة دروسي العامة».
-    final now = DateTime.now();
+    //    ويبقى لصاحبه في «إدارة دروسي العامة». المباشر أولاً ثم الأقرب موعداً.
+    final now = LessonSchedule.clock();
     final activeUpcomingBase = allEvents
-        .where((e) =>
-            e.isActive &&
-            e.eventStatus != 'archived' &&
-            (e.eventStatus == 'live' || !LessonSchedule.hasEnded(e, now)))
-        .toList();
+        .where((e) => e.isActive && e.eventStatus != 'archived' && LessonSchedule.isListed(e, now))
+        .toList()
+      ..sort((a, b) => LessonSchedule.compareBySchedule(a, b, now));
 
     // استخراج تصنيفات الدروس المتوفرة ديناميكياً والتي تحتوي على دروس قادمة
     final Map<String, String> availableCategories = {'all': 'الكل'};
@@ -841,7 +839,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                             .where((m) => m.id == ev.mosqueId)
                             .firstOrNull;
 
-                        final isLive = ev.eventStatus == 'live';
+                        final isLive = LessonSchedule.isLive(ev, now);
+                        // انتهى ويبقى ظاهراً لبقية يومه: لا «أنوي الحضور» ولا أسئلة
+                        final isPast = !isLive && LessonSchedule.hasEnded(ev, now);
+                        final nextSession = LessonSchedule.sessionLabel(ev, now);
                         final isCutoff = !LessonSchedule.questionsOpen(ev, now);
                         final questions = data.getCurrentEventQuestions(ev);
                         final remainingQ = ev.maxQuestions - questions.length;
@@ -920,13 +921,38 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                           .withValues(alpha: 0.15),
                                       textColor: AppColors.goldDark,
                                     ),
-                                    UnifiedBadge(
-                                      label: ev.timingDescription,
-                                      backgroundColor: AppColors
-                                          .terracottaPrimary
-                                          .withValues(alpha: 0.1),
-                                      textColor: AppColors.terracottaPrimary,
-                                    ),
+                                    // القاعدة (كل السبت • بعد العصر)، ثم موعد الجلسة القادمة
+                                    // محسوباً. درس المرة الواحدة بوقت محدد يكفيه موعده.
+                                    if (ev.isRecurring ||
+                                        ev.timingType == 'prayer_linked' ||
+                                        nextSession == null)
+                                      UnifiedBadge(
+                                        label: ev.timingDescription,
+                                        backgroundColor: AppColors
+                                            .terracottaPrimary
+                                            .withValues(alpha: 0.1),
+                                        textColor: AppColors.terracottaPrimary,
+                                      ),
+                                    if (nextSession != null)
+                                      UnifiedBadge(
+                                        key: ValueKey('nextSession-${ev.id}'),
+                                        label: ev.isRecurring &&
+                                                !nextSession.startsWith('جارٍ')
+                                            ? 'القادم: $nextSession'
+                                            : nextSession,
+                                        icon: isPast
+                                            ? Icons.history_rounded
+                                            : Icons.event_rounded,
+                                        backgroundColor: isPast
+                                            ? Colors.grey.withValues(alpha: 0.15)
+                                            : AppColors.terracottaPrimary
+                                                .withValues(alpha: 0.1),
+                                        textColor: isPast
+                                            ? (isDark
+                                                ? Colors.white70
+                                                : Colors.black54)
+                                            : AppColors.terracottaPrimary,
+                                      ),
                                     Builder(
                                       builder: (context) {
                                         double? dist = ev.distanceMeters;
@@ -967,7 +993,16 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 ),
                                 if (ev.isQaEnabled && !isManager) ...[
                                   const SizedBox(height: 10),
-                                  if (isCutoff)
+                                  if (isPast)
+                                    const Text(
+                                      '🔒 انتهى الدرس فأُغلق باب الأسئلة',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    )
+                                  else if (isCutoff)
                                     const Text(
                                       '🔒 تم إغلاق باب استقبال الأسئلة (قبل الدرس بنصف ساعة)',
                                       style: TextStyle(
@@ -1025,7 +1060,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                   : WrapAlignment.end,
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
-                                if (!isManager)
+                                if (!isManager && !isPast)
                                   OutlinedButton.icon(
                                     style: OutlinedButton.styleFrom(
                                       backgroundColor: ev.hasTapped

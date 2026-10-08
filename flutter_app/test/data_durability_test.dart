@@ -178,6 +178,39 @@ void main() {
       expect(remote.uploaded, ['upsert:students:fine', 'upsert:students:poison', 'upsert:students:poison']);
     });
 
+    test('سجل عالق لا يُسقط توابعه: حركة نقاط لطالب لم يُرفع بعد تبقى معه حتى يُرفع', () async {
+      final queue = OfflineSyncQueueManager();
+      final remote = _ParentStuckRemote();
+      queue.queueSync(table: 'students', action: 'upsert', data: {'id': 'st1'});
+      queue.queueSync(table: 'points_logs', action: 'upsert', data: {'id': 'log1', 'student_id': 'st1'});
+      queue.queueSync(table: 'rewards', action: 'upsert', data: {'id': 'rw1'});
+
+      for (var attempt = 0; attempt < OfflineSyncQueueManager.stuckAfter + 3; attempt++) {
+        await queue.processQueue(remote);
+      }
+
+      // المستقل عن العالق رُفع، والعالق وتابعه باقيان بترتيبهما ولم يُسجَّل شيء مرفوضاً
+      expect(remote.uploaded, ['upsert:rewards:rw1']);
+      expect(queue.pendingQueue.map((i) => i['data']['id']), ['st1', 'log1']);
+      expect(await OfflineSyncQueueManager.rejectedLog(), isEmpty);
+
+      remote.parentStuck = false;
+      await queue.processQueue(remote);
+      expect(queue.pendingQueue, isEmpty);
+      expect(remote.uploaded, ['upsert:rewards:rw1', 'upsert:students:st1', 'upsert:points_logs:log1']);
+    });
+
+    test('تابعٌ أصله محذوف من الخادم (لا شيء عالق): يُزال ويُسجَّل', () async {
+      final queue = OfflineSyncQueueManager();
+      final remote = _ParentStuckRemote()..parentStuck = false..parentExists = false;
+      queue.queueSync(table: 'points_logs', action: 'upsert', data: {'id': 'orphan', 'student_id': 'gone'});
+
+      await queue.processQueue(remote);
+
+      expect(queue.pendingQueue, isEmpty);
+      expect((await OfflineSyncQueueManager.rejectedLog()).single['id'], 'orphan');
+    });
+
     test('الطابور يبقى بعد إغلاق التطبيق وفتحه بلا إنترنت', () async {
       final queue = OfflineSyncQueueManager();
       final remote = ScriptedRemote()..failure = const SocketException('offline');
@@ -431,6 +464,24 @@ class _OneRowBrokenRemote extends ScriptedRemote {
   Future<void> upsert(String table, Map<String, dynamic> data) {
     if (broken && data['id'] == rowId) {
       throw const PostgrestException(message: 'Internal Server Error', code: '500');
+    }
+    return super.upsert(table, data);
+  }
+}
+
+/// خادم يردّ بخطأ داخلي على سجل الطالب، ويرفض حركات النقاط ما دام الطالب غير موجود.
+class _ParentStuckRemote extends ScriptedRemote {
+  bool parentStuck = true;
+  bool parentExists = true;
+
+  @override
+  Future<void> upsert(String table, Map<String, dynamic> data) {
+    if (table == 'students' && parentStuck) {
+      throw const PostgrestException(message: 'Internal Server Error', code: '500');
+    }
+    final parentUploaded = uploaded.any((u) => u.startsWith('upsert:students:'));
+    if (table == 'points_logs' && (!parentExists || !parentUploaded)) {
+      throw const PostgrestException(message: 'violates foreign key constraint', code: '23503');
     }
     return super.upsert(table, data);
   }

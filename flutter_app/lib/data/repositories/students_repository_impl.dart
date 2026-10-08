@@ -1,3 +1,5 @@
+import '../../services/points_ledger.dart';
+import 'points_writer.dart';
 import '../../core/utils/access_code_generator.dart';
 import 'dart:math';
 import '../../domain/repositories/students_repository.dart';
@@ -12,6 +14,8 @@ class StudentsRepositoryImpl implements StudentsRepository {
   final LocalStorageDataSource _localDataSource;
   final OfflineSyncQueueManager _syncQueueManager;
   final SupabaseRemoteDataSource? _remoteDataSource;
+
+  PointsWriter get _points => PointsWriter(_localDataSource, _syncQueueManager, _remoteDataSource);
 
   StudentsRepositoryImpl(
       this._localDataSource,
@@ -165,7 +169,10 @@ class StudentsRepositoryImpl implements StudentsRepository {
   @override
   List<PointsLog> getStudentPointsLog(String studentId) {
     return _localDataSource.pointsLogs
-        .where((p) => p.studentId == studentId)
+        // حركة حضور قيمتها صفر (غياب، أو حالة عُدّلت إلى بلا نقاط) لا تُعرض
+        .where((p) =>
+            p.studentId == studentId &&
+            !(p.points == 0 && p.category == PointsLedger.attendanceCategory))
         .toList();
   }
 
@@ -211,8 +218,6 @@ class StudentsRepositoryImpl implements StudentsRepository {
       };
     }
 
-    student.totalPoints = previousTotal + applied;
-
     final trimmedReason = reason?.trim();
     final baseReason = (trimmedReason == null || trimmedReason.isEmpty)
         ? (applied > 0 ? 'إضافة نقاط يدوية' : 'خصم نقاط يدوي')
@@ -221,29 +226,13 @@ class StudentsRepositoryImpl implements StudentsRepository {
     final finalReason =
         (actor == null || actor.isEmpty) ? baseReason : '$baseReason — بواسطة: $actor';
 
-    final log = PointsLog(
-      id: LocalStorageDataSource.genId('pts'),
+    _points.apply(
       studentId: student.id,
       points: applied,
       reason: finalReason,
       category: 'manual',
-      createdAt: DateTime.now(),
     );
-    _localDataSource.pointsLogs.insert(0, log);
     _localDataSource.saveToStorage();
-
-    _syncQueueManager.queueSync(
-      table: 'students',
-      action: 'upsert',
-      data: student.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
-    _syncQueueManager.queueSync(
-      table: 'points_logs',
-      action: 'upsert',
-      data: log.toJson(),
-      remoteDataSource: _remoteDataSource,
-    );
 
     return {
       'success': true,

@@ -351,12 +351,16 @@ class _PrayerTimesQiblaViewState extends State<PrayerTimesQiblaView> {
                           ),
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          'متبقي حتى إقامة صلاة ${prayerState.prayerName}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.bold,
+                        // يظهر بين الأذان والإقامة فقط: على شاشة ضيقة أو خط مكبَّر يلتفّ ولا يتجاوز
+                        Flexible(
+                          child: Text(
+                            'متبقي حتى إقامة صلاة ${prayerState.prayerName}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
