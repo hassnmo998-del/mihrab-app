@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_app/core/di/injection.dart';
+import 'package:flutter_app/core/utils/arabic_time.dart';
 import 'package:flutter_app/models/models.dart';
 import 'package:flutter_app/screens/discover/widgets/discover_event_management_view.dart';
 import 'package:flutter_app/screens/discover_screen.dart';
@@ -149,7 +150,10 @@ void main() {
     final now = DateTime.now();
     add('درس منتهٍ', now.subtract(const Duration(days: 2)));
     add('درس قادم', now.add(const Duration(hours: 5)));
-    add('درس أسبوعي', now.subtract(const Duration(days: 20)), recurring: true, days: 'السبت, الثلاثاء');
+    // يومان ليس اليوم أحدهما: في يوم جلسته يُعرض الدرس «جارٍ» لا «القادم»
+    final days = ArabicTime.orderedDays(
+        '${ArabicTime.weekday(now.add(const Duration(days: 2)))}, ${ArabicTime.weekday(now.add(const Duration(days: 5)))}');
+    add('درس أسبوعي', now.subtract(const Duration(days: 20)), recurring: true, days: days.join(', '));
 
     final session = ActiveSession(
         role: 'mosque_admin', code: mosque.accessCode, mosqueId: mosque.id, mosqueName: mosque.name, gender: 'male');
@@ -161,7 +165,7 @@ void main() {
     // لكل درس قائم شارة «منشور»، والمنتهي بلا شارة متناقضة
     expect(find.text('منشور للجمهور'), findsNWidgets(2));
     // الأسبوعي يعرض أيامه بلا تاريخ إعلانه القديم
-    expect(find.textContaining('كل السبت، الثلاثاء •'), findsOneWidget);
+    expect(find.textContaining('كل ${days.join('، ')} •'), findsOneWidget);
     expect(find.textContaining('القادم:'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

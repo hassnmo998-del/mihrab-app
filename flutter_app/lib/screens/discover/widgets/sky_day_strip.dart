@@ -211,10 +211,6 @@ class _SkyDayStripState extends State<SkyDayStrip> {
   @override
   Widget build(BuildContext context) {
     final s = _snapshot;
-    final moonEvent = s.moonUp ? s.moonNextSet : s.moonNextRise;
-    final moonEventLabel = moonEvent == null
-        ? ''
-        : '${s.moonUp ? 'يغرب' : 'يطلع'} ${_timeFmt.format(moonEvent.toLocal())}';
 
     const edgeStyle = TextStyle(
       color: Colors.white,
@@ -289,14 +285,6 @@ class _SkyDayStripState extends State<SkyDayStrip> {
                         ),
                       ),
                     ),
-                    if (moonEventLabel.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        moonEventLabel,
-                        maxLines: 1,
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ],
                   ],
                 ),
               ),

@@ -1,84 +1,135 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- الإشعار موسّعاً: الصلاة، العدّاد الكبير، موعدا الأذان والإقامة، ومواقيت اليوم الستة. -->
+<!-- الإشعار موسّعاً: سماء اللحظة، ثم الصلاة وعدّادها، ثم مواقيت اليوم الستة.
+     الاتجاه RTL ثابت مهما كانت لغة الجهاز؛ السماء وحدها لا تنقلب (الشرق حيث يُرى). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/cardBackground"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:layoutDirection="rtl"
-    android:background="@drawable/bg_prayer_card_normal"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp"
-    android:gravity="center_horizontal">
+    android:background="@drawable/bg_prayer_card_normal">
 
-    <LinearLayout
-        android:layout_width="wrap_content"
+    <!-- لوحة السماء: الصورة تحدّد الارتفاع من عرضها الفعلي فلا تتمدّد ولا تُقصّ. الهامش
+         يُبقي إطار البطاقة ظاهراً، والزاويتان العلويتان مستديرتان في الصورة نفسها. -->
+    <FrameLayout
+        android:id="@+id/skyFrame"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/bg_badge_capsule"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp">
+        android:layout_marginTop="1dp"
+        android:layout_marginLeft="1dp"
+        android:layout_marginRight="1dp"
+        android:visibility="gone">
 
+        <ImageView
+            android:id="@+id/skyImage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"
+            android:scaleType="fitXY"
+            android:maxHeight="120dp"
+            android:importantForAccessibility="no" />
+
+        <!-- موعد واحد على شريط الأرض: الغروب القادم جهة الغرب، أو الشروق القادم جهة الشرق -->
         <TextView
-            android:id="@+id/bigTitle"
+            android:id="@+id/skyLabelLeft"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="أذان العصر"
+            android:layout_gravity="bottom|left"
+            android:layout_marginLeft="11dp"
+            android:layout_marginBottom="3dp"
             android:textColor="#FFFFFF"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+            android:textSize="10.5sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:visibility="gone" />
 
-    <Chronometer
-        android:id="@+id/bigCountdown"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:layoutDirection="ltr"
-        android:textDirection="ltr"
-        android:textColor="#FFFFFF"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:typeface="monospace" />
+        <TextView
+            android:id="@+id/skyLabelRight"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|right"
+            android:layout_marginRight="11dp"
+            android:layout_marginBottom="3dp"
+            android:textColor="#FFFFFF"
+            android:textSize="10.5sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:visibility="gone" />
+    </FrameLayout>
 
-    <!-- أندرويد 6 وأقدم: ساعة الموعد بدل العدّاد -->
-    <TextView
-        android:id="@+id/bigTargetTime"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="#FFFFFF"
-        android:textSize="26sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/countdownLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="متبقٍ لأذان العصر"
-        android:textColor="#DDFFFFFF"
-        android:textSize="11.5sp" />
-
-    <TextView
-        android:id="@+id/bigDetail"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
-        android:text="الأذان 3:48 م • الإقامة 4:08 م"
-        android:textColor="#FFFFFF"
-        android:textSize="12.5sp"
-        android:textStyle="bold"
-        android:maxLines="1"
-        android:ellipsize="end" />
-
+    <!-- الصلاة وعدّادها في سطر، وموعداها في سطر تحته بعرض البطاقة: عدّاد بعشر ساعات
+         (بعد العشاء) لا يزاحم النص فيُقصّ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:orientation="vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="5dp"
+        android:paddingBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/bigTitle"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="أذان العصر"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textAlignment="viewStart"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Chronometer
+                android:id="@+id/bigCountdown"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layoutDirection="ltr"
+                android:textDirection="ltr"
+                android:textColor="#FFFFFF"
+                android:textSize="27sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <!-- أندرويد 6 وأقدم: ساعة الموعد بدل العدّاد -->
+            <TextView
+                android:id="@+id/bigTargetTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/bigDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="الأذان 3:48 م • الإقامة 4:08 م"
+            android:textColor="#DDFFFFFF"
+            android:textSize="12sp"
+            android:textAlignment="viewStart"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <!-- مواقيت اليوم الستة، والحالية مميّزة -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="10dp"
         android:orientation="horizontal">
 
         <LinearLayout

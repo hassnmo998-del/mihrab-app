@@ -59,6 +59,12 @@ android {
         }
     }
 
+    // اختبارات أندرويد الأصلية (شريط المواقيت في الإشعارات) تُشغَّل على الحاسوب بموارد
+    // التطبيق الحقيقية: gradlew :app:testDebugUnitTest
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildTypes {
         release {
             // مفتاح الإصدار متى توفّر، وإلا debug.
@@ -82,4 +88,6 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

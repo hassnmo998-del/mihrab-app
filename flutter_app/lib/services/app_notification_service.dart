@@ -199,13 +199,18 @@ class AppNotificationService {
   /// يرسل جدول المواقيت القادمة إلى شريط الإشعار الدائم في أندرويد
   /// (PrayerNotificationManager.kt). بعدها يعدّ الشريط وينتقل بين الأذان والإقامة وحده،
   /// والتطبيق مغلق، ويعود بعد إعادة تشغيل الهاتف. يعيد true إن وصل الجدول.
-  Future<bool> syncStickyPrayerNotification(List<Map<String, dynamic>> timeline) async {
+  /// [sky] عيّنات السماء للأيام نفسها (`SkyTrack`): منها يرسم الشريط الشمس والقمر.
+  Future<bool> syncStickyPrayerNotification(
+    List<Map<String, dynamic>> timeline, {
+    Map<String, dynamic>? sky,
+  }) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     if (!_isInitialized) await init();
     if (!isStickyEnabledNotifier.value) return false;
     try {
       await _customNotificationChannel.invokeMethod('syncPrayerNotification', {
         'timeline': jsonEncode(timeline),
+        if (sky != null) 'sky': jsonEncode(sky),
         'enabled': true,
       });
       return true;

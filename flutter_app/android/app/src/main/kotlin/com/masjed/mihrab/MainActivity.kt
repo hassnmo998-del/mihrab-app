@@ -53,7 +53,7 @@ class MainActivity : AudioServiceActivity() {
                     val timeline = args?.get("timeline") as? String
                     if (timeline != null) {
                         val enabled = args["enabled"] as? Boolean ?: true
-                        PrayerNotificationManager.sync(this, timeline, enabled)
+                        PrayerNotificationManager.sync(this, timeline, args["sky"] as? String, enabled)
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGS", "timeline must be a JSON string", null)

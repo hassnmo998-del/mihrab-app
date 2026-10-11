@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/quran_data.dart';
@@ -21,6 +23,15 @@ class QuranPageMushafView extends StatefulWidget {
   final void Function(int page, int surahNum, String surahName, int ayah) onSaveBookmark;
   final int? bookmarkedPage;
 
+  /// قراءة بملء الشاشة: صفحة المصحف وحدها، بلا فهرس ولا شريط سماع ولا شريط صفحات.
+  /// تُفتح من الزر المجاور لـ«الفهرس» فوق الشاشة العادية، وما يتغيّر فيها (الصفحة، حجم
+  /// الخط، ألوان التجويد) يعود إلى الشاشة العادية عبر [_onReadingChanged].
+  final bool _isFullscreen;
+  final double? _initialFontSize;
+  final bool _initialTajweedMode;
+  final String? _initialHighlightKey;
+  final void Function(int page, double fontSize, bool tajweedMode)? _onReadingChanged;
+
   const QuranPageMushafView({
     super.key,
     required this.initialPage,
@@ -29,7 +40,28 @@ class QuranPageMushafView extends StatefulWidget {
     required this.onClose,
     required this.onSaveBookmark,
     this.bookmarkedPage,
-  });
+  })  : _isFullscreen = false,
+        _initialFontSize = null,
+        _initialTajweedMode = false,
+        _initialHighlightKey = null,
+        _onReadingChanged = null;
+
+  const QuranPageMushafView._fullscreen({
+    required this.initialPage,
+    required this.isDark,
+    required this.onClose,
+    required this.onSaveBookmark,
+    required this.bookmarkedPage,
+    required double fontSize,
+    required bool tajweedMode,
+    required String? highlightKey,
+    required void Function(int page, double fontSize, bool tajweedMode) onReadingChanged,
+  })  : initialAyah = null,
+        _isFullscreen = true,
+        _initialFontSize = fontSize,
+        _initialTajweedMode = tajweedMode,
+        _initialHighlightKey = highlightKey,
+        _onReadingChanged = onReadingChanged;
 
   @override
   State<QuranPageMushafView> createState() => _QuranPageMushafViewState();
@@ -52,11 +84,27 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
   /// Ayah picked from search results, highlighted until audio moves on.
   String? _highlightKey;
 
+  /// الصفحة المعلَّمة كما تُعرض هنا: تتبع الأب، وتُحدَّث فوراً حين تُحفظ العلامة من
+  /// شاشة ملء الشاشة (الأب تحتها لا يعيد بناءها).
+  int? _bookmarkedPage;
+
+  /// شاشة ملء الشاشة مفتوحة فوق هذه: هي التي تتبع الصوت، وما وصلت إليه يُطبَّق هنا عند العودة.
+  bool _fullscreenOpen = false;
+  int? _pageFromFullscreen;
+
+  bool get _hidesSystemBars => widget._isFullscreen && !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   @override
   void initState() {
     super.initState();
     _currentPage = widget.initialPage.clamp(1, 604);
     _pageController = PageController(initialPage: _currentPage - 1);
+    _bookmarkedPage = widget.bookmarkedPage;
+    _fontSize = widget._initialFontSize ?? _fontSize;
+    _isTajweedMode = widget._initialTajweedMode;
+    _highlightKey = widget._initialHighlightKey;
+    // ملء الشاشة على الهاتف: شريطا النظام يختفيان، ويعودان عند الخروج كما كانا
+    if (_hidesSystemBars) SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     // Auto page-flip when audio advances or plays
     QuranAudioService.instance.activePageNotifier.addListener(_onActivePageChanged);
     QuranAudioService.instance.activeAyahNotifier.addListener(_onActiveAyahChanged);
@@ -64,7 +112,16 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
   }
 
   @override
+  void didUpdateWidget(covariant QuranPageMushafView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.bookmarkedPage != oldWidget.bookmarkedPage) _bookmarkedPage = widget.bookmarkedPage;
+  }
+
+  @override
   void dispose() {
+    if (_hidesSystemBars) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+    }
     QuranAudioService.instance.activePageNotifier.removeListener(_onActivePageChanged);
     QuranAudioService.instance.activeAyahNotifier.removeListener(_onActiveAyahChanged);
     QuranAudioService.instance.isPlayingNotifier.removeListener(_onIsPlayingChanged);
@@ -91,6 +148,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
   /// يغصب الانتقال فوراً للصفحة التي تُتلى آياتها طالما الصوت يعمل
   void _syncAudioPageIfNeeded() {
     if (!mounted) return;
+    if (_fullscreenOpen) return;
     if (!QuranAudioService.instance.isPlayingNotifier.value) return;
 
     final tag = QuranAudioService.instance.activeTagNotifier.value;
@@ -104,6 +162,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     final clamped = page.clamp(1, 604);
     if (_currentPage == clamped) return;
     setState(() => _currentPage = clamped);
+    _reportReading();
     if (_pageController.hasClients) {
       final cur = _pageController.page?.round() ?? (_currentPage - 1);
       final diff = (clamped - 1 - cur).abs();
@@ -159,12 +218,64 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
   void _bookmarkPage(int page) {
     final pageData = QuranService.getPage(page);
     final firstAyah = pageData?.ayahs.isNotEmpty == true ? pageData!.ayahs.first : null;
-    widget.onSaveBookmark(
+    _saveBookmark(
       page,
       firstAyah?.surahNumber ?? 1,
       firstAyah?.surahName ?? 'الفاتحة',
       firstAyah?.ayahNumberInSurah ?? 1,
     );
+  }
+
+  void _saveBookmark(int page, int surahNum, String surahName, int ayah) {
+    setState(() => _bookmarkedPage = page);
+    widget.onSaveBookmark(page, surahNum, surahName, ayah);
+  }
+
+  /// يبلّغ الشاشة العادية بما صارت عليه القراءة في ملء الشاشة.
+  void _reportReading() => widget._onReadingChanged?.call(_currentPage, _fontSize, _isTajweedMode);
+
+  void _toggleTajweed() {
+    setState(() => _isTajweedMode = !_isTajweedMode);
+    _reportReading();
+  }
+
+  /// يفتح صفحة المصحف وحدها بملء الشاشة، من حيث يقف القارئ وبإعداداته. ما يجري فيها كما
+  /// هنا: النقر على آية يتلوها، والتظليل والتمرير وقلب الصفحة تتبع التلاوة. وعند العودة
+  /// تقف هذه الشاشة حيث انتهت تلك.
+  Future<void> _openFullscreen() async {
+    if (_searchOpen) _closeSearch();
+    _fullscreenOpen = true;
+    _pageFromFullscreen = null;
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => QuranPageMushafView._fullscreen(
+          initialPage: _currentPage,
+          isDark: widget.isDark,
+          onClose: widget.onClose,
+          onSaveBookmark: _saveBookmark,
+          bookmarkedPage: _bookmarkedPage,
+          fontSize: _fontSize,
+          tajweedMode: _isTajweedMode,
+          highlightKey: _highlightKey,
+          onReadingChanged: (page, fontSize, tajweedMode) {
+            _pageFromFullscreen = page;
+            _fontSize = fontSize;
+            _isTajweedMode = tajweedMode;
+          },
+        ),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+      ),
+    );
+    _fullscreenOpen = false;
+    if (!mounted) return;
+    final page = _pageFromFullscreen;
+    setState(() {
+      if (page != null) _currentPage = page;
+    });
+    // بلا حركة قلب: الشاشة تظهر على الصفحة التي كان يقرؤها
+    if (page != null && _pageController.hasClients) _pageController.jumpToPage(page - 1);
   }
 
   Future<void> _openSurahStory(int surahNum) async {
@@ -181,7 +292,9 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
 
   void _zoom(double delta) {
     final next = (_fontSize + delta).clamp(_minFontSize, _maxFontSize);
-    if (next != _fontSize) setState(() => _fontSize = next);
+    if (next == _fontSize) return;
+    setState(() => _fontSize = next);
+    _reportReading();
   }
 
   /// Slim top row: back to the index, and search right beside it.
@@ -227,6 +340,12 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
             ),
           ),
           const SizedBox(width: 6),
+          IconButton(
+            key: const ValueKey('mushafFullscreenButton'),
+            icon: const Icon(Icons.fullscreen_rounded),
+            tooltip: 'قراءة بملء الشاشة',
+            onPressed: _openFullscreen,
+          ),
           if (!_searchOpen)
             IconButton(
               icon: const Icon(Icons.search_rounded),
@@ -395,6 +514,43 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     );
   }
 
+  /// صفحات المصحف الـ604: هي نفسها في الشاشة العادية وفي ملء الشاشة.
+  Widget _buildPages(bool isDark, bool isMobile) {
+    return PageView.builder(
+      controller: _pageController,
+      itemCount: 604,
+      reverse: false, // Reversing page flip direction
+      onPageChanged: (idx) {
+        setState(() => _currentPage = idx + 1);
+        _reportReading();
+      },
+      itemBuilder: (context, idx) {
+        final pageNum = idx + 1;
+        final pageData = QuranService.getPage(pageNum);
+        if (pageData == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return _MushafPageCard(
+          key: ValueKey('mushaf_page_$pageNum'),
+          page: pageData,
+          isDark: isDark,
+          isMobile: isMobile,
+          fontSize: _fontSize,
+          isTajweedMode: _isTajweedMode,
+          onSaveBookmark: _saveBookmark,
+          onZoomIn: () => _zoom(2),
+          onZoomOut: () => _zoom(-2),
+          onBookmark: () => _bookmarkPage(pageNum),
+          isBookmarked: _bookmarkedPage == pageNum,
+          highlightKey: _highlightKey,
+          onToggleTajweed: _toggleTajweed,
+          onOpenSurahStory: _openSurahStory,
+          onExitFullscreen: widget._isFullscreen ? () => Navigator.of(context).maybePop() : null,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -402,6 +558,23 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
     final showResults = _searchOpen &&
         (QuranSearchService.pageNumberOf(_searchCtrl.text) != null ||
             QuranSearchService.skeleton(_searchCtrl.text).length >= 2);
+
+    if (widget._isFullscreen) {
+      return Scaffold(
+        body: SafeArea(
+          child: CallbackShortcuts(
+            bindings: {const SingleActivator(LogicalKeyboardKey.escape): () => Navigator.of(context).maybePop()},
+            child: Focus(
+              autofocus: true,
+              child: Padding(
+                padding: isMobile ? const EdgeInsets.all(4) : const EdgeInsets.all(10),
+                child: _buildPages(isDark, isMobile),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -422,39 +595,7 @@ class _QuranPageMushafViewState extends State<QuranPageMushafView> {
         Expanded(
           child: Stack(
             children: [
-              Positioned.fill(
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: 604,
-                  reverse: false, // Reversing page flip direction
-                  onPageChanged: (idx) {
-                    setState(() => _currentPage = idx + 1);
-                  },
-                  itemBuilder: (context, idx) {
-                    final pageNum = idx + 1;
-                    final pageData = QuranService.getPage(pageNum);
-                    if (pageData == null) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    return _MushafPageCard(
-                      key: ValueKey('mushaf_page_$pageNum'),
-                      page: pageData,
-                      isDark: isDark,
-                      isMobile: isMobile,
-                      fontSize: _fontSize,
-                      isTajweedMode: _isTajweedMode,
-                      onSaveBookmark: widget.onSaveBookmark,
-                      onZoomIn: () => _zoom(2),
-                      onZoomOut: () => _zoom(-2),
-                      onBookmark: () => _bookmarkPage(pageNum),
-                      isBookmarked: widget.bookmarkedPage == pageNum,
-                      highlightKey: _highlightKey,
-                      onToggleTajweed: () => setState(() => _isTajweedMode = !_isTajweedMode),
-                      onOpenSurahStory: _openSurahStory,
-                    );
-                  },
-                ),
-              ),
+              Positioned.fill(child: _buildPages(isDark, isMobile)),
               if (showResults) Positioned.fill(child: _buildSearchResults(isDark)),
             ],
           ),
@@ -494,6 +635,9 @@ class _MushafPageCard extends StatefulWidget {
   final VoidCallback onToggleTajweed;
   final void Function(int surahNum)? onOpenSurahStory;
 
+  /// في ملء الشاشة فقط: زر في رأس الصفحة يعيد إلى الشاشة العادية.
+  final VoidCallback? onExitFullscreen;
+
   /// Ayah picked from search results (`surah:ayah`), highlighted like the playing ayah.
   final String? highlightKey;
 
@@ -511,6 +655,7 @@ class _MushafPageCard extends StatefulWidget {
     required this.isBookmarked,
     required this.onToggleTajweed,
     this.onOpenSurahStory,
+    this.onExitFullscreen,
     this.highlightKey,
   });
 
@@ -948,6 +1093,10 @@ class _MushafPageCardState extends State<_MushafPageCard> {
             },
             isDark,
           ),
+          if (widget.onExitFullscreen != null) ...[
+            const SizedBox(width: 5),
+            _headerChip(Icons.fullscreen_exit_rounded, 'الخروج من ملء الشاشة', widget.onExitFullscreen!, isDark),
+          ],
           Expanded(
             child: Align(
               alignment: AlignmentDirectional.centerEnd,

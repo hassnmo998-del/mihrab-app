@@ -43,7 +43,16 @@ object PrayerNotificationManager {
     private const val REQUEST_REFRESH_BACKUP_30 = 3003
     private const val REQUEST_REFRESH_BACKUP_120 = 3004
     private const val REQUEST_WATCHDOG = 3005
+    private const val KEY_SKY = "sky_json"
     private const val SUNRISE = "الشروق"
+    private const val SUNSET = "المغرب"
+
+    /** أبعاد لوحة السماء بوحدات التصميم: سماء فوق شريط أرض عليه موعد الشروق أو الغروب. */
+    private const val SKY_HEIGHT_DP = 58f
+    private const val SKY_GROUND_DP = 20f
+
+    /** دقة الصورة: كافية لشاشة الهاتف، وأخفّ من أن تُثقل تحديث الإشعار كل بضع دقائق. */
+    private const val SKY_MAX_SCALE = 2.5f
 
     /** موعد يحين خلال هذه المدة يُعدّ قد حان: منبّه يصل قبل لحظته بكسر ثانية لا يعيد
      *  رسم المرحلة المنتهية بعدّاد على وشك أن يصير سالباً. */
@@ -56,12 +65,16 @@ object PrayerNotificationManager {
         val hasIqama get() = iqama > adhan
     }
 
-    /** يحفظ الجدول القادم من التطبيق ثم يعيد رسم الإشعار. */
-    fun sync(context: Context, timelineJson: String, enabled: Boolean) {
-        prefs(context).edit()
+    /**
+     * يحفظ الجدول القادم من التطبيق ثم يعيد رسم الإشعار. [skyJson] عيّنات السماء للأيام
+     * نفسها ([SkyTrack])؛ بدونها يبقى الشريط كما هو بلا لوحة السماء.
+     */
+    fun sync(context: Context, timelineJson: String, skyJson: String?, enabled: Boolean) {
+        val editor = prefs(context).edit()
             .putString(KEY_TIMELINE, timelineJson)
             .putBoolean(KEY_ENABLED, enabled)
-            .apply()
+        if (skyJson != null) editor.putString(KEY_SKY, skyJson)
+        editor.apply()
         refresh(context)
     }
 
@@ -82,68 +95,180 @@ object PrayerNotificationManager {
         }
         val events = parse(prefs.getString(KEY_TIMELINE, null))
         val now = System.currentTimeMillis()
-        // المرحلة تُحسب بلحظة تسبق الساعة قليلاً (انظر [EARLY_MS])؛ العدّاد نفسه بالساعة الحقيقية
-        val phaseNow = now + EARLY_MS
-
-        // بين الأذان والإقامة لصلاة ما: العدّ نحو الإقامة
-        val inIqama = events.firstOrNull { it.hasIqama && phaseNow >= it.adhan && phaseNow < it.iqama }
-        // وإلا فالعدّ نحو أول حدث قادم (الشروق يُعرض ولا إقامة له)
-        val upcoming = events.firstOrNull { it.adhan > phaseNow }
+        val phase = phaseAt(events, now)
 
         createChannel(context)
-        if (inIqama == null && upcoming == null) {
+        if (phase == null) {
             // انتهى الجدول (لم يُفتح التطبيق منذ أسبوعين): رسالة ثابتة بلا عدّاد
             post(context, staleNotification(context))
             cancelAllAlarms(context)
             return
         }
 
-        val isIqama = inIqama != null
-        val current = inIqama ?: upcoming!!
-        val target = if (isIqama) current.iqama else current.adhan
-        val after = events.firstOrNull { it.adhan > current.adhan && it.name != SUNRISE }
-        val day = events.filter { sameDay(it.adhan, current.adhan) }
+        val sky = skyNow(prefs.getString(KEY_SKY, null), events, now)
+        post(context, buildNotification(context, phase, now, sky))
+        scheduleRefreshAlarms(context, phase.target)
+    }
 
-        post(context, buildNotification(context, current, isIqama, target, after, day, now))
-        scheduleRefreshAlarms(context, target)
+    /** ما يعدّ إليه الشريط عند لحظة: أذان قادم، أو إقامة صلاة أُذِّن لها. */
+    private class Phase(
+        val current: PrayerEvent,
+        val isIqama: Boolean,
+        /** الصلاة التالية بعد الحالية (لا الشروق). */
+        val after: PrayerEvent?,
+        /** مواقيت يوم الصلاة الحالية. */
+        val day: List<PrayerEvent>
+    ) {
+        val target get() = if (isIqama) current.iqama else current.adhan
+    }
+
+    private fun phaseAt(events: List<PrayerEvent>, now: Long): Phase? {
+        // المرحلة تُحسب بلحظة تسبق الساعة قليلاً (انظر [EARLY_MS])؛ العدّاد نفسه بالساعة الحقيقية
+        val phaseNow = now + EARLY_MS
+        // بين الأذان والإقامة لصلاة ما: العدّ نحو الإقامة
+        val inIqama = events.firstOrNull { it.hasIqama && phaseNow >= it.adhan && phaseNow < it.iqama }
+        // وإلا فالعدّ نحو أول حدث قادم (الشروق يُعرض ولا إقامة له)
+        val current = inIqama ?: events.firstOrNull { it.adhan > phaseNow } ?: return null
+        return Phase(
+            current = current,
+            isIqama = inIqama != null,
+            after = events.firstOrNull { it.adhan > current.adhan && it.name != SUNRISE },
+            day = events.filter { sameDay(it.adhan, current.adhan) }
+        )
+    }
+
+    /** للاختبار: القالبان (المطوي ثم الموسّع) كما يُرسمان عند [now] من الجدول والسماء المعطيين. */
+    internal fun viewsAt(
+        context: Context,
+        timelineJson: String,
+        skyJson: String?,
+        now: Long
+    ): Pair<RemoteViews, RemoteViews>? {
+        val events = parse(timelineJson)
+        val phase = phaseAt(events, now) ?: return null
+        val views = buildViews(context, phase, now, skyNow(skyJson, events, now))
+        return views.small to views.big
+    }
+
+    // ─── سماء اللحظة ──────────────────────────────────────────────────────
+
+    /** السماء الآن وموعد الشمس القادم (الغروب نهاراً، الشروق ليلاً). */
+    private class SkyNow(val scene: SkyScene, val label: String, val labelOnRight: Boolean)
+
+    private var skySource: String? = null
+    private var skyTrack: SkyTrack? = null
+
+    /** العيّنات لا تتغيّر إلا حين يرسلها التطبيق من جديد: تُقرأ مرة لا مع كل رسم. */
+    private fun track(json: String?): SkyTrack? {
+        if (json != skySource) {
+            skySource = json
+            skyTrack = SkyTrack.parse(json)
+        }
+        return skyTrack
+    }
+
+    private fun skyNow(skyJson: String?, events: List<PrayerEvent>, now: Long): SkyNow? {
+        val track = track(skyJson) ?: return null
+        val today = events.filter { sameDay(it.adhan, now) }
+        val sunrise = today.firstOrNull { it.name == SUNRISE } ?: return null
+        val sunset = today.firstOrNull { it.name == SUNSET } ?: return null
+        val scene = SkyScene.at(track, now, sunrise.adhan, sunset.adhan) ?: return null
+
+        // موعد واحد على اللوحة: ما تبلغه الشمس أولاً، عند طرف الأفق الذي يقع فيه
+        val nextRise = events.firstOrNull { it.name == SUNRISE && it.adhan > now }
+        val nextSet = events.firstOrNull { it.name == SUNSET && it.adhan > now }
+        val setsFirst = nextSet != null && (nextRise == null || nextSet.adhan < nextRise.adhan)
+        val next = (if (setsFirst) nextSet else nextRise) ?: return SkyNow(scene, "", false)
+        val label = (if (setsFirst) "الغروب " else "الشروق ") + time(next.adhan)
+        // الغرب عن يمين الراصد في نصف الكرة الشمالي، والشرق عن يساره
+        return SkyNow(scene, label, labelOnRight = setsFirst != scene.eastOnRight)
+    }
+
+    private fun applySky(context: Context, small: RemoteViews, big: RemoteViews, sky: SkyNow?) {
+        if (sky == null) {
+            big.setViewVisibility(R.id.skyFrame, View.GONE)
+            small.setViewVisibility(R.id.smallGlyph, View.GONE)
+            return
+        }
+        val resources = context.resources
+        val scale = resources.displayMetrics.density.coerceAtMost(SKY_MAX_SCALE)
+        val fontScale = resources.configuration.fontScale.coerceIn(1f, 1.4f)
+        // عرض الإشعار داخل لوحة الإشعارات: عرض الهاتف ناقص هوامشها. الصورة تأخذ ارتفاعها من
+        // عرضها الفعلي، فخطأ هذا التقدير يغيّر ارتفاع اللوحة قليلاً ولا يمدّ الرسم.
+        val widthDp = (resources.configuration.smallestScreenWidthDp.coerceIn(300, 440) - 62).toFloat()
+        val groundDp = SKY_GROUND_DP * fontScale
+        try {
+            val strip = SkyScenePainter.strip(
+                sky.scene,
+                width = (widthDp * scale).toInt(),
+                height = ((SKY_HEIGHT_DP + groundDp) * scale).toInt(),
+                dp = scale,
+                ground = groundDp * scale,
+                topRadius = 17f * scale
+            )
+            big.setImageViewBitmap(R.id.skyImage, strip)
+            big.setViewVisibility(R.id.skyFrame, View.VISIBLE)
+            val (shown, hidden) =
+                if (sky.labelOnRight) R.id.skyLabelRight to R.id.skyLabelLeft
+                else R.id.skyLabelLeft to R.id.skyLabelRight
+            big.setTextViewText(shown, sky.label)
+            big.setViewVisibility(shown, if (sky.label.isEmpty()) View.GONE else View.VISIBLE)
+            big.setViewVisibility(hidden, View.GONE)
+
+            val glyph = SkyScenePainter.glyph(sky.scene, (16 * scale).toInt())
+            if (glyph != null) small.setImageViewBitmap(R.id.smallGlyph, glyph)
+            small.setViewVisibility(R.id.smallGlyph, if (glyph != null) View.VISIBLE else View.GONE)
+        } catch (e: Throwable) {
+            // الرسم زينة: إن تعذّر (ذاكرة ضيقة مثلاً) يبقى الشريط بمواقيته وعدّاده
+            big.setViewVisibility(R.id.skyFrame, View.GONE)
+            small.setViewVisibility(R.id.smallGlyph, View.GONE)
+        }
     }
 
     // ─── الرسم ────────────────────────────────────────────────────────────
 
-    private fun buildNotification(
-        context: Context,
-        current: PrayerEvent,
-        isIqama: Boolean,
-        target: Long,
-        after: PrayerEvent?,
-        day: List<PrayerEvent>,
-        now: Long
-    ): android.app.Notification {
+    private class Views(val small: RemoteViews, val big: RemoteViews, val title: String, val detail: String)
+
+    private fun buildNotification(context: Context, phase: Phase, now: Long, sky: SkyNow?): android.app.Notification {
+        val views = buildViews(context, phase, now, sky)
+        return baseBuilder(context)
+            .setCustomContentView(views.small)
+            .setCustomBigContentView(views.big)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            // نصّ احتياطي للساعات الذكية وقارئ الشاشة
+            .setContentTitle(views.title)
+            .setContentText(views.detail)
+            .build()
+    }
+
+    private fun buildViews(context: Context, phase: Phase, now: Long, sky: SkyNow?): Views {
+        val current = phase.current
+        val isIqama = phase.isIqama
+        val target = phase.target
+        val after = phase.after
+        val day = phase.day
         val small = RemoteViews(context.packageName, R.layout.notification_prayer_small)
         val big = RemoteViews(context.packageName, R.layout.notification_prayer_big)
 
         val bg = if (isIqama) R.drawable.bg_prayer_card_iqama else R.drawable.bg_prayer_card_normal
         small.setInt(R.id.cardBackgroundSmall, "setBackgroundResource", bg)
         big.setInt(R.id.cardBackground, "setBackgroundResource", bg)
+        applySky(context, small, big, sky)
 
         val name = current.name
         val title: String
-        val countdownLabel: String
         val detail: String
         when {
             isIqama -> {
                 title = "إقامة $name"
-                countdownLabel = "متبقٍ لإقامة $name"
                 detail = "الإقامة ${time(current.iqama)}" + (after?.let { " • ثم ${it.name} ${time(it.adhan)}" } ?: "")
             }
             name == SUNRISE -> {
                 title = "الشروق"
-                countdownLabel = "متبقٍ للشروق"
                 detail = "الشروق ${time(current.adhan)}" + (after?.let { " • ثم ${it.name} ${time(it.adhan)}" } ?: "")
             }
             else -> {
                 title = "أذان $name"
-                countdownLabel = "متبقٍ لأذان $name"
                 detail = "الأذان ${time(current.adhan)}" +
                     (if (current.hasIqama) " • الإقامة ${time(current.iqama)}" else "")
             }
@@ -152,7 +277,6 @@ object PrayerNotificationManager {
         small.setTextViewText(R.id.smallTitle, title)
         small.setTextViewText(R.id.smallDetail, detail)
         big.setTextViewText(R.id.bigTitle, title)
-        big.setTextViewText(R.id.countdownLabel, countdownLabel)
         big.setTextViewText(R.id.bigDetail, detail)
 
         // العدّاد: ينتهي عند [target] تماماً، ومنبّهات التحديث تستبدله بالمرحلة التالية لحظتها.
@@ -207,14 +331,7 @@ object PrayerNotificationManager {
             big.setTextColor(timeId, color)
         }
 
-        return baseBuilder(context)
-            .setCustomContentView(small)
-            .setCustomBigContentView(big)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            // نصّ احتياطي للساعات الذكية وقارئ الشاشة
-            .setContentTitle(title)
-            .setContentText(detail)
-            .build()
+        return Views(small, big, title, detail)
     }
 
     private fun staleNotification(context: Context): android.app.Notification =

@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/astro/sky_track.dart';
 import '../models/adhan_sound.dart';
 import 'adhan_audio_cache_manager.dart';
 import 'adhan_data.dart';
@@ -875,6 +876,18 @@ class AdhanService implements BackgroundAudioSource {
     return timeline;
   }
 
+  /// سماء الأيام نفسها لشريط الإشعار: منها يرسم أندرويد الشمس والقمر والتطبيق مغلق.
+  /// تبدأ من أمس كي يُعرف طلوع قمرٍ هو فوق الأفق الآن.
+  Map<String, dynamic> buildNotificationSky({int days = 14}) {
+    final now = DateTime.now();
+    return SkyTrack.build(
+      from: DateTime(now.year, now.month, now.day - 1),
+      to: DateTime(now.year, now.month, now.day + days),
+      latitude: _latitude,
+      longitude: _longitude,
+    );
+  }
+
   String? _stickySignature;
 
   /// يرسل جدول الأسبوعين القادمين إلى شريط الإشعار الدائم. الشريط في أندرويد يعدّ وينتقل
@@ -886,7 +899,7 @@ class AdhanService implements BackgroundAudioSource {
           '${now.year}-${now.month}-${now.day}|$_latitude|$_longitude|$_iqamaMinutesMap';
       if (!force && signature == _stickySignature) return;
       final sent = await AppNotificationService.instance
-          .syncStickyPrayerNotification(buildNotificationTimeline());
+          .syncStickyPrayerNotification(buildNotificationTimeline(), sky: buildNotificationSky());
       if (sent) _stickySignature = signature;
     } catch (_) {}
   }

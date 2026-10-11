@@ -236,11 +236,12 @@ void main() {
       }
     }
 
-    testWidgets('سطر القمر: اسم الطور ونسبته وموعد طلوعه أو غروبه', (tester) async {
+    testWidgets('سطر القمر: اسم الطور ونسبة اكتماله فقط، بلا موعد طلوعه أو غروبه', (tester) async {
       await pump(tester, width: 390, direction: TextDirection.rtl, now: DateTime.utc(2024, 10, 17, 21, 30));
 
       expect(find.text('القمر: بدر · 100%'), findsOneWidget);
-      expect(find.textContaining('يغرب'), findsOneWidget);
+      // بطلب صاحب المشروع: كان يُقرأ «يغرب» على أنه غروب الشمس
+      expect(find.textContaining('يغرب'), findsNothing);
       expect(find.textContaining('يطلع'), findsNothing);
     });
 
