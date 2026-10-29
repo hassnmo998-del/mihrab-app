@@ -19,7 +19,9 @@ import '../widgets/app_user_avatar.dart';
 import '../widgets/qr_dialogs.dart';
 import 'discover/dialogs/discover_event_dialog.dart';
 import 'discover/dialogs/lesson_speakers_field.dart';
+import 'discover/lesson_audio_import_flow.dart';
 import 'discover/sheikh_live_lesson_screen.dart';
+import 'discover/widgets/lesson_record_split_button.dart';
 import 'package:path_provider/path_provider.dart';
 import 'discover/widgets/prayer_times_qibla_view.dart';
 import 'discover/widgets/mosque_donations_view.dart';
@@ -1107,8 +1109,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                 if (isManager &&
                                     ev.eventStatus != 'archived') ...[
                                   if (canRecordLesson)
-                                    ElevatedButton.icon(
-                                      onPressed: () async {
+                                    // نصفان في زر واحد: تسجيل من هذا الهاتف، أو رفع ملف
+                                    // صوتي سُجّل بجهاز آخر
+                                    LessonRecordSplitButton(
+                                      isLive: isLive,
+                                      onRecord: () async {
                                         await Navigator.push(
                                           context,
                                           MaterialPageRoute(
@@ -1120,22 +1125,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                                         );
                                         if (context.mounted) setState(() {});
                                       },
-                                      icon: const Icon(Icons.mic, size: 16),
-                                      label: Text(
-                                        isLive
-                                            ? 'متابعة البث 🔴'
-                                            : 'بدء الدرس 🎙️',
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: isLive
-                                            ? Colors.red
-                                            : AppColors.emeraldPrimary,
-                                        foregroundColor: Colors.white,
-                                        shape: const StadiumBorder(),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 6,
-                                        ),
+                                      onImport: () => LessonAudioImportFlow.start(
+                                        context,
+                                        data,
+                                        ev,
                                       ),
                                     ),
                                   IconButton(

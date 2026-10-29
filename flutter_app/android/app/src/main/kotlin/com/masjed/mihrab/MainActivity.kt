@@ -7,12 +7,17 @@ import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
     companion object {
         const val CHANNEL_NAME = "com.masjed.mihrab/custom_prayer_notification"
+        const val AUDIO_CHANNEL_NAME = "com.masjed.mihrab/audio_transcoder"
         var channel: MethodChannel? = null
     }
+
+    // ضغط الصوت طويل (دقائق لملف ساعة): خيط واحد بعيداً عن الواجهة، ملف بعد ملف
+    private val audioWorker = Executors.newSingleThreadExecutor()
 
     private var pendingAction: String? = null
 
@@ -113,6 +118,49 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // ضغط تسجيل درس جاهز (يُرفع من ملف بدل التسجيل المباشر) بإعدادات التسجيل نفسها
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, AUDIO_CHANNEL_NAME)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "durationMs" -> {
+                        val path = call.argument<String>("path")
+                        if (path == null) {
+                            result.error("INVALID_ARGS", "path is required", null)
+                        } else {
+                            audioWorker.execute {
+                                val duration = try {
+                                    AudioTranscoder.durationMs(path)
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                runOnUiThread { result.success(duration) }
+                            }
+                        }
+                    }
+                    "transcode" -> {
+                        val input = call.argument<String>("input")
+                        val output = call.argument<String>("output")
+                        val bitRate = call.argument<Number>("bitRate")?.toInt()
+                        val sampleRate = call.argument<Number>("sampleRate")?.toInt()
+                        val startMs = call.argument<Number>("startMs")?.toLong() ?: 0L
+                        val maxMs = call.argument<Number>("maxMs")?.toLong() ?: -1L
+                        if (input == null || output == null || bitRate == null || sampleRate == null) {
+                            result.error("INVALID_ARGS", "input, output, bitRate and sampleRate are required", null)
+                        } else {
+                            audioWorker.execute {
+                                try {
+                                    val written = AudioTranscoder.transcode(input, output, bitRate, sampleRate, startMs, maxMs)
+                                    runOnUiThread { result.success(written) }
+                                } catch (e: Exception) {
+                                    runOnUiThread { result.error("TRANSCODE_FAILED", e.message, null) }
+                                }
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         if (pendingAction != null) {
             methodChannel.invokeMethod(pendingAction!!, null)
