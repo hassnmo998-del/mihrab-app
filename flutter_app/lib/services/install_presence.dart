@@ -234,6 +234,13 @@ class InstallPresence {
     return 'web';
   }
 
+  /// معرّف هذا الجهاز كما يُرسل في عدّ الأجهزة، لتستعمله شاشة التواصل مع المطوّر.
+  static Future<String> currentInstallId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = await resolveInstallId(prefs, deviceKey: _androidDeviceKey, create: true);
+    return id ?? '';
+  }
+
   static Future<String?> _androidDeviceKey() async {
     if (kIsWeb || !Platform.isAndroid) return null;
     return _channel.invokeMethod<String>('getDeviceKey');

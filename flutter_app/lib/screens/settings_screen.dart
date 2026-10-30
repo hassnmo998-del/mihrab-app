@@ -1,3 +1,4 @@
+import 'help/help_center_screen.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -105,6 +106,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 20),
+
+                    // المساعدة: فيديوهات التعلّم والتواصل مع المطوّر (الشاشة نفسها بتبويبين)
+                    _buildHelpSection(context, isDark, primaryColor),
                     const SizedBox(height: 20),
 
                     // 1. Live Preview Box (آية المعاينة المباشرة)
@@ -339,6 +344,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// قسم رقم الإصدار والتحديث التفاعلي في الإعدادات
+  Widget _buildHelpSection(BuildContext context, bool isDark, Color primaryColor) {
+    Widget tile({
+      required Key key,
+      required IconData icon,
+      required String title,
+      required String subtitle,
+      required int tab,
+    }) {
+      return ListTile(
+        key: key,
+        leading: Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(color: primaryColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: primaryColor, size: 22),
+        ),
+        title: Text(title, style: AppTypography.font(fontSize: 15, fontWeight: FontWeight.bold)),
+        subtitle: Text(subtitle, style: AppTypography.font(fontSize: 12, height: 1.4)),
+        trailing: const Icon(Icons.chevron_left_rounded),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => HelpCenterScreen(initialTab: tab))),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        children: [
+          tile(
+            key: const ValueKey('settingsLearn'),
+            icon: Icons.play_circle_outline_rounded,
+            title: 'تعلّم استخدام التطبيق',
+            subtitle: 'فيديوهات قصيرة لكل قسم ولكل رتبة، تعمل بلا إنترنت',
+            tab: 0,
+          ),
+          Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
+          tile(
+            key: const ValueKey('settingsContactDeveloper'),
+            icon: Icons.support_agent_rounded,
+            title: 'تواصل مع المطوّر',
+            subtitle: 'مشكلة أو فكرة؟ اكتب لي برسالة نصية وأردّ عليك',
+            tab: 1,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVersionSection(bool isDark) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;

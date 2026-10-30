@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/models.dart';
 import '../../services/data_service.dart';
+import '../../data/help_videos_data.dart';
 import '../../widgets/code_scanner_dialog.dart';
+import '../help/help_video_sheet.dart';
 
 class ManagementPortalScreen extends StatelessWidget {
   final void Function(int tabIndex)? onNavigateToTab;
@@ -69,54 +71,6 @@ class ManagementPortalScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // التطبيق وصل عامة الناس قبل إدارات المساجد: من لا بطاقة له يرى
-                // أولاً أن القسم لم يُفعَّل بعد ولمن هو، فلا يظنه عطلاً
-                if (!hasAnyAdmin) ...[
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: isDark ? 0.16 : 0.08),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.redAccent, width: 1.4),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'هذا القسم قيد التفعيل',
-                                style: AppTypography.font(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.redAccent,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'هذا القسم خاص بالمساجد وحلقات تحفيظ القرآن: منه يدخل مدير المسجد والشيخ '
-                          'والطالب وولي أمره ببطاقة خاصة (رمز QR) يستلمونها من إدارة المسجد.\n\n'
-                          'لم يبدأ العمل به في المساجد بعد، فلا تحتاج منه شيئاً الآن. وباقي أقسام '
-                          'التطبيق تعمل كاملة: القرآن، الأذان ومواقيت الصلاة، الأذكار، والمكتبة.\n\n'
-                          'سنُعلمكم هنا وفي ملاحظات التحديث فور تفعيله بإذن الله.',
-                          style: AppTypography.font(
-                            fontSize: 13,
-                            height: 1.6,
-                            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
                 // Top Hero Banner
                 Container(
                   padding: const EdgeInsets.all(22),
@@ -304,6 +258,7 @@ class ManagementPortalScreen extends StatelessWidget {
                   description: 'امسح رمز QR لمدير المسجد لفتح لوحة التحكم الإدارية الكاملة للمسجد، المشايخ، الحلقات، والفعاليات.',
                   session: menAdminSession,
                   onScan: () => _scanRole(context, targetRole: 'mosque_admin'),
+                  videoId: HelpVideoIds.mosqueAdmin,
                   onOpenTab: () => onNavigateToTab?.call(1),
                   onDisconnect: () {
                     data.disconnectRole('mosque_admin');
@@ -323,6 +278,7 @@ class ManagementPortalScreen extends StatelessWidget {
                   description: 'امسح بطاقة اعتماد الشيخ للوصول الفوري إلى سجلات تسميع الطلاب، تسجيل الحضور، وجداول الدروس.',
                   session: sheikhSession,
                   onScan: () => _scanRole(context, targetRole: 'sheikh'),
+                  videoId: HelpVideoIds.sheikh,
                   onOpenTab: () => onNavigateToTab?.call(2),
                   onDisconnect: () {
                     data.disconnectRole('sheikh');
@@ -342,6 +298,7 @@ class ManagementPortalScreen extends StatelessWidget {
                   description: 'امسح بطاقة الطالب لمتابعة الحفظ والحضور والنقاط وسجل التسميع.',
                   session: studentSession,
                   onScan: () => _scanRole(context, targetRole: 'student'),
+                  videoId: HelpVideoIds.parent,
                   onOpenTab: () => onNavigateToTab?.call(3),
                   onDisconnect: () {
                     data.disconnectRole('student');
@@ -361,6 +318,7 @@ class ManagementPortalScreen extends StatelessWidget {
                   description: 'امسح كود الاعتماد المالي الممنوح لك (CSH-) لصرف مكافآت الطلاب واستبدال قسائم الجوائز فورياً.',
                   session: cashierSession,
                   onScan: () => _scanRole(context, targetRole: 'cashier'),
+                  videoId: HelpVideoIds.cashier,
                   onOpenTab: () => onNavigateToTab?.call(5),
                   onDisconnect: () {
                     data.disconnectRole('cashier');
@@ -381,6 +339,7 @@ class ManagementPortalScreen extends StatelessWidget {
                       'يُنشئ إدارة نسائية مستقلة تماماً بكودها الخاص، ولا يُقبل هنا أي رمز آخر.',
                   session: womenSession,
                   onScan: () => _scanRole(context, targetRole: CodeScannerDialog.womenBranchTarget),
+                  videoId: HelpVideoIds.women,
                   onOpenTab: () => onNavigateToTab?.call(1),
                   onDisconnect: () {
                     data.disconnectRole('mosque_admin');
@@ -408,6 +367,7 @@ class ManagementPortalScreen extends StatelessWidget {
     required VoidCallback onScan,
     required VoidCallback onOpenTab,
     required VoidCallback onDisconnect,
+    required String videoId,
   }) {
     final isUnlocked = session != null;
 
@@ -582,6 +542,22 @@ class ManagementPortalScreen extends StatelessWidget {
                 ),
               ],
             ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              key: ValueKey('portalVideo_$videoId'),
+              onPressed: () => showHelpVideo(context, videoId),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.terracottaPrimary,
+                backgroundColor: AppColors.terracottaPrimary.withValues(alpha: isDark ? 0.14 : 0.08),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 11),
+              ),
+              icon: const Icon(Icons.play_circle_fill_rounded, size: 20),
+              label: Text('شاهد فيديو شرح هذه الرتبة', style: AppTypography.font(fontSize: 12.5, fontWeight: FontWeight.bold)),
+            ),
           ),
         ],
       ),
