@@ -45,7 +45,7 @@ void main() {
       MaterialApp(
         home: Directionality(
           textDirection: TextDirection.rtl,
-          child: InstallStatsScreen(load: load ?? server),
+          child: InstallStatsScreen(load: load ?? server, showInbox: false),
         ),
       ),
     );

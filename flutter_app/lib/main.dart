@@ -23,6 +23,10 @@ import 'services/install_presence.dart';
 import 'services/adhan_service.dart';
 import 'services/zad_content_service.dart';
 import 'widgets/update_dialog.dart';
+import 'widgets/help_app_bar_button.dart';
+import 'widgets/help_coach_overlay.dart';
+import 'services/help_state.dart';
+import 'services/developer_chat_service.dart';
 import 'widgets/code_scanner_dialog.dart';
 import 'widgets/super_admin_login_dialog.dart';
 import 'widgets/app_header_date_widget.dart';
@@ -105,6 +109,10 @@ void main() async {
 
   // أذكار وأدعية نزلت إلى الجهاز بعد هذا الإصدار تُقرأ قبل أول عرض للتبويب
   unawaited(ZadContentService.instance.init());
+
+  // زر «؟» ونافذة التعريف الأول: حالتهما من الجهاز، وردّ المطوّر الجديد يُسأل عنه بصمت
+  await HelpState.instance.load();
+  unawaited(DeveloperChatService.refreshUnread());
 
   // الأذان يُجدول من بداية التشغيل، لا عند فتح تبويب المواقيت فقط
   if (!kIsWeb) {
@@ -246,6 +254,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
   bool _isTogglingFullscreen = false;
   DateTime _lastFullscreenToggle = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _updateLaunchTimer;
+  final GlobalKey _helpAnchor = GlobalKey();
+  Timer? _coachTimer;
 
   void _onTabSelected(String tabId) {
     if (tabId == 'quran') {
@@ -285,6 +295,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
 
     // استمع لـ F11 و Escape عالمياً بدون الحاجة لـ focus
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+
+    // أول فتحة: الشاشة تتغبّش وتدلّ على زر «؟» (مرة واحدة، وبعد التهيئة والإعداد الأول)
+    if (kIsWeb || !Platform.environment.containsKey('FLUTTER_TEST')) {
+      _coachTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (!mounted || !context.read<DataService>().hasCompletedOnboarding) return;
+        HelpCoachOverlay.showIfNeeded(context, _helpAnchor);
+      });
+    }
 
     // ── فحص التحديثات عند الإطلاق (الويب يتحدث وحده) ─────────
     if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
@@ -348,6 +366,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
   void dispose() {
     MainShell.targetTabNotifier.removeListener(_handleTargetTabRequest);
     _updateLaunchTimer?.cancel();
+    _coachTimer?.cancel();
     _mobileBottomNavScrollController.dispose();
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     windowManager.removeListener(this);
@@ -938,6 +957,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver, Wind
           ),
         ),
         actions: [
+          // زر «؟»: فيديوهات التعلّم والتواصل مع المطوّر، بجانب الإعدادات
+          HelpAppBarButton(style: compactActionStyle, anchorKey: _helpAnchor),
+          if (!isCompact) const SizedBox(width: 4),
+
           // Settings Button
           IconButton(
             style: compactActionStyle,

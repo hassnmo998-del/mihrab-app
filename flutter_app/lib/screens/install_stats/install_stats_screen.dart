@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/install_stats.dart';
 import '../../services/install_presence.dart';
+import 'dev_inbox_section.dart';
 import 'install_stats_card.dart';
 
 /// أرقام الأجهزة التي عليها التطبيق، لصاحب المشروع وحده.
@@ -14,7 +15,10 @@ import 'install_stats_card.dart';
 class InstallStatsScreen extends StatefulWidget {
   final Future<InstallStats> Function(String secret) load;
 
-  const InstallStatsScreen({super.key, this.load = InstallPresence.fetchStats});
+  /// صندوق رسائل المستخدمين تحت الأرقام. يُعطَّل في اختبارات الأرقام وحدها (لا شبكة فيها).
+  final bool showInbox;
+
+  const InstallStatsScreen({super.key, this.load = InstallPresence.fetchStats, this.showInbox = true});
 
   static const String secretPrefsKey = 'install_stats_secret';
 
@@ -129,11 +133,20 @@ class _InstallStatsScreenState extends State<InstallStatsScreen> {
                   constraints: const BoxConstraints(maxWidth: 760),
                   child: secret == null
                       ? _lockedView()
-                      : InstallStatsCard(
-                          key: ValueKey(secret),
-                          load: () => widget.load(secret),
-                          initial: _initial,
-                          onEnterSecret: _lock,
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            InstallStatsCard(
+                              key: ValueKey(secret),
+                              load: () => widget.load(secret),
+                              initial: _initial,
+                              onEnterSecret: _lock,
+                            ),
+                            if (widget.showInbox) ...[
+                              const SizedBox(height: 16),
+                              DevInboxSection(secret: secret),
+                            ],
+                          ],
                         ),
                 ),
               ),
