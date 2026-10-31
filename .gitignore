@@ -41,9 +41,12 @@ flutter_app/macos/Flutter/ephemeral/
 
 .idea/
 .vscode/
+.claude/
 *.iml
 .DS_Store
 Thumbs.db
+*.mp4
+*.srt
 
 # مخرجات تحليل مؤقّتة
 analyze_out.txt

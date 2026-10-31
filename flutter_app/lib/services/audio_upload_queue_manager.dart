@@ -22,6 +22,10 @@ class PendingUpload {
   /// الاسم الأصلي للمرفق كما اختاره المستخدم (للمستندات فقط).
   final String? fileName;
 
+  /// مرجع الملف في الأرشيف بعد رفعه، ما دام لم يُربط بسجل درسه بعد (السجل لم يصل
+  /// الجهاز، أو البيانات لم تُحمَّل). لا يُعاد الرفع، ويُعاد الربط فقط.
+  final String? uploadedRef;
+
   PendingUpload({
     required this.eventId,
     required this.title,
@@ -31,9 +35,22 @@ class PendingUpload {
     required this.queuedAt,
     this.kind = UploadKind.audio,
     this.fileName,
+    this.uploadedRef,
   });
 
   bool get isVideo => kind == UploadKind.video;
+
+  PendingUpload withUploadedRef(String ref) => PendingUpload(
+        eventId: eventId,
+        title: title,
+        speaker: speaker,
+        filePath: filePath,
+        durationSeconds: durationSeconds,
+        queuedAt: queuedAt,
+        kind: kind,
+        fileName: fileName,
+        uploadedRef: ref,
+      );
 
   Map<String, dynamic> toJson() => {
     'eventId': eventId,
@@ -45,6 +62,7 @@ class PendingUpload {
     'isVideo': isVideo,
     'kind': kind.name,
     'fileName': fileName,
+    'uploadedRef': uploadedRef,
   };
 
   factory PendingUpload.fromJson(Map<String, dynamic> json) => PendingUpload(
@@ -58,6 +76,7 @@ class PendingUpload {
     kind: UploadKind.values.asNameMap()[json['kind']] ??
         ((json['isVideo'] ?? false) == true ? UploadKind.video : UploadKind.audio),
     fileName: json['fileName'],
+    uploadedRef: json['uploadedRef'],
   );
 }
 
@@ -81,9 +100,17 @@ class AudioUploadQueueManager extends ChangeNotifier {
   @visibleForTesting
   Duration retryBase = const Duration(seconds: 30);
 
-  /// للاختبارات: بديل عن الرفع الفعلي إلى أرشيف تيليجرام.
+  /// للاختبارات: بديل عن الرفع الفعلي إلى أرشيف تيليجرام (رفع وربط معاً).
   @visibleForTesting
   Future<bool> Function(PendingUpload upload, File file)? debugUploader;
+
+  /// للاختبارات: بديل عن الرفع وحده، يعيد مرجع الملف في الأرشيف ثم يمرّ بالربط الحقيقي.
+  @visibleForTesting
+  Future<String?> Function(PendingUpload upload, File file)? debugRefUploader;
+
+  /// الانتظار قبل إعادة ربط ملف رُفع ولم يجد سجل درسه بعد على الجهاز.
+  @visibleForTesting
+  Duration linkRetry = const Duration(minutes: 1);
 
   List<PendingUpload> get queue => List.unmodifiable(_queue);
   bool get isUploading => _isUploading;
@@ -162,55 +189,105 @@ class AudioUploadQueueManager extends ChangeNotifier {
     _isUploading = true;
     notifyListeners();
 
-    while (_queue.isNotEmpty) {
-      final current = _queue.first;
+    var waitingForLink = false;
+    var i = 0;
+    while (i < _queue.length) {
+      var current = _queue[i];
       final file = File(current.filePath);
 
-      if (!file.existsSync()) {
-        debugPrint('File not found for event ${current.eventId}, skipping.');
-        _queue.removeAt(0);
-        await _saveToStorage();
-        notifyListeners();
-        continue;
-      }
+      if (current.uploadedRef == null) {
+        if (!file.existsSync()) {
+          debugPrint('File not found for event ${current.eventId}, skipping.');
+          _queue.removeAt(i);
+          await _saveToStorage();
+          notifyListeners();
+          continue;
+        }
 
-      // A file over the archive limit can never be opened after upload, and retrying
-      // it forever would block every upload behind it. Drop it from the queue but keep
-      // the local file so nothing is lost.
-      if (file.lengthSync() > MediaLimits.maxFileBytes) {
-        debugPrint('⚠️ ${current.filePath} أكبر من ${MediaLimits.maxFileMbLabel}MB، أُزيل من طابور الرفع.');
-        _queue.removeAt(0);
-        await _saveToStorage();
-        notifyListeners();
-        continue;
-      }
+        // A file over the archive limit can never be opened after upload, and retrying
+        // it forever would block every upload behind it. Drop it from the queue but keep
+        // the local file so nothing is lost.
+        if (file.lengthSync() > MediaLimits.maxFileBytes) {
+          debugPrint('⚠️ ${current.filePath} أكبر من ${MediaLimits.maxFileMbLabel}MB، أُزيل من طابور الرفع.');
+          _queue.removeAt(i);
+          await _saveToStorage();
+          notifyListeners();
+          continue;
+        }
 
-      bool success = await (debugUploader ?? _performUpload)(current, file);
-      if (success) {
+        final legacy = debugUploader;
+        if (legacy != null) {
+          if (await legacy(current, file)) {
+            _failures = 0;
+            _queue.removeAt(i);
+            await _saveToStorage();
+            notifyListeners();
+            continue;
+          }
+          _failures++;
+          _scheduleRetry();
+          break;
+        }
+
+        final ref = await (debugRefUploader ?? _performUpload)(current, file);
+        if (ref == null) {
+          // Break on failure (likely network) and try again by itself later
+          _failures++;
+          _scheduleRetry();
+          break;
+        }
         _failures = 0;
-        _queue.removeAt(0);
+        // المرجع يُحفظ قبل الربط: إن لم يُربط الآن لا يُرفع الملف مرة ثانية
+        current = current.withUploadedRef(ref);
+        _queue[i] = current;
+        await _saveToStorage();
+      }
+
+      if (_attach(current)) {
+        // الملف المحلي يُحذف بعد أن صار مربوطاً بدرسه فقط
+        try {
+          if (file.existsSync()) await file.delete();
+        } catch (_) {}
+        _queue.removeAt(i);
         await _saveToStorage();
         notifyListeners();
       } else {
-        // Break on failure (likely network) and try again by itself later
-        _failures++;
-        _scheduleRetry();
-        break;
+        // سجل الدرس لم يصل الجهاز بعد: يبقى في الطابور ولا يوقف ما بعده
+        waitingForLink = true;
+        i++;
       }
     }
 
     _isUploading = false;
+    if (waitingForLink && !(_retryTimer?.isActive ?? false)) {
+      _retryTimer = Timer(linkRetry, _processQueue);
+    }
     notifyListeners();
   }
 
-  Future<bool> _performUpload(PendingUpload upload, File file) async {
+  static bool _isVideoUpload(PendingUpload upload) {
+    if (upload.kind == UploadKind.document) return false;
+    final path = upload.filePath.toLowerCase();
+    return upload.isVideo || path.endsWith('.mp4') || path.endsWith('.mkv') || path.endsWith('.mov');
+  }
+
+  /// يربط الملف المرفوع بسجل درسه. false: السجل غير موجود على الجهاز بعد، فيُعاد لاحقاً.
+  bool _attach(PendingUpload upload) {
+    final ref = upload.uploadedRef;
+    final callback = _onMediaUploadSuccess;
+    if (ref == null || callback == null) return false;
+    final isDocument = upload.kind == UploadKind.document;
+    // المستندات والفيديو يذهبان لحقل المرفق، والصوت لحقل التسجيل.
+    final linked = callback(upload.eventId, ref, _isVideoUpload(upload) || isDocument);
+    if (linked && !isDocument) _onUploadSuccess?.call(upload.eventId, ref);
+    return linked;
+  }
+
+  /// يرفع الملف إلى أرشيف تيليجرام ويعيد مرجعه الدائم، أو null إن فشل.
+  Future<String?> _performUpload(PendingUpload upload, File file) async {
     try {
       final isDocument = upload.kind == UploadKind.document;
-      final isVideo = !isDocument &&
-          (upload.isVideo ||
-              upload.filePath.toLowerCase().endsWith('.mp4') ||
-              upload.filePath.toLowerCase().endsWith('.mkv') ||
-              upload.filePath.toLowerCase().endsWith('.mov'));
+      final isVideo = _isVideoUpload(upload);
 
       final endpoint = isDocument ? 'sendDocument' : (isVideo ? 'sendVideo' : 'sendAudio');
       final uri = Uri.parse('https://api.telegram.org/bot$telegramBotToken/$endpoint');
@@ -239,11 +316,16 @@ class AudioUploadQueueManager extends ChangeNotifier {
         request.fields['supports_streaming'] = 'true';
         request.files.add(await http.MultipartFile.fromPath('video', file.path));
       } else {
+        request.fields['title'] = upload.title;
+        request.fields['performer'] = upload.speaker;
+        if (upload.durationSeconds > 0) {
+          request.fields['duration'] = '${upload.durationSeconds}';
+        }
         request.files.add(await http.MultipartFile.fromPath('audio', file.path));
       }
 
       final response = await request.send().timeout(uploadTimeout);
-      if (response.statusCode != 200) return false;
+      if (response.statusCode != 200) return null;
 
       final responseBody =
           await response.stream.bytesToString().timeout(const Duration(minutes: 2));
@@ -261,34 +343,27 @@ class AudioUploadQueueManager extends ChangeNotifier {
         if (fileId != null) {
           // نحفظ المعرّف الدائم لا الرابط: روابط تيليجرام تنتهي بعد ساعة،
           // بينما الـ file_id يبقى صالحاً دائماً ويُحوَّل لرابط طازج عند التشغيل.
-          final permanentRef = isDocument
+          return isDocument
               ? TelegramMediaResolver.buildFileRef(
                   fileId: fileId,
                   fileName: upload.fileName ?? file.uri.pathSegments.last,
                 )
               : TelegramMediaResolver.buildRef(fileId: fileId, isVideo: isVideo);
-
-          // المستندات والفيديو يذهبان لحقل المرفق، والصوت لحقل التسجيل.
-          _onMediaUploadSuccess?.call(upload.eventId, permanentRef, isVideo || isDocument);
-          if (!isDocument) _onUploadSuccess?.call(upload.eventId, permanentRef);
-
-          // حذف الملف المحلي بعد النجاح لتوفير المساحة
-          try { await file.delete(); } catch (_) {}
-          return true;
         }
       }
-      return false;
+      return null;
     } catch (e) {
       debugPrint('Upload failed: $e');
-      return false;
+      return null;
     }
   }
 
   // Callbacks لربطه بـ DataService
-  Function(String eventId, String mediaUrl, bool isVideo)? _onMediaUploadSuccess;
+  /// يربط المرجع بسجل الدرس ويعيد true إن رُبط (أو لم يعد للربط معنى: السجل حُذف).
+  bool Function(String eventId, String mediaUrl, bool isVideo)? _onMediaUploadSuccess;
   Function(String eventId, String audioUrl)? _onUploadSuccess;
 
-  void setOnMediaUploadSuccess(Function(String, String, bool) callback) {
+  void setOnMediaUploadSuccess(bool Function(String, String, bool) callback) {
     _onMediaUploadSuccess = callback;
   }
 

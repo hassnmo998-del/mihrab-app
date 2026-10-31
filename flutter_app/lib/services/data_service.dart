@@ -8,7 +8,9 @@ import '../data/datasources/datasources.dart';
 import '../data/repositories/repositories.dart';
 import '../models/models.dart';
 import 'audio_upload_queue_manager.dart';
+import 'lesson_recording_journal.dart';
 import 'lesson_schedule.dart';
+import 'windows_audio_compressor.dart';
 
 /// نتيجة محاولة دخول المشرف العام — تفصل بين "بيانات خاطئة" و"لا صلاحية"
 /// و"تعذر الوصول للخادم" حتى تعرض الواجهة رسالة دقيقة لكل حالة.
@@ -141,11 +143,7 @@ class DataService extends ChangeNotifier {
     );
 
     audioUploadQueue.setOnMediaUploadSuccess((eventId, mediaUrl, isVideo) {
-      if (isVideo) {
-        setEventVideoUrl(eventId, mediaUrl);
-      } else {
-        setEventAudioUrl(eventId, mediaUrl);
-      }
+      return isVideo ? setEventVideoUrl(eventId, mediaUrl) : setEventAudioUrl(eventId, mediaUrl);
     });
   }
 
@@ -232,6 +230,9 @@ class DataService extends ChangeNotifier {
 
     // إخطار الواجهة بأن البيانات المحلية الأولية جاهزة فوراً للعرض دون أي تأخير
     notifyListeners();
+
+    // درس كان يُسجَّل حين أُغلق التطبيق: يُختم ويدخل طابور الرفع
+    unawaited(recoverUnfinishedRecording());
 
     // 2. إطلاق عمليات المزامنة السحابية في الخلفية بشكل صامت تماماً دون تعطيل فتح التطبيق
     unawaited(_startBackgroundSync());
@@ -2632,39 +2633,68 @@ class DataService extends ChangeNotifier {
     return archiveId;
   }
 
-  void setEventAudioUrl(String eventId, String audioUrl) {
+  /// يُنقذ درساً بقي تسجيله بلا ختام (أُغلق التطبيق أثناءه، أو غادر الشيخ الشاشة):
+  /// يختم جلسته في الأرشيف ويضع الملف في طابور الرفع. يُستدعى عند الفتح وعند مغادرة
+  /// شاشة التسجيل بلا ختام.
+  Future<RecordingRecovery> recoverUnfinishedRecording() async {
+    final result = await LessonRecordingJournal.recover(
+      finalize: (eventId, part) => finalizeLiveSession(eventId, part: part),
+      enqueue: ({
+        required String eventId,
+        required String title,
+        required String speaker,
+        required String filePath,
+        required int durationSeconds,
+      }) =>
+          audioUploadQueue.addToQueue(
+        eventId: eventId,
+        title: title,
+        speaker: speaker,
+        filePath: filePath,
+        durationSeconds: durationSeconds,
+      ),
+      compress: WindowsAudioCompressor.compress,
+    );
+    if (result != RecordingRecovery.none) {
+      debugPrint('🎙️ تسجيل درس غير مختوم: $result');
+    }
+    return result;
+  }
+
+  /// يربط تسجيل الدرس بسجل أرشيفه. يعيد false إن لم يوجد السجل على الجهاز بعد (البيانات
+  /// لم تُحمَّل أو لم يصل من السحابة)، فيُبقيه طابور الرفع ويعيد الربط لاحقاً بلا رفع جديد.
+  /// قبل ذلك كان التسجيل يُرفع ويُحذف من الجهاز ثم لا يُربط بشيء، فيضيع من المكتبة.
+  bool setEventAudioUrl(String eventId, String audioUrl) =>
+      _attachRecording(eventId, (ev) => ev.audioRecordUrl = audioUrl);
+
+  bool setEventVideoUrl(String eventId, String videoUrl) =>
+      _attachRecording(eventId, (ev) => ev.videoRecordUrl = videoUrl);
+
+  bool _attachRecording(String eventId, void Function(CommunityEvent ev) apply) {
     final owner = _localDataSource.communityEvents
         .where((e) => e.id == eventId)
         .firstOrNull;
-    if (!_archiveWriteAllowed(owner?.mosqueId)) return;
+    // ممنوع للأبد (قسم نسائي): لا معنى لإعادة المحاولة
+    if (!_archiveWriteAllowed(owner?.mosqueId)) return true;
 
-    // 1. فحص إذا كان هناك لقطة أرشيف مرتبطة بهذا الدرس
-    final archivedEv = _archivedSnapshotFor(eventId, owner);
-
-    if (archivedEv != null) {
-      archivedEv.audioRecordUrl = audioUrl;
-      _syncQueueManager.queueSync(
-        table: 'community_events',
-        action: 'upsert',
-        data: archivedEv.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-    } else {
-      // للدروس لمرة واحدة
-      final ev = _localDataSource.communityEvents.where((e) => e.id == eventId).firstOrNull;
-      if (ev != null) {
-        ev.audioRecordUrl = audioUrl;
-        _syncQueueManager.queueSync(
-          table: 'community_events',
-          action: 'upsert',
-          data: ev.toJson(),
-          remoteDataSource: _remoteDataSource,
-        );
-      }
+    // 1. فحص إذا كان هناك لقطة أرشيف مرتبطة بهذا الدرس، وإلا فالدرس نفسه (لمرة واحدة)
+    final target = _archivedSnapshotFor(eventId, owner) ?? owner;
+    if (target == null) {
+      // حُذف الدرس: لا شيء يُربط به
+      return isRecentlyDeleted(eventId);
     }
+
+    apply(target);
+    _syncQueueManager.queueSync(
+      table: 'community_events',
+      action: 'upsert',
+      data: target.toJson(),
+      remoteDataSource: _remoteDataSource,
+    );
 
     _localDataSource.saveToStorage();
     notifyListeners();
+    return true;
   }
 
   /// لقطة الأرشيف التابعة لهذا الدرس. المطابقة مقيَّدة بنفس المسجد حتى لا تُكتب
@@ -2681,39 +2711,6 @@ class DataService extends ChangeNotifier {
     return _localDataSource.communityEvents
         .where((e) => archivedHere(e) && e.id.contains('archived-$eventId-') && !part.hasMatch(e.id))
         .firstOrNull;
-  }
-
-  void setEventVideoUrl(String eventId, String videoUrl) {
-    final owner = _localDataSource.communityEvents
-        .where((e) => e.id == eventId)
-        .firstOrNull;
-    if (!_archiveWriteAllowed(owner?.mosqueId)) return;
-
-    final archivedEv = _archivedSnapshotFor(eventId, owner);
-
-    if (archivedEv != null) {
-      archivedEv.videoRecordUrl = videoUrl;
-      _syncQueueManager.queueSync(
-        table: 'community_events',
-        action: 'upsert',
-        data: archivedEv.toJson(),
-        remoteDataSource: _remoteDataSource,
-      );
-    } else {
-      final ev = _localDataSource.communityEvents.where((e) => e.id == eventId).firstOrNull;
-      if (ev != null) {
-        ev.videoRecordUrl = videoUrl;
-        _syncQueueManager.queueSync(
-          table: 'community_events',
-          action: 'upsert',
-          data: ev.toJson(),
-          remoteDataSource: _remoteDataSource,
-        );
-      }
-    }
-
-    _localDataSource.saveToStorage();
-    notifyListeners();
   }
 
   void updateMosqueDonationSettings({
