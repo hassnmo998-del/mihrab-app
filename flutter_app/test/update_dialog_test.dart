@@ -31,7 +31,8 @@ void main() {
       ..errorMessage = state == SilentUpdateState.error ? 'هذا الإصدار لا يحمل ملف تثبيت لهذا الجهاز.' : null;
   }
 
-  Future<void> pumpDialog(WidgetTester tester, Size size, {double textScale = 1.0}) async {
+  Future<void> pumpDialog(WidgetTester tester, Size size,
+      {double textScale = 1.0, UpdateInfo? override}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -41,10 +42,27 @@ void main() {
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
         child: Directionality(textDirection: TextDirection.rtl, child: child!),
       ),
-      home: Scaffold(body: UpdateDialog(info: info, service: service)),
+      home: Scaffold(body: UpdateDialog(info: override ?? info, service: service)),
     ));
     await tester.pump(const Duration(milliseconds: 50));
   }
+
+  // ملاحظات إصدار كما تُكتب في RELEASE_NOTES.md
+  UpdateInfo notesInfo(String notes) => UpdateInfo(
+        version: '1.0.20',
+        releaseNotes: notes,
+        publishedAt: DateTime(2026, 11, 1),
+        android: const UpdateAsset(urls: ['https://example.test/a.apk'], size: 98778537),
+        windows: const UpdateAsset(urls: ['https://example.test/a.exe'], size: 20412376),
+      );
+
+  const realisticNotes = '🕌 محراب 1.0.20 — مزامنة أخف:\n'
+      '• مزامنة أخف وأسرع: كل جهاز يحمّل بيانات مسجده وما تغيّر فيها فقط.\n'
+      '• لوحة المشرف العام: ملخص بأرقام المنصة مع بحث وتصفية بالمدينة.\n'
+      '\n'
+      '📚 ومن الإصدارات السابقة:\n'
+      '• 1.0.19: مواقيت الصلاة بدقة الموقع.\n'
+      '• رفع تسجيل الدرس من ملف صوتي.\n';
 
   const sizes = {'phone': Size(320, 640), 'laptop': Size(1366, 768)};
 
@@ -100,6 +118,100 @@ void main() {
     });
   }
 
+  group('الجديد ظاهر لا مخفي', () {
+    for (final entry in sizes.entries) {
+      testWidgets('الجديد بعنوانه وخطه الكبير فوراً بلا تمرير (${entry.key})', (tester) async {
+        put(SilentUpdateState.updateAvailable);
+        await pumpDialog(tester, entry.value, override: notesInfo(realisticNotes));
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('ما الجديد في هذا الإصدار'), findsOneWidget);
+        expect(find.text('مزامنة أخف'), findsOneWidget, reason: 'عنوان الإصدار');
+        expect(find.text('مزامنة أخف وأسرع'), findsOneWidget);
+        expect(find.text('لوحة المشرف العام'), findsOneWidget);
+        // داخل شاشة المستخدم فعلاً، لا تحت خط الطي
+        final viewport = tester.view.physicalSize;
+        for (final t in ['مزامنة أخف وأسرع', 'لوحة المشرف العام']) {
+          final r = tester.getRect(find.text(t));
+          expect(r.bottom, lessThanOrEqualTo(viewport.height), reason: t);
+          expect(r.top, greaterThanOrEqualTo(0), reason: t);
+        }
+        // الخط كبير: العنوان 15.5 والوصف 14.5 (كان 12.5 داخل مربع 140 بكسل)
+        final title = tester.widget<Text>(find.text('مزامنة أخف وأسرع'));
+        expect(title.style!.fontSize, greaterThanOrEqualTo(15));
+        final body = tester.widget<Text>(find.text('كل جهاز يحمّل بيانات مسجده وما تغيّر فيها فقط.'));
+        expect(body.style!.fontSize, greaterThanOrEqualTo(14));
+      });
+    }
+
+    testWidgets('رقم الإصدار الجديد والحالي في الرأس', (tester) async {
+      put(SilentUpdateState.updateAvailable);
+      await pumpDialog(tester, const Size(360, 700), override: notesInfo(realisticNotes));
+      expect(find.text('الإصدار v1.0.20'), findsOneWidget);
+      expect(find.text('أنت الآن على v1.0.9'), findsOneWidget);
+    });
+
+    testWidgets('الإصدارات السابقة مطوية، وتُفتح بنقرة', (tester) async {
+      put(SilentUpdateState.updateAvailable);
+      await pumpDialog(tester, const Size(360, 800), override: notesInfo(realisticNotes));
+
+      expect(find.text('ومن الإصدارات السابقة (2)'), findsOneWidget);
+      expect(find.textContaining('مواقيت الصلاة بدقة الموقع'), findsNothing);
+
+      await tester.tap(find.text('ومن الإصدارات السابقة (2)'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('مواقيت الصلاة بدقة الموقع'), findsOneWidget);
+    });
+
+    testWidgets('ملاحظات طويلة جداً على هاتف صغير بخط مكبَّر: زر التثبيت يبقى ظاهراً', (tester) async {
+      final long = '🕌 محراب 1.0.20 — كثيرة:\n${List.generate(14, (i) => '• بند رقم $i: وصف مفصّل يحتاج أكثر من سطر ليظهر كاملاً على شاشة ضيقة جداً.').join('\n')}';
+      for (final state in [SilentUpdateState.updateAvailable, SilentUpdateState.readyToInstall]) {
+        put(state, progress: state == SilentUpdateState.readyToInstall ? 1 : 0);
+        await pumpDialog(tester, const Size(320, 568), textScale: 1.3, override: notesInfo(long));
+
+        expect(tester.takeException(), isNull, reason: '$state');
+        final button = state == SilentUpdateState.readyToInstall
+            ? find.byIcon(Icons.rocket_launch_rounded)
+            : find.text('تحديث الآن');
+        expect(button, findsOneWidget);
+        expect(tester.getRect(button).bottom, lessThanOrEqualTo(568), reason: 'الزر ثابت أسفل النافذة: $state');
+        // تمرير الملاحظات لا يحرّك الزر
+        final before = tester.getRect(button);
+        await tester.drag(find.byType(SingleChildScrollView).first, const Offset(0, -300));
+        await tester.pump();
+        expect(tester.getRect(button), before);
+      }
+    });
+
+    testWidgets('ملاحظات بلا نقاط: تُعرض كاملة بخط واضح', (tester) async {
+      put(SilentUpdateState.updateAvailable);
+      await pumpDialog(tester, const Size(360, 700), override: notesInfo('إصلاحات مهمة في الأذان وتحسينات في الأداء.'));
+      expect(find.text('ما الجديد في هذا الإصدار'), findsOneWidget);
+      expect(find.text('إصلاحات مهمة في الأذان وتحسينات في الأداء.'), findsOneWidget);
+    });
+
+    testWidgets('بلا ملاحظات إطلاقاً: لا قسم «ما الجديد» فارغ', (tester) async {
+      put(SilentUpdateState.updateAvailable);
+      await pumpDialog(tester, const Size(360, 700), override: notesInfo(''));
+      expect(find.text('ما الجديد في هذا الإصدار'), findsNothing);
+      expect(find.text('تحديث الآن'), findsOneWidget);
+    });
+
+    testWidgets('الوضع الداكن: لا فيض ولا نص غير مقروء', (tester) async {
+      put(SilentUpdateState.readyToInstall, progress: 1);
+      tester.view.physicalSize = const Size(360, 760);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(brightness: Brightness.dark),
+        home: Scaffold(body: UpdateDialog(info: notesInfo(realisticNotes), service: service)),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(tester.takeException(), isNull);
+      expect(find.text('مزامنة أخف وأسرع'), findsOneWidget);
+    });
+  });
+
   testWidgets('النافذة تتابع الحالة حيّة: من «متاح» إلى «ينزّل» إلى «جاهز»', (tester) async {
     put(SilentUpdateState.updateAvailable);
     await pumpDialog(tester, const Size(412, 800));
@@ -139,25 +251,29 @@ void main() {
         await loader.load();
       }
     });
-    for (final (name, state, progress, waiting) in [
-      ('available', SilentUpdateState.updateAvailable, 0.0, false),
-      ('downloading', SilentUpdateState.downloading, 0.42, false),
-      ('waiting', SilentUpdateState.downloading, 0.42, true),
-      ('ready', SilentUpdateState.readyToInstall, 1.0, false),
+    // ملاحظات الإصدار الحقيقية من المستودع إن وُجدت، وإلا المثال
+    final notesFile = File('../RELEASE_NOTES.md');
+    final shotInfo = notesInfo(notesFile.existsSync() ? notesFile.readAsStringSync() : realisticNotes);
+    for (final (name, state, progress, waiting, dark) in [
+      ('available', SilentUpdateState.updateAvailable, 0.0, false, false),
+      ('downloading', SilentUpdateState.downloading, 0.42, false, false),
+      ('waiting', SilentUpdateState.downloading, 0.42, true, false),
+      ('ready', SilentUpdateState.readyToInstall, 1.0, false, false),
+      ('ready_dark', SilentUpdateState.readyToInstall, 1.0, false, true),
     ]) {
       put(state, progress: progress, waiting: waiting);
       final key = GlobalKey();
-      tester.view.physicalSize = const Size(360, 640);
+      tester.view.physicalSize = const Size(360, 700);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(RepaintBoundary(
         key: key,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(fontFamily: 'Tajawal'),
+          theme: ThemeData(fontFamily: 'Tajawal', brightness: dark ? Brightness.dark : Brightness.light),
           home: Scaffold(
             backgroundColor: Colors.black54,
-            body: UpdateDialog(info: info, service: service),
+            body: UpdateDialog(info: shotInfo, service: service),
           ),
         ),
       ));

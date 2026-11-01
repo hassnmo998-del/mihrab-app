@@ -2856,7 +2856,7 @@ class DataService extends ChangeNotifier {
 
     if (part > 1) {
       final partSnapshot = CommunityEvent(
-        id: 'archived-${ev.id}-p$part-${DateTime.now().millisecondsSinceEpoch}',
+        id: 'archived-${ev.id}-p$part-${_archiveStamp()}',
         mosqueId: ev.mosqueId,
         title: '${ev.title} — الجزء $part',
         description: ev.description,
@@ -2900,7 +2900,7 @@ class DataService extends ChangeNotifier {
     if (ev.isRecurring) {
       // 1. إنشاء لقطة الأرشيف فوراً وبشكل دائم ومضمون
       final archivedSnapshot = CommunityEvent(
-        id: 'archived-${ev.id}-${DateTime.now().millisecondsSinceEpoch}',
+        id: 'archived-${ev.id}-${_archiveStamp()}',
         mosqueId: ev.mosqueId,
         title: ev.title,
         description: ev.description,
@@ -3022,6 +3022,10 @@ class DataService extends ChangeNotifier {
     notifyListeners();
     return true;
   }
+
+  /// ذيل معرّف سجل الأرشيف: الوقت ثم محارف عشوائية. الوقت وحده كان يمنح سجلين أُنشئا
+  /// في الميلي ثانية نفسها المعرّف نفسه، فيُكتب أحدهما فوق الآخر.
+  String _archiveStamp() => AccessCodeGenerator.entityId('s').substring(2);
 
   /// لقطة الأرشيف التابعة لهذا الدرس. المطابقة مقيَّدة بنفس المسجد حتى لا تُكتب
   /// تسجيلات درس على درس آخر (أو على فرع آخر) عند تشابه المعرّفات.
