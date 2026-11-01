@@ -11,8 +11,13 @@ import '../../../core/utils/platform_utils.dart';
 import '../../../models/models.dart';
 import '../../../services/app_notification_service.dart';
 import '../../../services/data_service.dart';
+import '../../../services/lesson_recording_guard.dart';
+import '../../../services/lesson_recording_journal.dart';
 import '../../../services/telegram_media_resolver.dart';
 import '../../../services/windows_audio_compressor.dart';
+
+/// ما يختاره الشيخ حين يحاول مغادرة شاشة درس يُسجَّل.
+enum _LeaveChoice { stay, save, discard }
 
 class SheikhLiveLessonScreen extends StatefulWidget {
   /// أطول جزء تسجيل قبل أن يُحفظ وحده ويُسأل الشيخ أيتابع. حدّه [MediaLimits.maxRecording]
@@ -53,6 +58,20 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
   /// إنهاء جارٍ (يدوي أو عند الحد): يمنع إنهاءً ثانياً من نبضة المؤقت التالية.
   bool _finishing = false;
 
+  /// مستوى الصوت الذي يلتقطه الميكروفون الآن (0..1)، يُعرض شريطاً تحت العدّاد.
+  double _level = 0;
+
+  /// الميكروفون لا يلتقط شيئاً منذ [_silenceLimit]: النظام أسكته أو الميكروفون معطّل.
+  bool _micSilent = false;
+  DateTime? _silentSince;
+  StreamSubscription<Amplitude>? _amplitudeSub;
+  StreamSubscription<RecordState>? _stateSub;
+
+  /// تحت هذا المستوى لا صوت إطلاقاً (ميكروفون أسكته النظام يعطي نحو -160)؛ ضجيج قاعة
+  /// هادئة نفسه أعلى منه بكثير، فلا ينبّه سكوت الشيخ بين جملتين.
+  static const double _silenceDb = -75;
+  static const Duration _silenceLimit = Duration(seconds: 15);
+
   int get _maxMinutes => SheikhLiveLessonScreen.partLimit.inMinutes;
   late DataService _dataService;
 
@@ -73,30 +92,65 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-    _initForegroundTask();
+    _listenToRecorder();
   }
 
-  void _initForegroundTask() {
-    // Platform-specific foreground task initialization (mobile only)
-    if (!PlatformUtils.supportsForegroundTask) return;
+  /// يراقب المسجّل نفسه لا الأزرار وحدها: المستوى لكشف ميكروفون صامت، والحالة لاستئناف
+  /// تسجيل أوقفه النظام من غير أن يطلبه الشيخ.
+  void _listenToRecorder() {
+    if (PlatformUtils.isWeb) return;
+    try {
+      _amplitudeSub = _audioRecorder
+          .onAmplitudeChanged(const Duration(milliseconds: 300))
+          .listen(_onAmplitude, onError: (_) {});
+      _stateSub = _audioRecorder.onStateChanged().listen((state) {
+        if (state == RecordState.pause && _isRecording && !_isPaused && !_finishing) {
+          // إيقاف لم يطلبه الشيخ (مقاطعة من النظام): يُستأنف فوراً
+          unawaited(_audioRecorder.resume().catchError((_) {}));
+        }
+      }, onError: (_) {});
+    } catch (_) {}
   }
 
-  Future<void> _startForegroundTask() async {
-    // Platform-specific foreground task (mobile only)
-    if (!PlatformUtils.supportsForegroundTask) return;
+  void _onAmplitude(Amplitude amp) {
+    if (!mounted || !_isRecording || _isPaused) return;
+    final db = amp.current.isFinite ? amp.current : -160.0;
+    // -60..0 dBFS على شريط من 0 إلى 1
+    final level = ((db + 60) / 60).clamp(0.0, 1.0);
+    final now = DateTime.now();
+    var silent = _micSilent;
+    if (db < _silenceDb) {
+      _silentSince ??= now;
+      if (now.difference(_silentSince!) >= _silenceLimit) silent = true;
+    } else {
+      _silentSince = null;
+      silent = false;
+    }
+    if (silent && !_micSilent) HapticFeedback.heavyImpact();
+    if ((level - _level).abs() > 0.02 || silent != _micSilent) {
+      setState(() {
+        _level = level;
+        _micSilent = silent;
+      });
+    }
   }
 
-  Future<void> _stopForegroundTask() async {
-    // Platform-specific foreground task cleanup (mobile only)
-    if (!PlatformUtils.supportsForegroundTask) return;
+  void _resetMicMonitor() {
+    _level = 0;
+    _micSilent = false;
+    _silentSince = null;
   }
+
+  Future<void> _startForegroundTask() => LessonRecordingGuard.start(widget.event.title);
+
+  Future<void> _stopForegroundTask() => LessonRecordingGuard.stop();
 
   @override
   void dispose() {
     _timer?.cancel();
     _pulseController.dispose();
-    _audioRecorder.dispose();
-    _stopForegroundTask();
+    _amplitudeSub?.cancel();
+    _stateSub?.cancel();
     unawaited(AppNotificationService.instance.setKeepScreenOn(false));
 
     if (widget.event.eventStatus == 'live') {
@@ -107,6 +161,23 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       );
     }
 
+    final recorder = _audioRecorder;
+    if (_isRecording && !_finishing) {
+      // الشاشة أُغلقت والتسجيل جارٍ (لا عبر زر الرجوع): لا يضيع الدرس، يُختم ويُرفع
+      final data = _dataService;
+      unawaited(() async {
+        try {
+          await recorder.stop();
+        } catch (_) {}
+        await recorder.dispose();
+        await _stopForegroundTask();
+        await data.recoverUnfinishedRecording();
+      }());
+    } else {
+      recorder.dispose();
+      _stopForegroundTask();
+    }
+
     super.dispose();
   }
 
@@ -115,6 +186,11 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _secondsElapsed++);
+      // المدة تُحفظ مع التسجيل: إن أُغلق التطبيق يُرفع بمدته الصحيحة
+      final path = _recordedFilePath;
+      if (path != null && _secondsElapsed % 10 == 0) {
+        unawaited(LessonRecordingJournal.updateSeconds(path, _secondsElapsed));
+      }
       _enforceRecordingLimit();
     });
     _pulseController.repeat(reverse: true);
@@ -164,16 +240,23 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
             'lesson_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
         // صوت كلام أحادي مضغوط: الساعة ≈ 14MB، تحت حد أرشيف تيليجرام (20MB).
+        // audioInterruption: none — الافتراضي في حزمة record يوقف التسجيل عند أي صوت
+        // آخر على الجهاز (رنة إشعار، رسالة صوتية، الأذان) ولا يستأنفه أبداً، والعدّاد
+        // يكمل فيظن الشيخ أنه يسجّل. الدرس لا يتنازل عن الميكروفون لأي صوت.
         await _audioRecorder.start(
           _recordsWavThenCompresses
               // Windows: the recorder's default format (known to work with laptop mics);
               // the compressor downsamples it to mono 16kHz afterwards.
-              ? const RecordConfig(encoder: AudioEncoder.wav)
+              ? const RecordConfig(
+                  encoder: AudioEncoder.wav,
+                  audioInterruption: AudioInterruptionMode.none,
+                )
               : const RecordConfig(
                   encoder: AudioEncoder.aacLc,
                   bitRate: MediaLimits.recordingBitRate,
                   sampleRate: MediaLimits.recordingSampleRate,
                   numChannels: 1,
+                  audioInterruption: AudioInterruptionMode.none,
                 ),
           path: path,
         );
@@ -182,11 +265,21 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
           _isRecording = true;
           _isPaused = false;
           _recordedFilePath = path;
+          _resetMicMonitor();
         });
         _startTimer();
-        _startForegroundTask();
-        // أندرويد يُسكت الميكروفون حين تُطفأ الشاشة أو يغادر التطبيق الواجهة:
-        // تبقى الشاشة مضاءة ما دام التسجيل جارياً
+        // التسجيل محفوظ منذ بدئه: إن أُغلق التطبيق يُختم ويُرفع عند الفتح التالي
+        unawaited(LessonRecordingJournal.begin(ActiveLessonRecording(
+          eventId: widget.event.id,
+          path: path,
+          part: _part,
+          title: widget.event.title,
+          speaker: widget.event.organizerName,
+          seconds: 0,
+        )));
+        // خدمة أمامية «ميكروفون»: بدونها يُسكت أندرويد الميكروفون حين تُقفل الشاشة
+        unawaited(_startForegroundTask());
+        // وتبقى الشاشة مضاءة أيضاً، احتياطاً للأجهزة التي تشدّ على التطبيقات بالخلفية
         unawaited(AppNotificationService.instance.setKeepScreenOn(true));
 
         if (mounted) {
@@ -210,23 +303,28 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
 
   Future<void> _pauseRecording() async {
     if (_isRecording && !_isPaused) {
+      // تُعلَّم قبل الطلب: حدث «إيقاف» من المسجّل يصل قبل أن ينتهي الطلب، فلا يُستأنف وحده
+      _isPaused = true;
       await _audioRecorder.pause();
       _pauseTimer();
       setState(() => _isPaused = true);
     } else if (_isRecording && _isPaused) {
       await _audioRecorder.resume();
       _startTimer();
-      setState(() => _isPaused = false);
+      setState(() {
+        _isPaused = false;
+        _silentSince = null;
+      });
     }
   }
 
   Future<void> _stopAndFinishLesson() => _finishLesson();
 
   /// ينهي الدرس ويؤرشفه. [auto] عند بلوغ الحد الأقصى: بلا سؤال تأكيد، ثم يُسأل الشيخ
-  /// أيتابع في جزء ثانٍ.
-  Future<void> _finishLesson({bool auto = false}) async {
+  /// أيتابع في جزء ثانٍ. [confirmed]: الشيخ اختار الحفظ من نافذة المغادرة.
+  Future<void> _finishLesson({bool auto = false, bool confirmed = false}) async {
     if (_finishing) return;
-    if (!auto) {
+    if (!auto && !confirmed) {
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -260,6 +358,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     finalPath ??= _recordedFilePath;
 
     if (finalPath == null || !File(finalPath).existsSync()) {
+      await LessonRecordingJournal.clear();
       if (mounted) {
         _dataService.finalizeLiveSession(widget.event.id, part: _part);
         Navigator.pop(context);
@@ -273,7 +372,11 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         _busyMessage = 'جاري ضغط التسجيل...';
       });
       final compressed = await WindowsAudioCompressor.compress(finalPath);
-      if (!mounted) return;
+      if (!mounted) {
+        // أُغلقت الشاشة أثناء الضغط: التسجيل يُحفظ ويُرفع بلا واجهة
+        if (compressed != null) await _queueDetached(compressed);
+        return;
+      }
       if (compressed == null) {
         setState(() => _isUploading = false);
         await _showArchiveProblem(
@@ -379,6 +482,9 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
   }
 
   Future<void> _showArchiveProblem(String message) async {
+    // الملف باقٍ في مكانه والمسار معروض للشيخ: لا يُعاد إنقاذه عند الفتح التالي
+    await LessonRecordingJournal.clear();
+    if (!mounted) return;
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -392,6 +498,19 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     );
     _dataService.finalizeLiveSession(widget.event.id, part: _part);
     if (mounted) Navigator.pop(context);
+  }
+
+  /// حفظ ورفع بعد أن أُغلقت الشاشة (لا `context` ولا `setState`).
+  Future<void> _queueDetached(String path) async {
+    final archiveId = _dataService.finalizeLiveSession(widget.event.id, part: _part) ?? widget.event.id;
+    await _dataService.audioUploadQueue.addToQueue(
+      eventId: archiveId,
+      title: _part > 1 ? '${widget.event.title} — الجزء $_part' : widget.event.title,
+      speaker: widget.event.organizerName,
+      filePath: path,
+      durationSeconds: _secondsElapsed,
+    );
+    await LessonRecordingJournal.clear();
   }
 
   /// يضع التسجيل في طابور الرفع. [closeAfter]: يغلق الشاشة بعدها (إنهاء يدوي)؛ عند حد
@@ -411,6 +530,8 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         filePath: file.path,
         durationSeconds: _secondsElapsed,
       );
+      // دخل الطابور (والطابور محفوظ على القرص): لم يعد تسجيلاً غير مختوم
+      await LessonRecordingJournal.clear();
 
       if (mounted && closeAfter) {
         Navigator.pop(context);
@@ -426,26 +547,62 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     }
   }
 
-  Future<bool> _handleOnWillPop() async {
-    if (!_isRecording && !_isUploading) return true;
+  /// الخروج أثناء التسجيل لا يحذف الدرس إلا باختيار صريح ثانٍ: «نعم، الخروج» وحدها كانت
+  /// تحذف ملف الدرس كله بضغطة رجوع خاطئة.
+  Future<_LeaveChoice> _askLeaveChoice() async {
+    // الحفظ جارٍ (ضغط أو دخول الطابور): يكمل وحده بعد إغلاق الشاشة
+    if (!_isRecording) return _isUploading ? _LeaveChoice.save : _LeaveChoice.stay;
 
-    final result = await showDialog<bool>(
+    final choice = await showDialog<_LeaveChoice>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('التسجيل قيد العمل'),
-        content: const Text('أنت في منتصف تسجيل مجلس العلم حالياً. هل تريد حقاً الخروج وإيقاف التسجيل؟'),
+        content: const Text(
+          'أنت في منتصف تسجيل مجلس العلم. إن انتهى الدرس احفظه ليُرفع إلى مكتبة الدروس.',
+        ),
+        actionsOverflowDirection: VerticalDirection.down,
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('البقاء في الدرس')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _LeaveChoice.discard),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('حذف التسجيل'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _LeaveChoice.stay),
+            child: const Text('البقاء في الدرس'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('نعم، الخروج'),
+            key: const ValueKey('leaveAndSave'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.emeraldPrimary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, _LeaveChoice.save),
+            child: const Text('إنهاء الدرس وحفظه'),
           ),
         ],
       ),
     );
-    return result ?? false;
+    if (choice != _LeaveChoice.discard || !mounted) return choice ?? _LeaveChoice.stay;
+
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('حذف تسجيل الدرس؟'),
+        content: Text('سيُحذف ما سُجّل (${_formatTime(_secondsElapsed)}) نهائياً ولن يُرفع إلى المكتبة.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('تراجع')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('نعم، احذفه'),
+          ),
+        ],
+      ),
+    );
+    return sure == true ? _LeaveChoice.discard : _LeaveChoice.stay;
   }
 
   @override
@@ -473,20 +630,32 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         final nav = Navigator.of(context);
-        final shouldPop = await _handleOnWillPop();
+        final choice = await _askLeaveChoice();
         if (!mounted) return;
-        if (shouldPop) {
-          if (_isRecording) {
-            // تسجيل تُرك في منتصفه لا يُرفع: يُحذف ملفه (على ويندوز 10MB لكل دقيقة)
+        switch (choice) {
+          case _LeaveChoice.stay:
+            return;
+          case _LeaveChoice.save:
+            if (_isRecording) {
+              // الإنهاء نفسه الذي يجري بزر «ختام وأرشفة المجلس»، وهو يغلق الشاشة
+              await _finishLesson(confirmed: true);
+            } else {
+              nav.pop();
+            }
+          case _LeaveChoice.discard:
+            _finishing = true;
+            _pauseTimer();
             final abandoned = await _audioRecorder.stop() ?? _recordedFilePath;
+            if (mounted) setState(() => _isRecording = false);
+            await LessonRecordingJournal.clear();
+            unawaited(_stopForegroundTask());
             unawaited(AppNotificationService.instance.setKeepScreenOn(false));
             if (abandoned != null) {
               try {
                 await File(abandoned).delete();
               } catch (_) {}
             }
-          }
-          nav.pop();
+            nav.pop();
         }
       },
       child: Scaffold(
@@ -646,6 +815,40 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
                         ],
                       ),
                     ),
+                    if (_isRecording && !_isPaused) ...[
+                      const SizedBox(height: 16),
+                      _MicLevelMeter(level: _level, silent: _micSilent, isDark: isDark),
+                    ],
+                    if (_isRecording && !_isPaused && _micSilent) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        key: const ValueKey('micSilentBanner'),
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.red.shade400),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.mic_off_rounded, color: Colors.red.shade400),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'الميكروفون لا يلتقط أي صوت منذ ${_silenceLimit.inSeconds} ثانية. '
+                                'تأكد أن الميكروفون غير مغطّى، وأن تطبيقاً آخر (اتصال أو تسجيل) لا يستعمله.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.red.shade200 : Colors.red.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (_isRecording && _secondsLeft <= 5 * 60) ...[
                       const SizedBox(height: 18),
                       Container(
@@ -906,6 +1109,41 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
 }
 
 /// شاشة بديلة تُعرض إذا حاول القسم النسائي الوصول لواجهة التسجيل والأرشفة.
+/// شريط ما يلتقطه الميكروفون الآن: يرى الشيخ أن صوته يُسجَّل فعلاً، لا العدّاد وحده.
+class _MicLevelMeter extends StatelessWidget {
+  final double level;
+  final bool silent;
+  final bool isDark;
+
+  const _MicLevelMeter({required this.level, required this.silent, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = silent ? Colors.red.shade400 : AppColors.emeraldPrimary;
+    return ConstrainedBox(
+      key: const ValueKey('micLevelMeter'),
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: Row(
+        children: [
+          Icon(silent ? Icons.mic_off_rounded : Icons.mic_rounded, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: level,
+                minHeight: 8,
+                color: color,
+                backgroundColor: isDark ? Colors.white12 : Colors.black12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RecordingNotPermittedView extends StatelessWidget {
   final bool isDark;
 

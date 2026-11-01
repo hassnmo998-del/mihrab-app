@@ -7,10 +7,12 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/astro/sky_track.dart';
 import '../models/adhan_sound.dart';
+import '../models/prayer_calculation_settings.dart';
 import 'adhan_audio_cache_manager.dart';
 import 'adhan_data.dart';
 import 'app_notification_service.dart';
@@ -35,10 +37,7 @@ class AdhanPermissionsStatus {
 }
 
 /// Represents the prayer countdown state: either before Adhan or between Adhan & Iqama.
-enum PrayerCountdownPhase {
-  beforeAdhan,
-  betweenAdhanAndIqama,
-}
+enum PrayerCountdownPhase { beforeAdhan, betweenAdhanAndIqama }
 
 class CurrentPrayerState {
   final String prayerName; // e.g. "الفجر", "الظهر", "العصر", "المغرب", "العشاء"
@@ -69,8 +68,9 @@ class AdhanService implements BackgroundAudioSource {
   }
   static final AdhanService instance = AdhanService._();
 
-  static const MethodChannel _customNotificationChannel =
-      MethodChannel('com.masjed.mihrab/custom_prayer_notification');
+  static const MethodChannel _customNotificationChannel = MethodChannel(
+    'com.masjed.mihrab/custom_prayer_notification',
+  );
 
   // Audio Player for Preview & Live Adhan (lazily initialized)
   AudioPlayer? _playerInstance;
@@ -78,7 +78,11 @@ class AdhanService implements BackgroundAudioSource {
     if (_playerInstance == null) {
       final p = AudioPlayer();
       if (!kIsWeb) {
-        unawaited(p.setAudioContext(AudioContextConfig(stayAwake: true).build()).catchError((_) {}));
+        unawaited(
+          p
+              .setAudioContext(AudioContextConfig(stayAwake: true).build())
+              .catchError((_) {}),
+        );
       }
 
       // خطأ من المشغّل (ملف تالف مثلاً) ينهي التشغيل بهدوء بدل أن يبقى الزر يدور
@@ -154,10 +158,12 @@ class AdhanService implements BackgroundAudioSource {
       ValueNotifier<AdhanSound>(AdhanData.defaultSound);
   final ValueNotifier<bool> isPlayingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<bool> isBufferingNotifier = ValueNotifier<bool>(false);
-  final ValueNotifier<Duration> positionNotifier =
-      ValueNotifier<Duration>(Duration.zero);
-  final ValueNotifier<Duration> durationNotifier =
-      ValueNotifier<Duration>(Duration.zero);
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+  final ValueNotifier<Duration> durationNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
   final ValueNotifier<AdhanSound?> currentPlayingSoundNotifier =
       ValueNotifier<AdhanSound?>(null);
 
@@ -189,9 +195,41 @@ class AdhanService implements BackgroundAudioSource {
   double _volume = 1.0;
   double get volume => _volume;
 
-  // Active Location Coordinates (default Damascus, Syria)
+  // Active Location Coordinates & Metadata (default Damascus, Syria)
   double _latitude = 33.5138;
   double _longitude = 36.2765;
+  String _cityName = 'دمشق، سوريا';
+  bool _isGpsLocation = false;
+  CalculationMethod _calculationMethod = CalculationMethod.muslim_world_league;
+  Madhab _madhab = Madhab.shafi;
+  final Map<String, int> _manualAdjustments = {
+    'الفجر': 0,
+    'الشروق': 0,
+    'الظهر': 0,
+    'العصر': 0,
+    'المغرب': 0,
+    'العشاء': 0,
+  };
+
+  // Notifiers for settings
+  final ValueNotifier<String> cityNameNotifier = ValueNotifier<String>(
+    'دمشق، سوريا',
+  );
+  final ValueNotifier<bool> isGpsLocationNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<CalculationMethod> calculationMethodNotifier =
+      ValueNotifier<CalculationMethod>(CalculationMethod.muslim_world_league);
+  final ValueNotifier<Madhab> madhabNotifier = ValueNotifier<Madhab>(
+    Madhab.shafi,
+  );
+  final ValueNotifier<Map<String, int>> manualAdjustmentsNotifier =
+      ValueNotifier<Map<String, int>>({
+        'الفجر': 0,
+        'الشروق': 0,
+        'الظهر': 0,
+        'العصر': 0,
+        'المغرب': 0,
+        'العشاء': 0,
+      });
 
   Timer? _tickerTimer;
   String? _lastFiredPrayerKey;
@@ -215,11 +253,42 @@ class AdhanService implements BackgroundAudioSource {
     unawaited(refreshStickyNotification());
     unawaited(rescheduleNativeAlarms());
 
+    if (!kIsWeb && _isGpsLocation) {
+      unawaited(_tryBackgroundGpsRefresh());
+    }
+
     // Register hardware volume keys handler (Volume Down / Mute silences Adhan immediately)
     if (!kIsWeb && !Platform.environment.containsKey('FLUTTER_TEST')) {
       HardwareKeyboard.instance.addHandler(_handleKeyEvent);
       _startTicker();
     }
+  }
+
+  Future<void> _tryBackgroundGpsRefresh() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      final dist = Geolocator.distanceBetween(
+        _latitude,
+        _longitude,
+        pos.latitude,
+        pos.longitude,
+      );
+      if (dist > 2000) {
+        await setLocationToGps(position: pos);
+      }
+    } catch (_) {}
   }
 
   /// Native Android actions (Silence, Live firing start, Completion). The channel is
@@ -256,18 +325,156 @@ class AdhanService implements BackgroundAudioSource {
 
     // معاينة صوت: الخفض والكتم يوقفانها، والرفع يرفع الصوت كالمعتاد
     if (isPlayingNotifier.value &&
-        (key == LogicalKeyboardKey.audioVolumeDown || key == LogicalKeyboardKey.audioVolumeMute)) {
+        (key == LogicalKeyboardKey.audioVolumeDown ||
+            key == LogicalKeyboardKey.audioVolumeMute)) {
       silenceAdhan();
       return true;
     }
     return false;
   }
 
+  Future<bool> setLocationToGps({Position? position}) async {
+    try {
+      Position? pos = position;
+      if (pos == null) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          return false;
+        }
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          return false;
+        }
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      }
+
+      _latitude = pos.latitude;
+      _longitude = pos.longitude;
+      _isGpsLocation = true;
+
+      // Find nearest city from catalog for readable location badge
+      final nearest = PrayerCitiesData.findNearestCity(
+        pos.latitude,
+        pos.longitude,
+      );
+      if (nearest != null && nearest.$2 <= 60.0) {
+        _cityName = '${nearest.$1.nameAr} (GPS)';
+      } else if (nearest != null) {
+        _cityName = 'موقعي الحالي (قرب ${nearest.$1.nameAr})';
+      } else {
+        _cityName = 'موقعي الحالي (GPS)';
+      }
+
+      cityNameNotifier.value = _cityName;
+      isGpsLocationNotifier.value = true;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('adhan_latitude', _latitude);
+      await prefs.setDouble('adhan_longitude', _longitude);
+      await prefs.setString('adhan_city_name', _cityName);
+      await prefs.setBool('adhan_is_gps', true);
+
+      await refreshStickyNotification(force: true);
+      await rescheduleNativeAlarms();
+      return true;
+    } catch (e) {
+      debugPrint('⚠️ [AdhanService] Error updating location via GPS: $e');
+      return false;
+    }
+  }
+
+  Future<void> setCity(PrayerCity city) async {
+    _latitude = city.latitude;
+    _longitude = city.longitude;
+    _cityName = city.displayName;
+    _isGpsLocation = false;
+    _calculationMethod = city.defaultMethod;
+
+    cityNameNotifier.value = _cityName;
+    isGpsLocationNotifier.value = false;
+    calculationMethodNotifier.value = _calculationMethod;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('adhan_latitude', _latitude);
+    await prefs.setDouble('adhan_longitude', _longitude);
+    await prefs.setString('adhan_city_name', _cityName);
+    await prefs.setBool('adhan_is_gps', false);
+    await prefs.setString('adhan_calculation_method', _calculationMethod.name);
+
+    await refreshStickyNotification(force: true);
+    await rescheduleNativeAlarms();
+  }
+
+  Future<void> setCalculationMethod(CalculationMethod method) async {
+    _calculationMethod = method;
+    calculationMethodNotifier.value = method;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('adhan_calculation_method', method.name);
+
+    await refreshStickyNotification(force: true);
+    await rescheduleNativeAlarms();
+  }
+
+  Future<void> setMadhab(Madhab madhab) async {
+    _madhab = madhab;
+    madhabNotifier.value = madhab;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('adhan_madhab', madhab.name);
+
+    await refreshStickyNotification(force: true);
+    await rescheduleNativeAlarms();
+  }
+
+  Future<void> setPrayerAdjustment(String prayerName, int minutes) async {
+    _manualAdjustments[prayerName] = minutes.clamp(-30, 30);
+    manualAdjustmentsNotifier.value = Map<String, int>.from(_manualAdjustments);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      'adhan_adj_$prayerName',
+      _manualAdjustments[prayerName]!,
+    );
+
+    await refreshStickyNotification(force: true);
+    await rescheduleNativeAlarms();
+  }
+
+  Future<void> resetAdjustments() async {
+    for (final p in ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء']) {
+      _manualAdjustments[p] = 0;
+    }
+    manualAdjustmentsNotifier.value = Map<String, int>.from(_manualAdjustments);
+    final prefs = await SharedPreferences.getInstance();
+    for (final p in ['الفجر', 'الشروق', 'الظهر', 'العصر', 'المغرب', 'العشاء']) {
+      await prefs.remove('adhan_adj_$p');
+    }
+
+    await refreshStickyNotification(force: true);
+    await rescheduleNativeAlarms();
+  }
+
   void updateLocation(double lat, double lng) {
     _latitude = lat;
     _longitude = lng;
+    final nearest = PrayerCitiesData.findNearestCity(lat, lng);
+    if (nearest != null && nearest.$2 <= 60.0) {
+      _cityName = '${nearest.$1.nameAr} (GPS)';
+    } else {
+      _cityName = 'موقعي الحالي (GPS)';
+    }
+    _isGpsLocation = true;
+    cityNameNotifier.value = _cityName;
+    isGpsLocationNotifier.value = true;
     unawaited(_saveLocation());
-    unawaited(refreshStickyNotification());
+    unawaited(refreshStickyNotification(force: true));
     unawaited(rescheduleNativeAlarms());
   }
 
@@ -277,11 +484,19 @@ class AdhanService implements BackgroundAudioSource {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('adhan_latitude', _latitude);
       await prefs.setDouble('adhan_longitude', _longitude);
+      await prefs.setString('adhan_city_name', _cityName);
+      await prefs.setBool('adhan_is_gps', _isGpsLocation);
     } catch (_) {}
   }
 
   double get latitude => _latitude;
   double get longitude => _longitude;
+  String get cityName => _cityName;
+  bool get isGpsLocation => _isGpsLocation;
+  CalculationMethod get calculationMethod => _calculationMethod;
+  Madhab get madhab => _madhab;
+  Map<String, int> get manualAdjustments =>
+      Map.unmodifiable(_manualAdjustments);
 
   bool isPrayerAdhanEnabled(String prayerName) {
     return _prayerEnabledMap[prayerName] ?? true;
@@ -342,7 +557,8 @@ class AdhanService implements BackgroundAudioSource {
     selectedSoundNotifier.value = sound;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('adhan_selected_sound_id', sound.id);
-    if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) == sound.id) {
+    if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) ==
+        sound.id) {
       await prefs.remove(AdhanAudioCacheManager.pendingTargetPrefKey);
     }
     await _storeNativeSoundPaths(prefs);
@@ -375,7 +591,8 @@ class AdhanService implements BackgroundAudioSource {
   Future<void> _onSoundDownloaded(String soundId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) == soundId) {
+      if (prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey) ==
+          soundId) {
         await setSelectedSound(AdhanData.getById(soundId));
       } else if (selectedSoundNotifier.value.id == soundId) {
         await _storeNativeSoundPaths(prefs);
@@ -420,14 +637,24 @@ class AdhanService implements BackgroundAudioSource {
       final activeAlarms = buildNativeAlarmSchedule();
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('adhan_cached_schedule_json', jsonEncode(activeAlarms));
+      await prefs.setString(
+        'adhan_cached_schedule_json',
+        jsonEncode(activeAlarms),
+      );
 
       if (isEnabledNotifier.value) {
-        await _customNotificationChannel.invokeMethod('schedulePrayerAlarms', activeAlarms);
-        debugPrint('⏰ [AdhanService] Synced ${activeAlarms.length} exact alarms with Android AlarmManager');
+        await _customNotificationChannel.invokeMethod(
+          'schedulePrayerAlarms',
+          activeAlarms,
+        );
+        debugPrint(
+          '⏰ [AdhanService] Synced ${activeAlarms.length} exact alarms with Android AlarmManager',
+        );
       } else {
         await _customNotificationChannel.invokeMethod('cancelPrayerAlarms');
-        debugPrint('🚫 [AdhanService] Master adhan disabled, cancelled native alarms');
+        debugPrint(
+          '🚫 [AdhanService] Master adhan disabled, cancelled native alarms',
+        );
       }
     } catch (e) {
       debugPrint('⚠️ [AdhanService] Error syncing native alarms: $e');
@@ -465,7 +692,8 @@ class AdhanService implements BackgroundAudioSource {
     // 3. Battery Optimizations Ignored (Doze mode exemption)
     bool batteryIgnored = false;
     try {
-      batteryIgnored = await FlutterForegroundTask.isIgnoringBatteryOptimizations;
+      batteryIgnored =
+          await FlutterForegroundTask.isIgnoringBatteryOptimizations;
     } catch (_) {
       try {
         final batStatus = await Permission.ignoreBatteryOptimizations.status;
@@ -520,7 +748,8 @@ class AdhanService implements BackgroundAudioSource {
   // --- Audio Preview & Controls ---
 
   Future<void> playPreview(AdhanSound sound) async {
-    final isCurrent = currentPlayingSoundNotifier.value?.id == sound.id &&
+    final isCurrent =
+        currentPlayingSoundNotifier.value?.id == sound.id &&
         liveFiringPrayerNotifier.value == null;
 
     // If clicking on current playing sound, toggle pause
@@ -591,7 +820,8 @@ class AdhanService implements BackgroundAudioSource {
         final cache = AdhanAudioCacheManager.instance;
         final fajr = isFajrPrayer(prayerName);
         // الصوت المختار إن كان على الجهاز، وإلا الأذان المضمَّن: الأذان لا يفوت
-        final source = cache.sourceFor(sound, fajr: fajr) ??
+        final source =
+            cache.sourceFor(sound, fajr: fajr) ??
             cache.sourceFor(AdhanData.defaultSound, fajr: fajr)!;
         await _player.play(source).timeout(const Duration(seconds: 25));
 
@@ -667,8 +897,11 @@ class AdhanService implements BackgroundAudioSource {
   @override
   Future<void> skipToPrevious() => Future.value();
 
-  MediaItem _buildMediaItem(AdhanSound sound,
-      {bool isLive = false, String? prayerName}) {
+  MediaItem _buildMediaItem(
+    AdhanSound sound, {
+    bool isLive = false,
+    String? prayerName,
+  }) {
     return MediaItem(
       id: sound.id,
       title: isLive && prayerName != null ? 'أذان $prayerName' : sound.title,
@@ -678,8 +911,11 @@ class AdhanService implements BackgroundAudioSource {
     );
   }
 
-  void _publishMediaSession(AdhanSound sound,
-      {bool isLive = false, String? prayerName}) {
+  void _publishMediaSession(
+    AdhanSound sound, {
+    bool isLive = false,
+    String? prayerName,
+  }) {
     BackgroundAudio.publish(
       this,
       item: _buildMediaItem(sound, isLive: isLive, prayerName: prayerName),
@@ -707,8 +943,16 @@ class AdhanService implements BackgroundAudioSource {
   List<Map<String, dynamic>> calculateTodaySchedule({DateTime? forDate}) {
     final now = forDate ?? DateTime.now();
     final coords = Coordinates(_latitude, _longitude);
-    final params = CalculationMethod.muslim_world_league.getParameters();
-    params.madhab = Madhab.shafi;
+    final params = _calculationMethod.getParameters();
+    params.madhab = _madhab;
+    params.adjustments = PrayerAdjustments(
+      fajr: _manualAdjustments['الفجر'] ?? 0,
+      sunrise: _manualAdjustments['الشروق'] ?? 0,
+      dhuhr: _manualAdjustments['الظهر'] ?? 0,
+      asr: _manualAdjustments['العصر'] ?? 0,
+      maghrib: _manualAdjustments['المغرب'] ?? 0,
+      isha: _manualAdjustments['العشاء'] ?? 0,
+    );
 
     try {
       final pt = PrayerTimes(
@@ -758,13 +1002,49 @@ class AdhanService implements BackgroundAudioSource {
     } catch (_) {
       // Fallback in case of computation anomaly
       final y = now.year, m = now.month, d = now.day;
+      final adjFajr = _manualAdjustments['الفجر'] ?? 0;
+      final adjSunrise = _manualAdjustments['الشروق'] ?? 0;
+      final adjDhuhr = _manualAdjustments['الظهر'] ?? 0;
+      final adjAsr = _manualAdjustments['العصر'] ?? 0;
+      final adjMaghrib = _manualAdjustments['المغرب'] ?? 0;
+      final adjIsha = _manualAdjustments['العشاء'] ?? 0;
       return [
-        {'name': 'الفجر', 'time': DateTime(y, m, d, 4, 42), 'iqamaMinutes': 25, 'hasIqama': true},
-        {'name': 'الشروق', 'time': DateTime(y, m, d, 6, 5), 'iqamaMinutes': 0, 'hasIqama': false},
-        {'name': 'الظهر', 'time': DateTime(y, m, d, 12, 38), 'iqamaMinutes': 20, 'hasIqama': true},
-        {'name': 'العصر', 'time': DateTime(y, m, d, 16, 8), 'iqamaMinutes': 20, 'hasIqama': true},
-        {'name': 'المغرب', 'time': DateTime(y, m, d, 18, 55), 'iqamaMinutes': 10, 'hasIqama': true},
-        {'name': 'العشاء', 'time': DateTime(y, m, d, 20, 25), 'iqamaMinutes': 15, 'hasIqama': true},
+        {
+          'name': 'الفجر',
+          'time': DateTime(y, m, d, 4, 42).add(Duration(minutes: adjFajr)),
+          'iqamaMinutes': 25,
+          'hasIqama': true,
+        },
+        {
+          'name': 'الشروق',
+          'time': DateTime(y, m, d, 6, 5).add(Duration(minutes: adjSunrise)),
+          'iqamaMinutes': 0,
+          'hasIqama': false,
+        },
+        {
+          'name': 'الظهر',
+          'time': DateTime(y, m, d, 12, 38).add(Duration(minutes: adjDhuhr)),
+          'iqamaMinutes': 20,
+          'hasIqama': true,
+        },
+        {
+          'name': 'العصر',
+          'time': DateTime(y, m, d, 16, 8).add(Duration(minutes: adjAsr)),
+          'iqamaMinutes': 20,
+          'hasIqama': true,
+        },
+        {
+          'name': 'المغرب',
+          'time': DateTime(y, m, d, 18, 55).add(Duration(minutes: adjMaghrib)),
+          'iqamaMinutes': 10,
+          'hasIqama': true,
+        },
+        {
+          'name': 'العشاء',
+          'time': DateTime(y, m, d, 20, 25).add(Duration(minutes: adjIsha)),
+          'iqamaMinutes': 15,
+          'hasIqama': true,
+        },
       ];
     }
   }
@@ -790,8 +1070,9 @@ class AdhanService implements BackgroundAudioSource {
           final rawRemaining = iqamaTime.difference(now);
           // Clamp to zero — avoids negative display if system clock ticks
           // past the target between UI frames.
-          final remainingToIqama =
-              rawRemaining.isNegative ? Duration.zero : rawRemaining;
+          final remainingToIqama = rawRemaining.isNegative
+              ? Duration.zero
+              : rawRemaining;
           // Next prayer will be the one after this
           String nextPName = 'الشروق';
           DateTime nextPTime = todaySchedule[1]['time'] as DateTime;
@@ -801,7 +1082,8 @@ class AdhanService implements BackgroundAudioSource {
           } else {
             // Tomorrow's Fajr
             final tomSchedule = calculateTodaySchedule(
-                forDate: now.add(const Duration(days: 1)));
+              forDate: now.add(const Duration(days: 1)),
+            );
             nextPName = 'الفجر (غداً)';
             nextPTime = tomSchedule.first['time'] as DateTime;
           }
@@ -839,8 +1121,9 @@ class AdhanService implements BackgroundAudioSource {
     }
 
     // 3. Past Isha → Tomorrow's Fajr
-    final tomSchedule =
-        calculateTodaySchedule(forDate: now.add(const Duration(days: 1)));
+    final tomSchedule = calculateTodaySchedule(
+      forDate: now.add(const Duration(days: 1)),
+    );
     final tomorrowFajr = tomSchedule.first['time'] as DateTime;
     final rawRemaining = tomorrowFajr.difference(now);
     return CurrentPrayerState(
@@ -868,7 +1151,9 @@ class AdhanService implements BackgroundAudioSource {
           'name': p['name'],
           'adhan': adhan.millisecondsSinceEpoch,
           'iqama': hasIqama
-              ? adhan.add(Duration(minutes: iqamaMinutes)).millisecondsSinceEpoch
+              ? adhan
+                    .add(Duration(minutes: iqamaMinutes))
+                    .millisecondsSinceEpoch
               : 0,
         });
       }
@@ -896,10 +1181,13 @@ class AdhanService implements BackgroundAudioSource {
     try {
       final now = DateTime.now();
       final signature =
-          '${now.year}-${now.month}-${now.day}|$_latitude|$_longitude|$_iqamaMinutesMap';
+          '${now.year}-${now.month}-${now.day}|$_latitude|$_longitude|$_iqamaMinutesMap|${_calculationMethod.name}|${_madhab.name}|$_manualAdjustments';
       if (!force && signature == _stickySignature) return;
       final sent = await AppNotificationService.instance
-          .syncStickyPrayerNotification(buildNotificationTimeline(), sky: buildNotificationSky());
+          .syncStickyPrayerNotification(
+            buildNotificationTimeline(),
+            sky: buildNotificationSky(),
+          );
       if (sent) _stickySignature = signature;
     } catch (_) {}
   }
@@ -981,8 +1269,12 @@ class AdhanService implements BackgroundAudioSource {
       final cache = AdhanAudioCacheManager.instance;
       var soundId = prefs.getString('adhan_selected_sound_id');
       // صوت اختاره المستخدم واكتمل تنزيله والتطبيق يُغلق: يُعتمد الآن
-      final pending = prefs.getString(AdhanAudioCacheManager.pendingTargetPrefKey);
-      if (pending != null && pending != soundId && cache.sourceFor(AdhanData.getById(pending)) != null) {
+      final pending = prefs.getString(
+        AdhanAudioCacheManager.pendingTargetPrefKey,
+      );
+      if (pending != null &&
+          pending != soundId &&
+          cache.sourceFor(AdhanData.getById(pending)) != null) {
         soundId = pending;
         await prefs.setString('adhan_selected_sound_id', pending);
         await prefs.remove(AdhanAudioCacheManager.pendingTargetPrefKey);
@@ -995,6 +1287,45 @@ class AdhanService implements BackgroundAudioSource {
       _volume = prefs.getDouble('adhan_volume') ?? 1.0;
       _latitude = prefs.getDouble('adhan_latitude') ?? _latitude;
       _longitude = prefs.getDouble('adhan_longitude') ?? _longitude;
+      _cityName = prefs.getString('adhan_city_name') ?? 'دمشق، سوريا';
+      _isGpsLocation = prefs.getBool('adhan_is_gps') ?? false;
+      cityNameNotifier.value = _cityName;
+      isGpsLocationNotifier.value = _isGpsLocation;
+
+      final methodStr = prefs.getString('adhan_calculation_method');
+      if (methodStr != null) {
+        _calculationMethod = CalculationMethod.values.firstWhere(
+          (m) => m.name == methodStr,
+          orElse: () => CalculationMethod.muslim_world_league,
+        );
+      }
+      calculationMethodNotifier.value = _calculationMethod;
+
+      final madhabStr = prefs.getString('adhan_madhab');
+      if (madhabStr != null) {
+        _madhab = Madhab.values.firstWhere(
+          (m) => m.name == madhabStr,
+          orElse: () => Madhab.shafi,
+        );
+      }
+      madhabNotifier.value = _madhab;
+
+      for (final p in [
+        'الفجر',
+        'الشروق',
+        'الظهر',
+        'العصر',
+        'المغرب',
+        'العشاء',
+      ]) {
+        final adj = prefs.getInt('adhan_adj_$p');
+        if (adj != null) {
+          _manualAdjustments[p] = adj;
+        }
+      }
+      manualAdjustmentsNotifier.value = Map<String, int>.from(
+        _manualAdjustments,
+      );
 
       for (final p in ['الفجر', 'الظهر', 'العصر', 'المغرب', 'العشاء']) {
         _prayerEnabledMap[p] = prefs.getBool('adhan_prayer_$p') ?? true;
