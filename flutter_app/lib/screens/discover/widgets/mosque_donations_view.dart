@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../models/models.dart';
 import '../../../presentation/widgets/unified_badge.dart';
 import '../../../services/data_service.dart';
+import '../../../services/sync/discover_search.dart';
 
 /// Mosque Electronic Donations View: Allows worshippers to browse mosques,
 /// view Sham Cash barcodes, copy account numbers, and donate seamlessly.
@@ -25,16 +27,58 @@ class _MosqueDonationsViewState extends State<MosqueDonationsView> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
 
+  /// بالمزامنة بالنطاق لا يحمل الجهاز إلا مساجده، فيسأل الخادم عمّا يكتبه المتبرع
+  /// (الفلترة على ما في الجهاز تبقى فورية، وطلب الخادم بعد توقف الكتابة قليلاً).
+  Timer? _searchDebounce;
+  bool _searching = false;
+  bool _searchFailed = false;
+  late final DataService _data;
+
   @override
   void initState() {
     super.initState();
-    _searchCtrl.addListener(() => setState(() => _searchQuery = _searchCtrl.text.trim()));
+    _data = Provider.of<DataService>(context, listen: false);
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
+    scheduleMicrotask(_data.clearDiscoverSearch);
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    final text = _searchCtrl.text.trim();
+    final searchable = DiscoverSearch.isSearchable(text);
+    setState(() {
+      _searchQuery = text;
+      if (!searchable) {
+        _searching = false;
+        _searchFailed = false;
+      }
+    });
+    if (!searchable) {
+      _data.clearDiscoverSearch();
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () async {
+      if (!mounted) return;
+      final asked = text;
+      setState(() {
+        _searching = true;
+        _searchFailed = false;
+      });
+      final ok = await _data.searchDiscover(asked);
+      if (!mounted || _searchQuery != asked) return;
+      setState(() {
+        _searching = false;
+        _searchFailed = !ok;
+      });
+    });
   }
 
   void _copyToClipboard(BuildContext context, String text, String label) {
@@ -219,11 +263,10 @@ class _MosqueDonationsViewState extends State<MosqueDonationsView> {
     final primaryColor = Theme.of(context).primaryColor;
     final dividerColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
 
+    // مطابقة تتسامح مع الاختلاف في (ة/ه، أ/ا، ى/ي) والتشكيل
     final filteredMosques = mosques.where((m) {
       if (_searchQuery.isEmpty) return true;
-      return m.name.contains(_searchQuery) ||
-          m.city.contains(_searchQuery) ||
-          (m.address != null && m.address!.contains(_searchQuery));
+      return DiscoverSearch.matchesMosque(m, _searchQuery);
     }).toList();
 
     return Column(
@@ -293,6 +336,19 @@ class _MosqueDonationsViewState extends State<MosqueDonationsView> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: dividerColor)),
           ),
         ),
+        if (_searching)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: LinearProgressIndicator(minHeight: 2),
+          )
+        else if (_searchFailed)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'تعذّر البحث في السحابة الآن؛ تُعرض النتائج المتاحة على جهازك.',
+              style: TextStyle(fontSize: 11.5, color: Colors.orange.shade800),
+            ),
+          ),
         const SizedBox(height: 16),
 
         // Mosques Donation Cards List
@@ -300,7 +356,13 @@ class _MosqueDonationsViewState extends State<MosqueDonationsView> {
           Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: Text('لا توجد مساجد مسجلة حالياً', style: AppTypography.verveSubtitle(context)),
+              child: Text(
+                _searchQuery.isEmpty
+                    ? 'اكتب اسم المسجد أو مدينته في خانة البحث ليظهر هنا'
+                    : 'لا توجد مساجد تطابق «$_searchQuery»',
+                textAlign: TextAlign.center,
+                style: AppTypography.verveSubtitle(context),
+              ),
             ),
           )
         else

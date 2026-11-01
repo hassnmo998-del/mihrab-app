@@ -42,6 +42,16 @@ class _FakeRemote implements ScaledSyncRemote {
     mosqueCalls.add((ids.toList()..sort(), since));
     return mosqueRows;
   }
+
+  final List<List<String>> cardCalls = [];
+
+  @override
+  Future<List<Map<String, dynamic>>?> fetchMosqueCardRows(Iterable<String> ids) async {
+    cardCalls.add(ids.toList()..sort());
+    return [
+      for (final id in ids) {'id': id}
+    ];
+  }
 }
 
 SyncProbe _probe({
@@ -319,6 +329,29 @@ void main() {
       expect(remote.fetchCalls.where((c) => c.$1 == 'students').map((c) => c.$2).toList(),
           ['m1', 'm2']);
       expect(remote.probeCalls.single.$1, ['m1', 'm2']);
+    });
+
+    test('المساجد المرتبطة (الفرع النسائي) بأعمدة البطاقة العامة لا الصف الكامل بأكواده', () async {
+      final remote = _FakeRemote(ProbeResult(ProbeStatus.ok, _probe()));
+      remote.mosqueRows = [
+        {'id': 'm1', 'access_code': 'MSQ-OWN'}
+      ];
+      final out = await engineWith(remote).pull(
+        const SyncScope(dataMosqueIds: {'m1'}, rowOnlyMosqueIds: {'women'}),
+      );
+      final r = out.result!;
+      expect(remote.mosqueCalls.single.$1, ['m1'], reason: 'الصف الكامل لمسجد الجهاز وحده');
+      expect(remote.cardCalls, [
+        ['women']
+      ], reason: 'الفرع المرتبط بأعمدة البطاقة');
+      expect(r.rows['mosques']!.map((m) => m['id']).toSet(), {'m1', 'women'});
+      expect(r.complete, isTrue);
+    });
+
+    test('بلا مساجد مرتبطة: لا طلب بطاقات', () async {
+      final remote = _FakeRemote(ProbeResult(ProbeStatus.ok, _probe()));
+      await engineWith(remote).pull(scope);
+      expect(remote.cardCalls, isEmpty);
     });
 
     test('دالة الخادم غير موجودة: unsupported ولا جلب', () async {

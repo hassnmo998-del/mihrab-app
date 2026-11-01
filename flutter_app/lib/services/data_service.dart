@@ -11,6 +11,7 @@ import '../models/models.dart';
 import 'audio_upload_queue_manager.dart';
 import 'lesson_recording_journal.dart';
 import 'lesson_schedule.dart';
+import 'sync/discover_search.dart';
 import 'sync/scaled_sync_engine.dart';
 import 'sync/scope_reconciler.dart';
 import 'sync/sync_scope.dart';
@@ -1319,26 +1320,20 @@ class DataService extends ChangeNotifier {
         pull.scope,
         r.rows,
         isPendingUpsert: _syncQueueManager.isPendingUpsert,
-        keepEventIds: _discoverEventIds,
-        keepMosqueIds: _discoverMosqueIds,
+        keepEventIds: {..._discoverEventIds, ..._searchEventIds},
+        keepMosqueIds: {..._discoverMosqueIds, ..._searchMosqueIds},
       );
     }
   }
 
-  /// دروس «اكتشف» العامة قرب الزائر. بالنطاق لا تصل دروس المساجد الأخرى مع المزامنة،
-  /// فتُجلب هنا بمربع حول الموقع (أو الأحدث دون موقع). لا أثر بالمزامنة الكاملة.
-  Future<void> refreshDiscoverEvents({double? latitude, double? longitude}) async {
-    if (_scaledSupported != true) return;
-    final rows = await _scaledRemote.fetchDiscoverEvents(
-      latitude: latitude,
-      longitude: longitude,
-    );
-    if (rows == null) return;
-
-    final scope = _scaledScope ?? const SyncScope();
-    final fetchedIds = <String>{};
-    final foreignMosqueIds = <String>{};
-
+  /// يدمج دروساً من مساجد خارج نطاق الجهاز في النسخة المحلية، ويعيد معرّفاتها. مساجد
+  /// الدروس غير الموجودة محلياً تُضاف إلى [foreignMosqueIds].
+  Set<String> _mergeForeignEvents(
+    List<Map<String, dynamic>> rows,
+    SyncScope scope,
+    Set<String> foreignMosqueIds,
+  ) {
+    final merged = <String>{};
     for (final row in rows) {
       final id = '${row['id']}';
       if (id.isEmpty || id == 'null') continue;
@@ -1347,7 +1342,7 @@ class DataService extends ChangeNotifier {
         continue;
       }
       final ev = CommunityEvent.fromJson(row);
-      fetchedIds.add(id);
+      merged.add(id);
       if (!scope.contains(ev.mosqueId)) foreignMosqueIds.add(ev.mosqueId);
 
       final list = _localDataSource.communityEvents;
@@ -1364,26 +1359,65 @@ class DataService extends ChangeNotifier {
         list[idx] = ev;
       }
     }
+    return merged;
+  }
 
-    // صفوف مساجد هذه الدروس (للاسم والعنوان) إن لم تكن عندنا
-    final knownMosques = {for (final m in _localDataSource.mosques) m.id};
-    final missing = foreignMosqueIds.where((m) => !knownMosques.contains(m)).toList();
-    if (missing.isNotEmpty) {
-      final mosqueRows = await _scaledRemote.fetchMosqueRows(missing);
-      if (mosqueRows != null) {
-        for (final r in mosqueRows) {
-          final m = Mosque.fromJson(r);
-          if (_localDataSource.mosques.every((x) => x.id != m.id)) {
-            _localDataSource.mosques.add(m);
-          }
-        }
+  /// يدمج صفوف مساجد بأعمدة البطاقة العامة (بلا أكواد دخول). صف مسجد من نطاق الجهاز
+  /// لا يُستبدل أبداً: هو الصف الكامل الذي تعتمد عليه الإدارة.
+  void _mergeForeignMosques(List<Map<String, dynamic>> rows, SyncScope scope) {
+    final list = _localDataSource.mosques;
+    for (final r in rows) {
+      final m = Mosque.fromJson(r);
+      if (m.id.isEmpty || scope.allMosqueRowIds.contains(m.id)) continue;
+      if (_syncQueueManager.isPendingUpsert('mosques', m.id)) continue;
+      final idx = list.indexWhere((x) => x.id == m.id);
+      if (idx == -1) {
+        list.add(m);
+      } else {
+        list[idx] = m;
       }
     }
+  }
 
-    // دروس مساجد أخرى سبق جلبها ولم تعد في الرد (حُذفت أو أُوقفت): تُزال
+  /// دروس «اكتشف» ومساجد التبرع القريبة من الزائر. بالنطاق لا تصل دروس المساجد
+  /// الأخرى ولا صفوفها مع المزامنة، فتُجلب هنا بمربع حول الموقع (أو الأحدث دون موقع).
+  /// لا أثر بالمزامنة الكاملة (كل شيء عندها أصلاً).
+  Future<void> refreshDiscoverEvents({double? latitude, double? longitude}) async {
+    if (_scaledSupported != true) return;
+    final rows = await _scaledRemote.fetchDiscoverEvents(
+      latitude: latitude,
+      longitude: longitude,
+    );
+    if (rows == null) return;
+
+    final scope = _scaledScope ?? const SyncScope();
+    final foreignMosqueIds = <String>{};
+    final fetchedIds = _mergeForeignEvents(rows, scope, foreignMosqueIds);
+
+    // مساجد هذه الدروس (للاسم والعنوان)، ومساجد قريبة فيها تبرع مفعّل لتبويب التبرع
+    final cardRows = <Map<String, dynamic>>[];
+    final knownMosques = {for (final m in _localDataSource.mosques) m.id};
+    final missing = foreignMosqueIds.where((m) => !knownMosques.contains(m));
+    final fetchedMosques = await _scaledRemote.fetchMosqueCardRows(missing);
+    if (fetchedMosques != null) cardRows.addAll(fetchedMosques);
+    if (latitude != null && longitude != null) {
+      final donors = await _scaledRemote.fetchNearbyDonationMosques(
+        latitude: latitude,
+        longitude: longitude,
+      );
+      if (donors != null) {
+        cardRows.addAll(donors);
+        foreignMosqueIds.addAll(donors.map((d) => '${d['id']}'));
+      }
+    }
+    _mergeForeignMosques(cardRows, scope);
+
+    // دروس مساجد أخرى سبق جلبها ولم تعد في الرد (حُذفت أو أُوقفت): تُزال، إلا نتائج
+    // بحث المستخدم الجارية
     _localDataSource.communityEvents.removeWhere((e) =>
         !scope.contains(e.mosqueId) &&
         !fetchedIds.contains(e.id) &&
+        !_searchEventIds.contains(e.id) &&
         !_syncQueueManager.isPendingUpsert('community_events', e.id));
     _discoverEventIds
       ..clear()
@@ -1394,6 +1428,66 @@ class DataService extends ChangeNotifier {
       ..addAll(foreignMosqueIds);
 
     await _localDataSource.saveToStorage();
+    notifyListeners();
+  }
+
+  /// نتائج بحث «اكتشف» الجارية (دروس ومساجد من خارج نطاق الجهاز).
+  final Set<String> _searchEventIds = {};
+  final Set<String> _searchMosqueIds = {};
+
+  /// يبحث في الخادم عن [query] (مسجد، مدينة، عنوان، عنوان درس، محاضِر) ويضم النتائج إلى
+  /// النسخة المحلية فتعرضها الشاشات بقوائمها المعتادة. يعيد `false` إن تعذّر الخادم
+  /// (فتبقى القوائم المحلية). بالمزامنة الكاملة لا حاجة للخادم: كل شيء محلي.
+  Future<bool> searchDiscover(String query) async {
+    if (!DiscoverSearch.isSearchable(query)) {
+      clearDiscoverSearch();
+      return true;
+    }
+    if (_scaledSupported != true) return true;
+
+    final result = await _scaledRemote.searchDiscover(query);
+    if (result == null) return false;
+
+    final scope = _scaledScope ?? const SyncScope();
+    final foreign = <String>{};
+    final eventIds = _mergeForeignEvents(result.events, scope, foreign);
+    _mergeForeignMosques(result.mosques, scope);
+
+    // نتائج بحث سابق غير مطابقة لهذا: تُسحب من الاحتفاظ (تذهب مع أول تنظيف)
+    _searchEventIds
+      ..clear()
+      ..addAll(eventIds.where((id) => _localDataSource.communityEvents
+          .any((e) => e.id == id && !scope.contains(e.mosqueId))));
+    _searchMosqueIds
+      ..clear()
+      ..addAll({
+        for (final m in result.mosques) '${m['id']}',
+        ...foreign,
+      }.where((id) => !scope.allMosqueRowIds.contains(id)));
+
+    await _localDataSource.saveToStorage();
+    notifyListeners();
+    return true;
+  }
+
+  /// ينهي البحث: يزيل ما جاء به من دروس ومساجد خارج نطاق الجهاز (ولم يكن من دروس
+  /// «اكتشف» القريبة)، فتعود القوائم إلى ما حول المستخدم.
+  void clearDiscoverSearch() {
+    if (_searchEventIds.isEmpty && _searchMosqueIds.isEmpty) return;
+    final scope = _scaledScope ?? const SyncScope();
+    _localDataSource.communityEvents.removeWhere((e) =>
+        _searchEventIds.contains(e.id) &&
+        !scope.contains(e.mosqueId) &&
+        !_discoverEventIds.contains(e.id) &&
+        !_syncQueueManager.isPendingUpsert('community_events', e.id));
+    _localDataSource.mosques.removeWhere((m) =>
+        _searchMosqueIds.contains(m.id) &&
+        !scope.allMosqueRowIds.contains(m.id) &&
+        !_discoverMosqueIds.contains(m.id) &&
+        !_syncQueueManager.isPendingUpsert('mosques', m.id));
+    _searchEventIds.clear();
+    _searchMosqueIds.clear();
+    unawaited(_localDataSource.saveToStorage());
     notifyListeners();
   }
 

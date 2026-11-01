@@ -14,6 +14,7 @@ import '../services/data_service.dart';
 import '../services/audio_upload_queue_manager.dart';
 import '../services/lesson_audio_service.dart';
 import '../services/lesson_schedule.dart';
+import '../services/sync/discover_search.dart';
 import '../services/telegram_media_resolver.dart';
 import '../widgets/app_user_avatar.dart';
 import '../widgets/qr_dialogs.dart';
@@ -53,6 +54,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
   final TextEditingController _archiveSearchCtrl = TextEditingController();
 
+  /// بحث «اكتشف»: مسجد أو مدينة أو عنوان درس أو محاضِر. الفلترة على ما في الجهاز فورية،
+  /// وطلب الخادم بعد توقف الكتابة قليلاً (يجلب من خارج ما حولك).
+  final TextEditingController _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  String _searchQuery = '';
+  bool _searching = false;
+  bool _searchFailed = false;
+  late final DataService _data;
+
   // مشغّل الدروس على مستوى التطبيق: يكمل التشغيل عند مغادرة هذا التبويب وبالخلفية
   final LessonAudioService _lesson = LessonAudioService.instance;
   String? get _activeAudioId => _lesson.activeEventId;
@@ -65,6 +75,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   @override
   void initState() {
     super.initState();
+    _data = Provider.of<DataService>(context, listen: false);
     _determinePosition();
     _lesson.addListener(_onLessonChanged);
     _lesson.onError = _showLessonError;
@@ -91,7 +102,48 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     _lesson.removeListener(_onLessonChanged);
     if (_lesson.onError == _showLessonError) _lesson.onError = null;
     _archiveSearchCtrl.dispose();
+    _searchDebounce?.cancel();
+    _searchCtrl.dispose();
+    // نتائج البحث لا تبقى بعد مغادرة الشاشة (بعد إتمام الإطار لا أثناء هدم الشجرة)
+    scheduleMicrotask(_data.clearDiscoverSearch);
     super.dispose();
+  }
+
+  /// كل حرف: فلترة فورية على ما في الجهاز. وبعد توقف الكتابة: سؤال الخادم.
+  void _onSearchChanged(String text) {
+    _searchDebounce?.cancel();
+    final q = text.trim();
+    setState(() {
+      _searchQuery = DiscoverSearch.isSearchable(q) ? q : '';
+      if (_searchQuery.isEmpty) {
+        _searching = false;
+        _searchFailed = false;
+      }
+    });
+    if (_searchQuery.isEmpty) {
+      _data.clearDiscoverSearch();
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () async {
+      if (!mounted) return;
+      final asked = _searchQuery;
+      setState(() {
+        _searching = true;
+        _searchFailed = false;
+      });
+      final ok = await _data.searchDiscover(asked);
+      // كتب المستخدم شيئاً آخر أثناء الانتظار: الرد القديم لا يكتب فوق الأحدث
+      if (!mounted || _searchQuery != asked) return;
+      setState(() {
+        _searching = false;
+        _searchFailed = !ok;
+      });
+    });
+  }
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    _onSearchChanged('');
   }
 
   Future<void> _determinePosition() async {
@@ -328,11 +380,18 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       return e.targetAudience == 'male' || e.targetAudience == 'general';
     }
 
+    // بحث نشط: لا يبقى إلا ما يطابقه (عنوان الدرس أو محاضره أو مسجده أو مدينة المسجد)
+    final searchActive = _searchQuery.isNotEmpty;
+    bool matchesSearch(CommunityEvent e) =>
+        !searchActive ||
+        DiscoverSearch.matchesEvent(e, data.getMosqueById(e.mosqueId), _searchQuery);
+
     final everyEvent = data.getCommunityEvents();
     final allEvents = everyEvent
         .where((e) => isUpcomingVisible(e) || ownsEvent(e))
+        .where(matchesSearch)
         .toList();
-    final archiveScope = everyEvent.where(isArchiveVisible).toList();
+    final archiveScope = everyEvent.where(isArchiveVisible).where(matchesSearch).toList();
 
     // 1. تبويب الدروس القادمة أو المباشرة حصراً (تستثني المؤرشف كلياً).
     //    درس المرة الواحدة يختفي حين ينقضي موعده، ما لم يكن تسجيله جارياً الآن؛
@@ -763,6 +822,59 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ),
             const SizedBox(height: 18),
 
+            // خانة البحث: مسجد أو مدينة أو درس. للمجالس والمكتبة؛ وللتبرع خانته الخاصة.
+            if (_activeMainTab != 'donations') ...[
+              TextField(
+                key: const ValueKey('discoverSearchField'),
+                controller: _searchCtrl,
+                onChanged: _onSearchChanged,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'ابحث عن مسجد أو مدينة أو درس (مثل: حلب)',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          tooltip: 'مسح البحث',
+                          onPressed: _clearSearch,
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: isDark ? AppColors.darkCard : const Color(0xFFF1F5F9),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              if (_searching)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: LinearProgressIndicator(minHeight: 2),
+                )
+              else if (_searchFailed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'تعذّر البحث في السحابة الآن؛ تُعرض النتائج المتاحة على جهازك.',
+                    style: TextStyle(fontSize: 11.5, color: Colors.orange.shade800),
+                  ),
+                )
+              else if (searchActive)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'نتائج البحث عن «$_searchQuery»',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+            ],
+
             // محول التبويبات الرئيسي (المجتمع والمكتبة الإسلامية)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -832,7 +944,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       child: Padding(
                         padding: const EdgeInsets.all(36),
                         child: Text(
-                          'لا توجد مجالس قادمة حالياً',
+                          searchActive
+                              ? 'لا توجد مجالس تطابق «$_searchQuery»'
+                              : 'لا توجد مجالس قادمة حالياً',
                           style: AppTypography.verveSubtitle(context),
                         ),
                       ),
@@ -1489,9 +1603,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                       child: Padding(
                         padding: const EdgeInsets.all(36),
                         child: Text(
-                          _archiveMediaFilter == 'audio'
-                              ? 'لا توجد تسجيلات صوتية مطابقة ضمن هذا الاختيار'
-                              : 'لا توجد تسجيلات في مكتبة الدروس حتى الآن',
+                          searchActive
+                              ? 'لا توجد دروس مسجّلة تطابق «$_searchQuery»'
+                              : _archiveMediaFilter == 'audio'
+                                  ? 'لا توجد تسجيلات صوتية مطابقة ضمن هذا الاختيار'
+                                  : 'لا توجد تسجيلات في مكتبة الدروس حتى الآن',
                           textAlign: TextAlign.center,
                           style: AppTypography.verveSubtitle(context),
                         ),

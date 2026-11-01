@@ -79,11 +79,15 @@ abstract class ScaledSyncRemote {
     String? since,
   });
 
-  /// صفوف المساجد بمعرّفاتها.
+  /// صفوف المساجد بمعرّفاتها (كاملة: لمساجد الجهاز نفسه).
   Future<List<Map<String, dynamic>>?> fetchMosqueRows(
     Iterable<String> ids, {
     String? since,
   });
+
+  /// صفوف مساجد **مرتبطة** (الفرع النسائي أو الأب) بأعمدة البطاقة العامة بلا أكواد
+  /// دخول: كود إدارة القسم الآخر لا ينزل على جهاز هذا القسم.
+  Future<List<Map<String, dynamic>>?> fetchMosqueCardRows(Iterable<String> ids);
 }
 
 /// مؤشر المزامنة المحفوظ على الجهاز.
@@ -305,11 +309,14 @@ class ScaledSyncEngine {
     }
 
     if (fetchMosques) {
-      final r = await remote.fetchMosqueRows(scope.allMosqueRowIds, since: sinceForRows);
-      if (r == null) {
+      final own = await remote.fetchMosqueRows(scope.dataMosqueIds, since: sinceForRows);
+      final linked = scope.rowOnlyMosqueIds.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : await remote.fetchMosqueCardRows(scope.rowOnlyMosqueIds);
+      if (own == null || linked == null) {
         complete = false;
       } else {
-        rows['mosques'] = r;
+        rows['mosques'] = [...own, ...linked];
         _lastRowOnlyRefresh = _now();
       }
     }
