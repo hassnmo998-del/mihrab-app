@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,11 +72,11 @@ class ProbeResult {
 abstract class ScaledSyncRemote {
   Future<ProbeResult> probe(List<String> mosqueIds, String? since);
 
-  /// كل صفوف [table] لمسجد واحد (التي تغيّرت منذ [since] إن وُجد)، بكل الصفحات.
+  /// كل صفوف [table] لهذه المساجد (التي تغيّرت منذ [since] إن وُجد)، بكل الصفحات.
   /// `null` عند أي فشل: نصف جدول لا يُقبل.
   Future<List<Map<String, dynamic>>?> fetchTable(
     String table,
-    String mosqueId, {
+    List<String> mosqueIds, {
     String? since,
   });
 
@@ -233,6 +234,10 @@ class ScaledSyncEngine {
   /// نافذة التداخل مع المؤشر: معاملات تُثبَّت متأخرة لا تضيع (تطابق الخادم).
   static const Duration overlap = Duration(minutes: 2);
 
+  /// كم مسجداً في الطلب الواحد. المنصة الصغيرة حتى 40 مسجداً: طلب لكل (جدول، مسجد) كان
+  /// يعني 640 طلباً لجهاز جديد، وبالدفعات نحو 64.
+  static const int mosquesPerRequest = 10;
+
   /// أقصى جلبات متوازية (بعدد الجداول: كالجلب القديم الذي كان يرسل 17 معاً). كانت 6
   /// فأخذ أول جلب على شبكة بطيئة نحو ثلاثة أضعاف الوقت.
   static const int _parallel = 16;
@@ -287,10 +292,14 @@ class ScaledSyncEngine {
     var complete = true;
     final rows = <String, List<Map<String, dynamic>>>{};
 
-    // المهام: (جدول، مسجد). كل مسجد باستعلام مستقل = ترتيب الفهرس مباشرة بلا فرز.
-    final jobs = <(String, String)>[
+    // المهام: (جدول، دفعة مساجد). المسجد الواحد باستعلام `=` يأتي بترتيب الفهرس مباشرة.
+    final groups = <List<String>>[
+      for (var i = 0; i < ids.length; i += mosquesPerRequest)
+        ids.sublist(i, min(i + mosquesPerRequest, ids.length)),
+    ];
+    final jobs = <(String, List<String>)>[
       for (final t in tables)
-        for (final m in ids) (t, m),
+        for (final g in groups) (t, g),
     ];
 
     for (var i = 0; i < jobs.length; i += _parallel) {
@@ -309,10 +318,12 @@ class ScaledSyncEngine {
     }
 
     if (fetchMosques) {
-      final own = await remote.fetchMosqueRows(scope.dataMosqueIds, since: sinceForRows);
-      final linked = scope.rowOnlyMosqueIds.isEmpty
+      // صف مساجد الجهاز كاملاً، وصفوف غيرها (مساجد المنصة الصغيرة، الفرع المرتبط) بأعمدة
+      // البطاقة بلا أكواد. مساجد الجهاز وحدها تُجلب بمؤشر التغيّر.
+      final own = await remote.fetchMosqueRows(scope.ownMosqueIds, since: sinceForRows);
+      final linked = scope.cardMosqueIds.isEmpty
           ? const <Map<String, dynamic>>[]
-          : await remote.fetchMosqueCardRows(scope.rowOnlyMosqueIds);
+          : await remote.fetchMosqueCardRows(scope.cardMosqueIds);
       if (own == null || linked == null) {
         complete = false;
       } else {

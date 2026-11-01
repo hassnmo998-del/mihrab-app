@@ -11,27 +11,79 @@ class SyncScope {
   /// أكبر عدد مساجد في نطاق واحد (حدّ دالة `sync_changes` في الخادم).
   static const int maxDataMosques = 100;
 
+  /// المنصة «صغيرة» حتى هذا العدد من المساجد: يحمّل كل جهاز بياناتها كلها كما كان قبل
+  /// المزامنة بالنطاق، فتبقى شاشات تقارن أو تسرد مساجد كثيرة (المنافسة، التبرع، اكتشف)
+  /// كاملة. فوقه ينتقل كل جهاز إلى مساجده وحدها. **هذا الحدّ هو الفاصل**: قبل أن
+  /// تتجاوزه المنصة يجب أن تكون هذه الشاشات قد انتقلت إلى ترتيب وبحث يحسبهما الخادم.
+  static const int smallPlatformMosques = 40;
+
+  /// عند الانتقال من «صغيرة» إلى «كبيرة» نشترط هذا العدد (لا الحدّ نفسه) كي لا يتذبذب
+  /// الجهاز بين الوضعين حول الحدّ، فكل انتقال يمسح بيانات ويعيد جلب أخرى.
+  static const int smallPlatformKeepMosques = 50;
+
+  /// مساجد تُجلب بياناتها (الجداول كلها).
   final Set<String> dataMosqueIds;
+
+  /// مساجد **هذا الجهاز** (جلساته): وحدها يصل صفّها كاملاً بأكوادها. بقية [dataMosqueIds]
+  /// يصل صفّها بأعمدة البطاقة العامة بلا أي كود دخول.
+  final Set<String> ownMosqueIds;
+
+  /// مساجد يكفي صفّها (الفرع النسائي أو الأب) بأعمدة البطاقة العامة.
   final Set<String> rowOnlyMosqueIds;
+
+  /// النطاق كل المنصة (المنصة صغيرة): لا حاجة لبحث الخادم، كل شيء في الجهاز.
+  final bool wholePlatform;
 
   const SyncScope({
     this.dataMosqueIds = const {},
+    Set<String>? ownMosqueIds,
     this.rowOnlyMosqueIds = const {},
-  });
+    this.wholePlatform = false,
+  }) : ownMosqueIds = ownMosqueIds ?? dataMosqueIds;
 
   bool get isEmpty => dataMosqueIds.isEmpty;
 
   /// كل المساجد التي يلزم صفّها (بياناتها كاملة أو صفّها فقط).
   Set<String> get allMosqueRowIds => {...dataMosqueIds, ...rowOnlyMosqueIds};
 
-  /// مفتاح ثابت للنطاق: تغيّره (دخول مسجد جديد، خروج) يفرض جلباً أساسياً كاملاً.
+  /// مساجد يصل صفّها بأعمدة البطاقة (لا مساجد الجهاز نفسه).
+  Set<String> get cardMosqueIds =>
+      {...dataMosqueIds, ...rowOnlyMosqueIds}.difference(ownMosqueIds);
+
+  /// مفتاح ثابت للنطاق: تغيّره (دخول مسجد جديد، خروج، اتساع أو ضيق) يفرض جلباً أساسياً.
   String get key {
-    final ids = dataMosqueIds.toList()..sort();
-    return ids.join(',');
+    final data = dataMosqueIds.toList()..sort();
+    if (ownMosqueIds.length == dataMosqueIds.length &&
+        ownMosqueIds.containsAll(dataMosqueIds)) {
+      return data.join(',');
+    }
+    final own = ownMosqueIds.toList()..sort();
+    return '${data.join(',')}|${own.join(',')}';
   }
 
   bool contains(String? mosqueId) =>
       mosqueId != null && dataMosqueIds.contains(mosqueId);
+
+  /// نطاق الجهاز بحسب حجم المنصة: كل المساجد إن كانت صغيرة، وإلا [own] كما هو.
+  ///
+  /// [platformIds] معرّفات المساجد (يكفي أن تضمّ [smallPlatformKeepMosques] + 1).
+  /// [wasWholePlatform]: هل كان الجهاز على كل المنصة؟ فيبقى عليها حتى يتجاوز العدد
+  /// [smallPlatformKeepMosques] (لا الحدّ نفسه)، كي لا يتذبذب بين الوضعين.
+  static SyncScope forPlatform({
+    required SyncScope own,
+    required List<String> platformIds,
+    required bool wasWholePlatform,
+  }) {
+    final limit = wasWholePlatform ? smallPlatformKeepMosques : smallPlatformMosques;
+    // مساجد الجهاز تُضمّ ولو لم تظهر في القائمة (مسجد أُنشئ بلا إنترنت ولم يُرفع بعد)
+    final all = {...platformIds, ...own.dataMosqueIds};
+    if (platformIds.length > limit || all.length > maxDataMosques) return own;
+    return SyncScope(
+      dataMosqueIds: all,
+      ownMosqueIds: own.dataMosqueIds,
+      wholePlatform: true,
+    );
+  }
 
   /// يحسب النطاق من الجلسات المحفوظة، أو يعيد `null` إذا تعذّر الجزم.
   ///

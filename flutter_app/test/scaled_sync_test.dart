@@ -17,7 +17,7 @@ class _FakeRemote implements ScaledSyncRemote {
   List<Map<String, dynamic>>? mosqueRows = [];
 
   final List<(List<String>, String?)> probeCalls = [];
-  final List<(String, String, String?)> fetchCalls = [];
+  final List<(String, List<String>, String?)> fetchCalls = [];
   final List<(List<String>, String?)> mosqueCalls = [];
 
   _FakeRemote(this.probeResult);
@@ -29,9 +29,9 @@ class _FakeRemote implements ScaledSyncRemote {
   }
 
   @override
-  Future<List<Map<String, dynamic>>?> fetchTable(String table, String mosqueId,
+  Future<List<Map<String, dynamic>>?> fetchTable(String table, List<String> mosqueIds,
       {String? since}) async {
-    fetchCalls.add((table, mosqueId, since));
+    fetchCalls.add((table, mosqueIds, since));
     if (failingTables.contains(table)) return null;
     return tableRows[table] ?? <Map<String, dynamic>>[];
   }
@@ -323,12 +323,20 @@ void main() {
       expect(await baselineWith(cursor(), more: true), isTrue, reason: 'شواهد ناقصة');
     });
 
-    test('عدة مساجد: استعلام مستقل لكل مسجد وجدول', () async {
+    test('عدة مساجد: دفعات من 10 مساجد لكل طلب وجدول (لا طلب لكل مسجد)', () async {
       final remote = _FakeRemote(ProbeResult(ProbeStatus.ok, _probe()));
       await engineWith(remote).pull(const SyncScope(dataMosqueIds: {'m2', 'm1'}));
-      expect(remote.fetchCalls.where((c) => c.$1 == 'students').map((c) => c.$2).toList(),
-          ['m1', 'm2']);
+      expect(remote.fetchCalls.where((c) => c.$1 == 'students').map((c) => c.$2).toList(), [
+        ['m1', 'm2']
+      ]);
       expect(remote.probeCalls.single.$1, ['m1', 'm2']);
+
+      // 25 مسجداً: ثلاث دفعات لكل جدول (10 و10 و5)
+      final many = _FakeRemote(ProbeResult(ProbeStatus.ok, _probe()));
+      await engineWith(many).pull(SyncScope(dataMosqueIds: {for (var i = 0; i < 25; i++) 'x${i.toString().padLeft(2, '0')}'}));
+      final students = many.fetchCalls.where((c) => c.$1 == 'students').map((c) => c.$2.length).toList();
+      expect(students, [10, 10, 5]);
+      expect(many.fetchCalls.length, kScopedSyncTables.length * 3);
     });
 
     test('المساجد المرتبطة (الفرع النسائي) بأعمدة البطاقة العامة لا الصف الكامل بأكواده', () async {

@@ -89,17 +89,20 @@ class SupabaseScaledSyncRemote implements ScaledSyncRemote {
   @override
   Future<List<Map<String, dynamic>>?> fetchTable(
     String table,
-    String mosqueId, {
+    List<String> mosqueIds, {
     String? since,
   }) async {
     final c = _remote.client;
-    if (c == null) return null;
+    if (c == null || mosqueIds.isEmpty) return c == null ? null : const [];
     try {
       final rows = <Map<String, dynamic>>[];
       String? lastUpdated;
       String? lastId;
       while (true) {
-        var q = c.from(table).select().eq('mosque_id', mosqueId);
+        var q = c.from(table).select();
+        q = mosqueIds.length == 1
+            ? q.eq('mosque_id', mosqueIds.first)
+            : q.inFilter('mosque_id', mosqueIds);
         if (since != null) q = q.gte('updated_at', since);
         if (lastUpdated != null) {
           // صفحة تالية بعد آخر (updated_at، id): إضافة صف أثناء الجلب لا تُسقط غيره
@@ -120,7 +123,7 @@ class SupabaseScaledSyncRemote implements ScaledSyncRemote {
         if (lastUpdated == null || lastId == null) return null;
       }
     } catch (e) {
-      debugPrint('⚠️ scoped fetch error ($table/$mosqueId): $e');
+      debugPrint('⚠️ scoped fetch error ($table/${mosqueIds.length} mosques): $e');
       return null;
     }
   }
@@ -153,6 +156,25 @@ class SupabaseScaledSyncRemote implements ScaledSyncRemote {
       'parent_mosque_id,women_branch_id,'
       'is_donation_enabled,donation_account_name,donation_account_number,'
       'donation_description,donation_image_url';
+
+  /// معرّفات المساجد (حتى [limit])، لمعرفة هل المنصة صغيرة. `null` عند الفشل: عدم المعرفة
+  /// غير «كبيرة»، فالمتّصل لا يضيّق نطاق الجهاز بسبب تعثّر لحظي.
+  Future<List<String>?> fetchMosqueIds({int limit = 51}) async {
+    final c = _remote.client;
+    if (c == null) return null;
+    try {
+      final page = await c
+          .from('mosques')
+          .select('id')
+          .order('id')
+          .limit(limit)
+          .timeout(const Duration(seconds: 20));
+      return [for (final r in page) '${r['id']}'];
+    } catch (e) {
+      debugPrint('⚠️ mosque ids fetch error: $e');
+      return null;
+    }
+  }
 
   /// مساجد بمعرّفاتها بأعمدة البطاقة العامة. `null` عند الفشل.
   @override

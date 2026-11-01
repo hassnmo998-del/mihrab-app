@@ -460,12 +460,24 @@ class DataService extends ChangeNotifier {
     });
   }
 
+  /// صف مسجد يصل من Realtime وهو ليس مسجد هذا الجهاز: يُحذف منه كل كود دخول (الحدث يحمل
+  /// الصف كاملاً مهما كان الاشتراك).
+  Map<String, dynamic> _scrubForeignMosqueRow(String table, Map<String, dynamic> row) {
+    if (table != 'mosques' || !_scaledActive) return row;
+    final own = _scaledScope?.ownMosqueIds ?? const <String>{};
+    if (own.contains(row['id']?.toString())) return row;
+    return Map<String, dynamic>.of(row)
+      ..remove('access_code')
+      ..remove('cashier_access_code')
+      ..remove('women_access_code');
+  }
+
   /// Dispatches realtime events (INSERT, UPDATE, DELETE) directly into local cache
   void _handleRealtimePayload(PostgresChangePayload payload) async {
     try {
       final table = payload.table;
       final eventType = payload.eventType;
-      final newRecord = payload.newRecord;
+      final newRecord = _scrubForeignMosqueRow(table, payload.newRecord);
       final oldRecord = payload.oldRecord;
 
       debugPrint('⚡ Realtime notification received: $eventType on table $table');
@@ -1267,32 +1279,77 @@ class DataService extends ChangeNotifier {
       return null;
     }
 
-    if (scope.isEmpty) {
-      // زائر أو مشرف عام: لا بيانات مسجد. نتأكد فقط أن الخادم يدعم الأسلوب الجديد،
-      // وإلا بقي الزائر على الجلب الكامل كما كان.
+    // المنصة صغيرة: كل المساجد (كما قبل المزامنة بالنطاق)، وإلا مساجد الجهاز وحدها.
+    // مشرف عام وحده لا يحتاج بيانات (أرقامه من الخادم).
+    var effective = scope;
+    final superAdminOnly = scope.isEmpty && sessions.any((s) => s.role == 'super_admin');
+    if (!superAdminOnly) {
+      final sized = await _scopeForPlatformSize(scope);
+      // لا نعرف حجم المنصة: لا نخمّن، فتضييق النطاق بالخطأ يمسح بيانات الجهاز
+      if (sized == null) return _ScaledPull.skip(scope);
+      effective = sized;
+    }
+
+    if (effective.isEmpty) {
+      // مشرف عام، أو زائر على منصة كبيرة: لا بيانات مسجد. نتأكد فقط أن الخادم يدعم الأسلوب
+      // الجديد، وإلا بقي الزائر على الجلب الكامل كما كان.
       if (_scaledSupported != true) {
         final probe = await _scaledRemote.probe(const [], null);
         if (probe.status == ProbeStatus.unsupported) return _markScaledUnsupported();
-        if (probe.status != ProbeStatus.ok) return _ScaledPull.skip(scope);
+        if (probe.status != ProbeStatus.ok) return _ScaledPull.skip(effective);
         _scaledSupported = true;
       }
       _scaledActive = true;
-      _scaledScope = scope;
-      return _ScaledPull(scope, null);
+      _scaledScope = effective;
+      return _ScaledPull(effective, null);
     }
 
-    final outcome = await _scaledEngine.pull(scope);
+    final outcome = await _scaledEngine.pull(effective);
     switch (outcome.status) {
       case ScaledSyncStatus.unsupported:
         return _markScaledUnsupported();
       case ScaledSyncStatus.failed:
-        return _ScaledPull.skip(scope);
+        return _ScaledPull.skip(effective);
       case ScaledSyncStatus.ok:
         _scaledSupported = true;
         _scaledActive = true;
-        _scaledScope = scope;
-        return _ScaledPull(scope, outcome.result);
+        _scaledScope = effective;
+        return _ScaledPull(effective, outcome.result);
     }
+  }
+
+  List<String>? _platformMosqueIds;
+  DateTime? _platformMosqueIdsAt;
+  bool _wholePlatform = false;
+
+  /// يوسّع نطاق الجهاز إلى كل المنصة إن كانت صغيرة ([SyncScope.smallPlatformMosques])، فيرى
+  /// الجهاز كل المساجد كما كان قبل المزامنة بالنطاق. يعيد `null` إن تعذّر معرفة الحجم
+  /// ولا قيمة سابقة نعتمد عليها (تُترك الدورة).
+  Future<SyncScope?> _scopeForPlatformSize(SyncScope own) async {
+    final now = DateTime.now();
+    var ids = _platformMosqueIds;
+    final stale = _platformMosqueIdsAt == null ||
+        now.difference(_platformMosqueIdsAt!) > const Duration(minutes: 30);
+    if (ids == null || stale) {
+      final fetched = await _scaledRemote.fetchMosqueIds(
+        limit: SyncScope.smallPlatformKeepMosques + 1,
+      );
+      if (fetched != null) {
+        ids = fetched;
+        _platformMosqueIds = fetched;
+        _platformMosqueIdsAt = now;
+      } else if (ids == null) {
+        return null;
+      }
+    }
+
+    final scope = SyncScope.forPlatform(
+      own: own,
+      platformIds: ids,
+      wasWholePlatform: _wholePlatform,
+    );
+    _wholePlatform = scope.wholePlatform;
+    return scope;
   }
 
   _ScaledPull? _markScaledUnsupported() {
@@ -1383,7 +1440,7 @@ class DataService extends ChangeNotifier {
   /// الأخرى ولا صفوفها مع المزامنة، فتُجلب هنا بمربع حول الموقع (أو الأحدث دون موقع).
   /// لا أثر بالمزامنة الكاملة (كل شيء عندها أصلاً).
   Future<void> refreshDiscoverEvents({double? latitude, double? longitude}) async {
-    if (_scaledSupported != true) return;
+    if (_scaledSupported != true || _scaledScope?.wholePlatform == true) return;
     final rows = await _scaledRemote.fetchDiscoverEvents(
       latitude: latitude,
       longitude: longitude,
@@ -1443,7 +1500,8 @@ class DataService extends ChangeNotifier {
       clearDiscoverSearch();
       return true;
     }
-    if (_scaledSupported != true) return true;
+    // منصة صغيرة: كل شيء في الجهاز والفلترة المحلية تكفي
+    if (_scaledSupported != true || _scaledScope?.wholePlatform == true) return true;
 
     final result = await _scaledRemote.searchDiscover(query);
     if (result == null) return false;
