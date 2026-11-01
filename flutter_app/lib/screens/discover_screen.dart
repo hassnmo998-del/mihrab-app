@@ -106,6 +106,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         if (!mounted) return;
         _currentPosition = pos;
         final data = Provider.of<DataService>(context, listen: false);
+        // بالمزامنة بالنطاق تُجلب دروس «اكتشف» القريبة هنا (لا أثر بالمزامنة الكاملة)
+        await data.refreshDiscoverEvents(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+        );
+        if (!mounted) return;
         final events = data.getCommunityEvents();
         for (var e in events) {
           e.distanceMeters = Geolocator.distanceBetween(
@@ -463,7 +469,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         .toList();
 
     return RefreshIndicator(
-      onRefresh: () => data.syncWithSupabase(),
+      onRefresh: () async {
+        await data.syncWithSupabase();
+        await data.refreshDiscoverEvents(
+          latitude: _currentPosition?.latitude,
+          longitude: _currentPosition?.longitude,
+        );
+      },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

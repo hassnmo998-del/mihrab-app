@@ -247,7 +247,7 @@ class _DeleteMosqueConfirmDialogState extends State<DeleteMosqueConfirmDialog> {
                   final mosqueName = mosque.name;
 
                   try {
-                    await data.deleteMosqueCompletely(mosque.id);
+                    await data.deleteMosqueCompletely(mosque.id, fallback: mosque);
                     if (mounted) {
                       navigator.pop(true);
                       scaffoldMessenger.showSnackBar(

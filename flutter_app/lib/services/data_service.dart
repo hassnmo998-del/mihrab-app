@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,6 +10,9 @@ import '../data/repositories/repositories.dart';
 import '../models/models.dart';
 import 'audio_upload_queue_manager.dart';
 import 'lesson_schedule.dart';
+import 'sync/scaled_sync_engine.dart';
+import 'sync/scope_reconciler.dart';
+import 'sync/sync_scope.dart';
 
 /// نتيجة محاولة دخول المشرف العام — تفصل بين "بيانات خاطئة" و"لا صلاحية"
 /// و"تعذر الوصول للخادم" حتى تعرض الواجهة رسالة دقيقة لكل حالة.
@@ -247,18 +251,22 @@ class DataService extends ChangeNotifier {
       await syncWithSupabase();
 
       // تفعيل الاشتراك اللحظي في قاعدة البيانات للتحديثات المباشرة
+      _realtimeWanted = true;
       startRealtimeSubscription();
 
-      // مؤقت النبضات للمزامنة الدورية الخفيفة كل 15 ثانية
-      _autoSyncTimer?.cancel();
-      _autoSyncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-        syncWithSupabase();
-      });
+      // مزامنة دورية خفيفة: كل 15 ثانية بالطريقة الكاملة، وأبطأ (مع تشتيت) بالمزامنة
+      // بالنطاق لأن طلبها الخامل واحد صغير. كل دورة تجدول التي بعدها بعد أن تنتهي.
+      _autoSyncOn = true;
+      _armAutoSync();
+
+      // دروس «اكتشف» العامة (بالنطاق لا تصل مع مساجد الجهاز): جلب أولي بلا موقع
+      unawaited(refreshDiscoverEvents());
 
       // رفع تلقائي إذا كانت قاعدة بيانات Supabase جديدة ولدينا بيانات محلية
       if (_localDataSource.mosques.isNotEmpty) {
-        final checkRemote = await _remoteDataSource.fetchTable('mosques');
-        if (checkRemote != null && checkRemote.isEmpty) {
+        // سؤال خفيف «هل الجدول فارغ؟» بدل جلب كل المساجد مع كل فتح للتطبيق
+        final remoteEmpty = await _remoteDataSource.isTableEmpty('mosques');
+        if (remoteEmpty == true) {
           debugPrint('☁️ Supabase is connected but empty, auto-pushing local data...');
           await pushAllLocalToSupabase();
         }
@@ -359,32 +367,95 @@ class DataService extends ChangeNotifier {
   RealtimeChannel? _realtimeChannel;
   Timer? _autoSyncTimer;
 
-  /// Starts listening to Supabase Postgres Realtime changes across all tables
+  bool _realtimeWanted = false;
+  String? _realtimeKey;
+
+  /// مفتاح الاشتراك المطلوب الآن: القديم لكل المساجد، أو مفتاح نطاق الجهاز.
+  String get _desiredRealtimeKey {
+    if (!_scaledActive) return 'legacy';
+    final scope = _scaledScope;
+    if (scope == null || scope.isEmpty) return 'scaled-empty';
+    return 'scaled:${scope.key}';
+  }
+
+  /// Starts listening to Supabase Postgres Realtime changes.
+  ///
+  /// بالمزامنة القديمة: كل جداول المنصة لكل الأجهزة. بالمزامنة بالنطاق: كل جدول
+  /// بمرشّح على مساجد الجهاز وحدها، فلا يصل إليه تغيير مسجد آخر. (أحداث الحذف لا
+  /// تُرشَّح في Realtime، وشواهد الحذف في المزامنة الدورية تغطيها.)
   void startRealtimeSubscription() {
     final client = _remoteDataSource.client;
     if (client == null) return;
 
     try {
       _realtimeChannel?.unsubscribe();
-      _realtimeChannel = client.channel('public:db-realtime-sync')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          callback: (PostgresChangePayload payload) => _handleRealtimePayload(payload),
-        )
-        .subscribe();
-      debugPrint('📡 Supabase Realtime channel active for instantaneous multi-device sync.');
+      _realtimeChannel = null;
+      final key = _desiredRealtimeKey;
+      _realtimeKey = key;
+
+      if (key == 'legacy') {
+        _realtimeChannel = client.channel('public:db-realtime-sync')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            callback: (PostgresChangePayload payload) => _handleRealtimePayload(payload),
+          )
+          .subscribe();
+        debugPrint('📡 Supabase Realtime channel active for instantaneous multi-device sync.');
+      } else if (key != 'scaled-empty') {
+        final ids = (_scaledScope!.dataMosqueIds.toList()..sort());
+        var channel = client.channel('scoped:${key.hashCode}');
+        for (final table in ['mosques', ...kScopedSyncTables]) {
+          channel = channel.onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.inFilter,
+              column: table == 'mosques' ? 'id' : 'mosque_id',
+              value: ids,
+            ),
+            callback: (PostgresChangePayload payload) => _handleRealtimePayload(payload),
+          );
+        }
+        _realtimeChannel = channel.subscribe();
+        debugPrint('📡 Supabase Realtime scoped to ${ids.length} mosque(s).');
+      }
     } catch (e) {
       debugPrint('⚠️ Realtime subscription setup note: $e');
     }
+  }
+
+  /// يعيد الاشتراك إذا تغيّر الوضع (انتقلنا إلى المزامنة بالنطاق) أو تغيّر النطاق.
+  void _refreshRealtimeIfNeeded() {
+    if (!_realtimeWanted) return;
+    if (_realtimeKey != _desiredRealtimeKey) startRealtimeSubscription();
   }
 
   /// Stops Realtime subscription and heartbeat timer when disposing
   void stopRealtimeSubscription() {
     _realtimeChannel?.unsubscribe();
     _realtimeChannel = null;
+    _realtimeWanted = false;
+    _realtimeKey = null;
+    _autoSyncOn = false;
     _autoSyncTimer?.cancel();
     _autoSyncTimer = null;
+  }
+
+  bool _autoSyncOn = false;
+  final Random _syncRandom = Random();
+
+  /// يجدول المزامنة التالية. بالنطاق: 45 ثانية + تشتيت حتى 15 ثانية كي لا تتزامن
+  /// آلاف الأجهزة على لحظة واحدة؛ بالطريقة الكاملة: 15 ثانية كما كان.
+  void _armAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+    if (!_autoSyncOn) return;
+    final seconds = _scaledActive ? 45 + _syncRandom.nextInt(16) : 15; // انظر AGENTS.md: التوسّع
+    _autoSyncTimer = Timer(Duration(seconds: seconds), () {
+      syncWithSupabase();
+    });
   }
 
   /// Dispatches realtime events (INSERT, UPDATE, DELETE) directly into local cache
@@ -786,6 +857,9 @@ class DataService extends ChangeNotifier {
       if (isRecentlyDeleted(id) || _syncQueueManager.isPendingDelete(table, id) || _localDataSource.isEntityDeleted(id)) {
         return true;
       }
+      // بالمزامنة بالتزايد الغياب عن الرد لا يعني الحذف (الرد يحوي ما تغيّر فقط):
+      // الحذف يأتي من شواهد الحذف وجلب النطاق الأساسي (ScopeReconciler)
+      if (!_syncRemoveAbsent) return false;
       if (!remoteMap.containsKey(id)) {
         if (_syncQueueManager.isPendingUpsert(table, id)) {
           return false;
@@ -801,7 +875,12 @@ class DataService extends ChangeNotifier {
 
   /// Cloud Synchronization with Supabase across all 17 collections
   Future<void> syncWithSupabase() async {
-    if (_isSyncing) return;
+    if (_isSyncing) {
+      // بالنطاق: طلب وصل أثناء مزامنة جارية (دخول بمسجد جديد، سحب للتحديث) يُنفَّذ فور
+      // انتهائها بدل أن يضيع، وإلا انتظرت بيانات الجلسة الجديدة الدورة التالية.
+      if (_scaledSupported == true) _syncAgain = true;
+      return;
+    }
     _isSyncing = true;
     // تسجيلات دروس تنتظر الرفع: تُحاوَل مع كل مزامنة (سحب للتحديث، عودة للتطبيق)
     audioUploadQueue.retryNow();
@@ -809,26 +888,40 @@ class DataService extends ChangeNotifier {
       // تفريغ طابور العمليات العالقة أولاً
       await _syncQueueManager.processQueue(_remoteDataSource);
 
-      // جلب كافة الجداول الـ 17 بالتوازي عبر Future.wait بدلاً من الانتظار التسلسلي المرهق
-      final results = await Future.wait([
-        _remoteDataSource.fetchMosquesForSync(),                     // 0
-        _remoteDataSource.fetchTable('sheikhs'),                     // 1
-        _remoteDataSource.fetchTable('halaqat'),                     // 2
-        _remoteDataSource.fetchTable('students'),                    // 3
-        _remoteDataSource.fetchTable('community_events'),            // 4
-        _remoteDataSource.fetchTable('memorization_records'),        // 5
-        _remoteDataSource.fetchTable('attendance'),                  // 6
-        _remoteDataSource.fetchTable('messages'),                    // 7
-        _remoteDataSource.fetchTable('competitions'),                // 8
-        _remoteDataSource.fetchTable('intensive_courses'),           // 9
-        _remoteDataSource.fetchTable('trips'),                       // 10
-        _remoteDataSource.fetchTable('rewards'),                     // 11
-        _remoteDataSource.fetchTable('reward_redemptions'),          // 12
-        _remoteDataSource.fetchTable('recitation_tracks'),           // 13
-        _remoteDataSource.fetchTable('subject_recitation_records'),  // 14
-        _remoteDataSource.fetchTable('points_logs'),                 // 15
-        _remoteDataSource.fetchTable('event_questions'),             // 16
-      ]);
+      // بالنطاق وبالتزايد إن كانت ترقية الخادم مطبَّقة (ما يخص مساجد الجهاز وما
+      // تغيّر وحده)، وإلا الطريقة الكاملة كما كانت.
+      final scaled = await _tryScaledPull();
+      final List<List<Map<String, dynamic>>?> results;
+      if (scaled == null) {
+        _syncRemoveAbsent = true;
+        // جلب كافة الجداول الـ 17 بالتوازي عبر Future.wait بدلاً من الانتظار التسلسلي المرهق
+        results = await Future.wait([
+          _remoteDataSource.fetchMosquesForSync(),                     // 0
+          _remoteDataSource.fetchTable('sheikhs'),                     // 1
+          _remoteDataSource.fetchTable('halaqat'),                     // 2
+          _remoteDataSource.fetchTable('students'),                    // 3
+          _remoteDataSource.fetchTable('community_events'),            // 4
+          _remoteDataSource.fetchTable('memorization_records'),        // 5
+          _remoteDataSource.fetchTable('attendance'),                  // 6
+          _remoteDataSource.fetchTable('messages'),                    // 7
+          _remoteDataSource.fetchTable('competitions'),                // 8
+          _remoteDataSource.fetchTable('intensive_courses'),           // 9
+          _remoteDataSource.fetchTable('trips'),                       // 10
+          _remoteDataSource.fetchTable('rewards'),                     // 11
+          _remoteDataSource.fetchTable('reward_redemptions'),          // 12
+          _remoteDataSource.fetchTable('recitation_tracks'),           // 13
+          _remoteDataSource.fetchTable('subject_recitation_records'),  // 14
+          _remoteDataSource.fetchTable('points_logs'),                 // 15
+          _remoteDataSource.fetchTable('event_questions'),             // 16
+        ]);
+      } else if (scaled.skip) {
+        // خطأ عابر في المزامنة بالنطاق: نترك هذه الدورة (كما لو انقطعت الشبكة) ولا
+        // نقفز إلى الجلب الكامل الثقيل بسبب تعثّر لحظي.
+        return;
+      } else {
+        _syncRemoveAbsent = false;
+        results = scaled.toResultsList();
+      }
 
       final remoteMosques = results[0];
       if (remoteMosques != null) {
@@ -1060,7 +1153,12 @@ class DataService extends ChangeNotifier {
         );
       }
 
-      await syncRegistrationTokens();
+      // المحذوف سحابياً، وما خرج من نطاق الجهاز (قبل أي حساب مبني على القوائم)
+      if (scaled != null) _applyScaledTail(scaled);
+
+      // أكواد التسجيل جدول يكبر مع كل مسجد جديد: لا يحتاجه إلا جهاز المشرف العام.
+      // (بالطريقة الكاملة تبقى كما كانت لكل الأجهزة.)
+      if (scaled == null || _hasSuperAdminSession) await syncRegistrationTokens();
 
       // الرصيد يُشتق من سجل النقاط بعد كل دمج: عدّاد الرصيد القادم مع سجل الطالب قد
       // يكون كتبه جهاز بنسخة قديمة فوق حركات جهاز آخر
@@ -1071,16 +1169,241 @@ class DataService extends ChangeNotifier {
       _authSessionRepo.validateActiveSessions();
 
       await _localDataSource.saveToStorage();
+
+      // المؤشر يتقدّم بعد أن حُفظ الدمج على القرص فقط: انقطاع بينهما يعني إعادة جلب آمنة
+      if (scaled?.result != null) await _scaledEngine.commit(scaled!.result!);
+      _refreshRealtimeIfNeeded();
+
       notifyListeners();
     } catch (e) {
       debugPrint('⚠️ SyncWithSupabase exception: $e');
     } finally {
       _isSyncing = false;
+      _armAutoSync();
+      if (_syncAgain) {
+        _syncAgain = false;
+        unawaited(syncWithSupabase());
+      }
     }
+  }
+
+  /// طلب مزامنة وصل والدورة الحالية جارية (انظر [syncWithSupabase]).
+  bool _syncAgain = false;
+
+  // ==========================================
+  // المزامنة بالنطاق وبالتزايد
+  // (lib/services/sync/ و supabase/migrations/scale_sync.sql)
+  // ==========================================
+  late final SupabaseScaledSyncRemote _scaledRemote =
+      SupabaseScaledSyncRemote(_remoteDataSource);
+  late final ScaledSyncEngine _scaledEngine =
+      ScaledSyncEngine(_scaledRemote, PrefsSyncCursorStore());
+
+  /// هل الدورة الأخيرة بالنطاق؟ (تحدد توقيت المؤقت ونوع اشتراك Realtime)
+  bool _scaledActive = false;
+
+  /// null = لم نعرف بعد، true = دالة الخادم موجودة، false = غير موجودة (نعيد الفحص بعد قليل).
+  bool? _scaledSupported;
+  DateTime? _scaledRecheckAt;
+  SyncScope? _scaledScope;
+
+  /// هل يُزال من الجهاز ما غاب عن رد الخادم؟ (صحيح بالجلب الكامل، خطأ بالتزايد)
+  bool _syncRemoveAbsent = true;
+
+  /// دروس «اكتشف» من مساجد أخرى ومساجدها: تبقى رغم خروجها من نطاق الجهاز.
+  final Set<String> _discoverEventIds = {};
+  final Set<String> _discoverMosqueIds = {};
+
+  bool get _hasSuperAdminSession =>
+      _localDataSource.savedSessions.any((s) => s.role == 'super_admin') ||
+      _localDataSource.currentSession?.role == 'super_admin';
+
+  /// ترتيب نتائج `syncWithSupabase` (مطابق لقائمة الجلب الكاملة أعلاه).
+  static const List<String> _resultTableOrder = [
+    'mosques',
+    'sheikhs',
+    'halaqat',
+    'students',
+    'community_events',
+    'memorization_records',
+    'attendance',
+    'messages',
+    'competitions',
+    'intensive_courses',
+    'trips',
+    'rewards',
+    'reward_redemptions',
+    'recitation_tracks',
+    'subject_recitation_records',
+    'points_logs',
+    'event_questions',
+  ];
+
+  /// `null` = استعمل الجلب الكامل القديم. [_ScaledPull.skip] = تعثّر عابر، اترك الدورة.
+  Future<_ScaledPull?> _tryScaledPull() async {
+    if (_remoteDataSource.client == null) return null;
+
+    final recheck = _scaledRecheckAt;
+    if (_scaledSupported == false && recheck != null && DateTime.now().isBefore(recheck)) {
+      _scaledActive = false;
+      return null;
+    }
+
+    final sessions = [
+      ..._localDataSource.savedSessions,
+      if (_localDataSource.currentSession != null) _localDataSource.currentSession!,
+    ];
+    final scope = SyncScope.fromSessions(
+      sessions: sessions,
+      students: _localDataSource.students,
+      sheikhs: _localDataSource.sheikhs,
+      mosques: _localDataSource.mosques,
+    );
+    // جلسة لا نعرف مسجدها: لا نخمّن نطاقاً، فخطؤه يحذف بيانات المستخدم من جهازه
+    if (scope == null) {
+      _scaledActive = false;
+      return null;
+    }
+
+    if (scope.isEmpty) {
+      // زائر أو مشرف عام: لا بيانات مسجد. نتأكد فقط أن الخادم يدعم الأسلوب الجديد،
+      // وإلا بقي الزائر على الجلب الكامل كما كان.
+      if (_scaledSupported != true) {
+        final probe = await _scaledRemote.probe(const [], null);
+        if (probe.status == ProbeStatus.unsupported) return _markScaledUnsupported();
+        if (probe.status != ProbeStatus.ok) return _ScaledPull.skip(scope);
+        _scaledSupported = true;
+      }
+      _scaledActive = true;
+      _scaledScope = scope;
+      return _ScaledPull(scope, null);
+    }
+
+    final outcome = await _scaledEngine.pull(scope);
+    switch (outcome.status) {
+      case ScaledSyncStatus.unsupported:
+        return _markScaledUnsupported();
+      case ScaledSyncStatus.failed:
+        return _ScaledPull.skip(scope);
+      case ScaledSyncStatus.ok:
+        _scaledSupported = true;
+        _scaledActive = true;
+        _scaledScope = scope;
+        return _ScaledPull(scope, outcome.result);
+    }
+  }
+
+  _ScaledPull? _markScaledUnsupported() {
+    _scaledSupported = false;
+    _scaledActive = false;
+    _scaledRecheckAt = DateTime.now().add(const Duration(minutes: 10));
+    return null;
+  }
+
+  /// بعد دمج الصفوف: يحذف المحذوف سحابياً، وبعد جلب أساسي كامل يجعل الجهاز مطابقاً
+  /// للسحابة ضمن نطاقه ويمسح ما خرج منه.
+  void _applyScaledTail(_ScaledPull pull) {
+    final r = pull.result;
+    if (r == null) return;
+    if (r.tombstones.isNotEmpty) {
+      ScopeReconciler.applyTombstones(
+        _localDataSource,
+        r.tombstones,
+        isPendingUpsert: _syncQueueManager.isPendingUpsert,
+      );
+    }
+    if (r.baseline && r.complete) {
+      ScopeReconciler.reconcileBaseline(
+        _localDataSource,
+        pull.scope,
+        r.rows,
+        isPendingUpsert: _syncQueueManager.isPendingUpsert,
+        keepEventIds: _discoverEventIds,
+        keepMosqueIds: _discoverMosqueIds,
+      );
+    }
+  }
+
+  /// دروس «اكتشف» العامة قرب الزائر. بالنطاق لا تصل دروس المساجد الأخرى مع المزامنة،
+  /// فتُجلب هنا بمربع حول الموقع (أو الأحدث دون موقع). لا أثر بالمزامنة الكاملة.
+  Future<void> refreshDiscoverEvents({double? latitude, double? longitude}) async {
+    if (_scaledSupported != true) return;
+    final rows = await _scaledRemote.fetchDiscoverEvents(
+      latitude: latitude,
+      longitude: longitude,
+    );
+    if (rows == null) return;
+
+    final scope = _scaledScope ?? const SyncScope();
+    final fetchedIds = <String>{};
+    final foreignMosqueIds = <String>{};
+
+    for (final row in rows) {
+      final id = '${row['id']}';
+      if (id.isEmpty || id == 'null') continue;
+      if (isRecentlyDeleted(id) ||
+          _syncQueueManager.isPendingDelete('community_events', id)) {
+        continue;
+      }
+      final ev = CommunityEvent.fromJson(row);
+      fetchedIds.add(id);
+      if (!scope.contains(ev.mosqueId)) foreignMosqueIds.add(ev.mosqueId);
+
+      final list = _localDataSource.communityEvents;
+      final idx = list.indexWhere((e) => e.id == id);
+      if (idx == -1) {
+        list.add(ev);
+      } else if (!_syncQueueManager.isPendingUpsert('community_events', id)) {
+        final local = list[idx];
+        if ((ev.audioRecordUrl == null || ev.audioRecordUrl!.isEmpty) &&
+            (local.audioRecordUrl?.isNotEmpty ?? false)) {
+          ev.audioRecordUrl = local.audioRecordUrl;
+        }
+        if (local.distanceMeters != null) ev.distanceMeters = local.distanceMeters;
+        list[idx] = ev;
+      }
+    }
+
+    // صفوف مساجد هذه الدروس (للاسم والعنوان) إن لم تكن عندنا
+    final knownMosques = {for (final m in _localDataSource.mosques) m.id};
+    final missing = foreignMosqueIds.where((m) => !knownMosques.contains(m)).toList();
+    if (missing.isNotEmpty) {
+      final mosqueRows = await _scaledRemote.fetchMosqueRows(missing);
+      if (mosqueRows != null) {
+        for (final r in mosqueRows) {
+          final m = Mosque.fromJson(r);
+          if (_localDataSource.mosques.every((x) => x.id != m.id)) {
+            _localDataSource.mosques.add(m);
+          }
+        }
+      }
+    }
+
+    // دروس مساجد أخرى سبق جلبها ولم تعد في الرد (حُذفت أو أُوقفت): تُزال
+    _localDataSource.communityEvents.removeWhere((e) =>
+        !scope.contains(e.mosqueId) &&
+        !fetchedIds.contains(e.id) &&
+        !_syncQueueManager.isPendingUpsert('community_events', e.id));
+    _discoverEventIds
+      ..clear()
+      ..addAll(fetchedIds.where((id) => _localDataSource.communityEvents
+          .any((e) => e.id == id && !scope.contains(e.mosqueId))));
+    _discoverMosqueIds
+      ..clear()
+      ..addAll(foreignMosqueIds);
+
+    await _localDataSource.saveToStorage();
+    notifyListeners();
   }
 
   /// مزامنة فورية ومستهدفة لجدول محدد عند استلام أحداث الحذف أو التعديل لضمان الانعكاس اللحظي الفولاذي
   Future<void> syncTable(String table) async {
+    // بالمزامنة بالنطاق جلب جدول كامل لكل المساجد ممنوع: الحذف تغطيه شواهد الحذف في
+    // الدورة التالية، فنطلبها الآن بدل الجدول كله.
+    if (_scaledActive) {
+      unawaited(syncWithSupabase());
+      return;
+    }
     try {
       final remoteData = await _remoteDataSource.fetchTable(table);
       if (remoteData == null) return;
@@ -1695,8 +2018,11 @@ class DataService extends ChangeNotifier {
   /// يحذف الجامع بالكامل وبشكل نظيف ونهائي مع كافة متعلقاته (الشيوخ، الحلقات،
   /// الطلاب، السجلات، الفعاليات، المسابقات، المكافآت، الجلسات المحفوظة)
   /// محلياً وسحابياً مع تسجيل شواهد الحذف لمنع أي عودة أو تعليق للبيانات.
-  Future<void> deleteMosqueCompletely(String mosqueId) async {
-    final mosque = getMosqueById(mosqueId);
+  ///
+  /// [fallback]: صفّ المسجد حين لا نسخة محلية منه (المشرف العام لا يحمّل بيانات
+  /// المساجد بالمزامنة بالنطاق، فيحذف بمعرّف المسجد والحذف المتسلسل في الخادم يتولى الباقي).
+  Future<void> deleteMosqueCompletely(String mosqueId, {Mosque? fallback}) async {
+    final mosque = getMosqueById(mosqueId) ?? fallback;
     if (mosque == null) return;
 
     final mosqueAccessCode = mosque.accessCode;
@@ -3681,4 +4007,25 @@ class DataService extends ChangeNotifier {
 
     notifyListeners();
   }
+}
+
+/// حصيلة جلب بالنطاق لدورة مزامنة واحدة.
+class _ScaledPull {
+  final SyncScope scope;
+
+  /// `null` لنطاق فارغ (زائر أو مشرف عام): لا شيء يُجلب.
+  final ScaledSyncResult? result;
+
+  /// تعثّر عابر: تُترك الدورة كاملة.
+  final bool skip;
+
+  const _ScaledPull(this.scope, this.result) : skip = false;
+  const _ScaledPull.skip(this.scope)
+      : result = null,
+        skip = true;
+
+  /// بترتيب `DataService._resultTableOrder`: `null` للجدول الذي لم يتغير فيه شيء.
+  List<List<Map<String, dynamic>>?> toResultsList() => [
+        for (final table in DataService._resultTableOrder) result?.rows[table],
+      ];
 }

@@ -131,6 +131,22 @@ class SupabaseRemoteDataSource {
     }
   }
 
+  /// هل الجدول فارغ؟ سؤال بصفّ واحد بدل جلب الجدول كاملاً. `null` عند الفشل.
+  Future<bool?> isTableEmpty(String table) async {
+    final c = client;
+    if (c == null) return null;
+    try {
+      final rows = await c
+          .from(table)
+          .select('id')
+          .limit(1)
+          .timeout(const Duration(seconds: 10));
+      return rows.isEmpty;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Mosque rows for the periodic sync.
   Future<List<Map<String, dynamic>>?> fetchMosquesForSync() =>
       fetchTable('mosques');
