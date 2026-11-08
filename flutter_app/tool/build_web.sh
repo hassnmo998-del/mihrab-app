@@ -30,6 +30,10 @@ if (!fonts.some(f => f.family === "Roboto")) {
 '
 test -f build/web/assets/fonts/Roboto-Regular.ttf
 
+# الـ service worker كما يولّده Flutter لا يخدم شيئاً من التخزين تحت /mihrab-app/app/،
+# فكانت كل فتحة على الآيفون تنزّل التطبيق كاملاً ولا يفتح بلا إنترنت. التفاصيل في السكربت.
+node tool/patch_service_worker.mjs build/web/flutter_service_worker.js
+
 # الخطوط الاحتياطية (الإيموجي والرموز ونصوص نادرة) تُستضاف مع الموقع بدل fonts.gstatic.com.
 # تُجلب عند الحاجة فقط، ولا تدخل في تخزين الـ service worker. تُستثنى الصينية واليابانية
 # والكورية (مئات الملفات). إن فشل الجلب يبقى التطبيق على gstatic كما هو.

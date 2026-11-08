@@ -13,6 +13,7 @@ on:
     paths:
       - 'flutter_app/web/**'
       - 'flutter_app/tool/build_web.sh'
+      - 'flutter_app/tool/patch_service_worker.mjs'
       - '.github/workflows/web.yml'
   workflow_dispatch:
 
