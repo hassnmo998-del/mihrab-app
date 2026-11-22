@@ -2936,48 +2936,25 @@ class DataService extends ChangeNotifier {
     }
   }
 
-  DateTime _calculateNextRecurrence(DateTime currentDateTime, String? recurringDays) {
-    if (recurringDays == null || recurringDays.trim().isEmpty) {
-      return currentDateTime.isBefore(DateTime.now())
-          ? currentDateTime.add(const Duration(days: 1))
-          : currentDateTime;
+  /// الوقت المحفوظ لسجل الأرشيف: موعد الجلسة نفسها لا وقت الرفع؛ وللأجزاء التالية نضيف
+  /// ثواني معدودة ضمن اليوم نفسه فيبقى التاريخ ذاته والترتيب بين الأجزاء مضبوطاً.
+  static DateTime _archiveTimestamp(DateTime sessionDate, int part) {
+    if (part <= 1) return sessionDate;
+    final shifted = sessionDate.add(Duration(seconds: part - 1));
+    if (shifted.year == sessionDate.year &&
+        shifted.month == sessionDate.month &&
+        shifted.day == sessionDate.day) {
+      return shifted;
     }
-
-    const dayMap = {
-      'الاثنين': DateTime.monday,
-      'الثلاثاء': DateTime.tuesday,
-      'الأربعاء': DateTime.wednesday,
-      'الخميس': DateTime.thursday,
-      'الجمعة': DateTime.friday,
-      'السبت': DateTime.saturday,
-      'الأحد': DateTime.sunday,
-    };
-
-    final targetWeekdays = <int>{};
-    for (var entry in dayMap.entries) {
-      if (recurringDays.contains(entry.key)) {
-        targetWeekdays.add(entry.value);
-      }
-    }
-
-    if (targetWeekdays.isEmpty) {
-      return currentDateTime.add(const Duration(days: 1));
-    }
-
-    DateTime candidate = DateTime.now().add(const Duration(days: 1));
-    for (int i = 0; i < 7; i++) {
-      if (targetWeekdays.contains(candidate.weekday)) {
-        return DateTime(
-          candidate.year,
-          candidate.month,
-          candidate.day,
-          currentDateTime.hour,
-          currentDateTime.minute,
-        );
-      }
-      candidate = candidate.add(const Duration(days: 1));
-    }
-    return currentDateTime.add(const Duration(days: 1));
+    return DateTime(
+      sessionDate.year,
+      sessionDate.month,
+      sessionDate.day,
+      23,
+      59,
+      59,
+      (part - 1).clamp(1, 999),
+    );
   }
 
   /// Last line of defence for the "no women's archive" rule: even if a UI path
@@ -2999,12 +2976,19 @@ class DataService extends ChangeNotifier {
   /// للدرس المتكرر، والدرس نفسه للدرس لمرة واحدة. null إن لم يُؤرشف شيء.
   ///
   /// [part] > 1: جزء تالٍ من الجلسة نفسها (تجاوز الدرس حد الساعة فتابع الشيخ التسجيل).
-  /// له لقطة أرشيف مستقلة «— الجزء n»، ولا يُمسّ الدرس نفسه: الجزء الأول أرشفه وقدّم
-  /// موعد المتكرر، ورفع تسجيلين على سجل واحد كان سيكتب الثاني فوق الأول.
-  String? finalizeLiveSession(String eventId, {int part = 1}) {
+  /// له لقطة أرشيف مستقلة «— الجزء n»، ولا يُمسّ الدرس نفسه: الجزء الأول أرشفه،
+  /// ورفع تسجيلين على سجل واحد كان سيكتب الثاني فوق الأول.
+  ///
+  /// [recordedAt]: وقت بدء الجلسة الفعلي إن عُرف (التسجيل المباشر وإنقاذه). إن غاب
+  /// (مثل رفع ملف صوتي لاحقاً) يُؤخذ موعد آخر جلسة انعقد فيها الدرس ([LessonSchedule.lastSessionStart])
+  /// لا وقت الرفع.
+  String? finalizeLiveSession(String eventId, {int part = 1, DateTime? recordedAt}) {
     final ev = _localDataSource.communityEvents.where((e) => e.id == eventId).firstOrNull;
     if (ev == null) return null;
     if (!_archiveWriteAllowed(ev.mosqueId)) return null;
+
+    final sessionDate = recordedAt ?? LessonSchedule.lastSessionStart(ev, LessonSchedule.clock());
+    final archiveDate = _archiveTimestamp(sessionDate, part);
 
     if (part > 1) {
       final partSnapshot = CommunityEvent(
@@ -3015,7 +2999,7 @@ class DataService extends ChangeNotifier {
         eventType: ev.eventType,
         customTypeName: ev.customTypeName,
         timingType: 'custom_time',
-        eventDateTime: DateTime.now(),
+        eventDateTime: archiveDate,
         organizerType: ev.organizerType,
         organizerName: ev.organizerName,
         targetAudience: ev.targetAudience,
@@ -3050,7 +3034,7 @@ class DataService extends ChangeNotifier {
 
     var archiveId = ev.id;
     if (ev.isRecurring) {
-      // 1. إنشاء لقطة الأرشيف فوراً وبشكل دائم ومضمون
+      // 1. إنشاء لقطة الأرشيف فوراً وبشكل دائم ومضمون بتاريخ الدرس نفسه
       final archivedSnapshot = CommunityEvent(
         id: 'archived-${ev.id}-${_archiveStamp()}',
         mosqueId: ev.mosqueId,
@@ -3059,7 +3043,7 @@ class DataService extends ChangeNotifier {
         eventType: ev.eventType,
         customTypeName: ev.customTypeName,
         timingType: 'custom_time',
-        eventDateTime: DateTime.now(), // وقت التسجيل الفعلي
+        eventDateTime: archiveDate,
         organizerType: ev.organizerType,
         organizerName: ev.organizerName,
         targetAudience: ev.targetAudience,
@@ -3083,11 +3067,12 @@ class DataService extends ChangeNotifier {
         remoteDataSource: _remoteDataSource,
       );
 
-      // 2. إعادة الدرس الأصلي لحالة "قادم" فوراً وتحديث موعده القادم
+      // 2. إعادة الدرس الأصلي لحالة «قادم» بلا تقديم تاريخه: LessonSchedule يحسب
+      // الجلسة القادمة وأسئلة كل جلسة من أيام التكرار تلقائياً؛ تقديم eventDateTime
+      // إلى الغد كان يُسقط جلسة اليوم عند رفع ملف قديم صباحاً ويُعيد أسئلة جلسات سابقة.
       ev.eventStatus = 'upcoming';
       ev.audioRecordUrl = null;
       ev.videoRecordUrl = null;
-      ev.eventDateTime = _calculateNextRecurrence(ev.eventDateTime, ev.recurringDays);
 
       _syncQueueManager.queueSync(
         table: 'community_events',
@@ -3097,7 +3082,10 @@ class DataService extends ChangeNotifier {
       );
     } else {
       // للدروس لمرة واحدة، نحوله لأرشيف فوراً ليختفي من قائمة القادم ويبقى في الأرشيف
+      // بتاريخ الدرس الحقيقي (للمربوط بصلاة يكون الحقل وقت الإعلان لا يوم الدرس).
       ev.eventStatus = 'archived';
+      ev.timingType = 'custom_time';
+      ev.eventDateTime = archiveDate;
       _syncQueueManager.queueSync(
         table: 'community_events',
         action: 'upsert',
@@ -3116,7 +3104,8 @@ class DataService extends ChangeNotifier {
   /// شاشة التسجيل بلا ختام.
   Future<RecordingRecovery> recoverUnfinishedRecording() async {
     final result = await LessonRecordingJournal.recover(
-      finalize: (eventId, part) => finalizeLiveSession(eventId, part: part),
+      finalize: (eventId, part, startedAt) =>
+          finalizeLiveSession(eventId, part: part, recordedAt: startedAt),
       enqueue: ({
         required String eventId,
         required String title,

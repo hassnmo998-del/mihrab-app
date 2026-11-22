@@ -78,9 +78,10 @@ void main() {
       expect(LessonRecordingJournal.hasMp4Index(broken), isFalse);
     });
 
-    test('تسجيل مختوم بقي بلا رفع يُؤرشف ويدخل الطابور مرة واحدة', () async {
+    test('تسجيل مختوم بقي بلا رفع يُؤرشف ويدخل الطابور مرة واحدة ويحفظ وقت بدئه', () async {
       final f = file('lesson.m4a')
         ..writeAsBytesSync([..._box('ftyp', 16), ..._box('moov', 100), ..._box('mdat', 4000)]);
+      final started = DateTime(2026, 10, 6, 18, 15);
       await LessonRecordingJournal.begin(ActiveLessonRecording(
         eventId: 'e1',
         path: f.path,
@@ -88,14 +89,17 @@ void main() {
         title: 'شرح الأربعين',
         speaker: 'الشيخ',
         seconds: 0,
+        startedAt: started,
       ));
       await LessonRecordingJournal.updateSeconds(f.path, 1230);
 
       final finalized = <String>[];
+      DateTime? recoveredStart;
       final queued = <Map<String, Object>>[];
       Future<RecordingRecovery> run() => LessonRecordingJournal.recover(
-            finalize: (id, part) {
+            finalize: (id, part, startedAt) {
               finalized.add('$id/p$part');
+              recoveredStart = startedAt;
               return 'archived-$id-p$part-1';
             },
             enqueue: ({
@@ -112,6 +116,7 @@ void main() {
       expect(await run(), RecordingRecovery.recovered);
       expect(await run(), RecordingRecovery.none, reason: 'لا يُرفع مرتين');
       expect(finalized, ['e1/p2']);
+      expect(recoveredStart, started);
       expect(queued, [
         {'id': 'archived-e1-p2-1', 'title': 'شرح الأربعين — الجزء 2', 'path': f.path, 'sec': 1230},
       ]);
@@ -123,7 +128,7 @@ void main() {
           eventId: 'e2', path: f.path, part: 1, title: 't', speaker: 's', seconds: 60));
       var queued = false;
       final r = await LessonRecordingJournal.recover(
-        finalize: (_, __) => 'x',
+        finalize: (_, __, ___) => 'x',
         enqueue: ({
           required String eventId,
           required String title,

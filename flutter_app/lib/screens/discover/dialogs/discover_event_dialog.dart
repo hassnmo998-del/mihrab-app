@@ -521,11 +521,14 @@ class DiscoverEventDialog {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () async {
+                                final now = DateTime.now();
+                                final minDate = now.subtract(const Duration(days: 30));
+                                final maxDate = now.add(const Duration(days: 365 * 2));
                                 final picked = await showDatePicker(
                                   context: ctx,
                                   initialDate: selectedCustomDate,
-                                  firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                                  firstDate: selectedCustomDate.isBefore(minDate) ? selectedCustomDate : minDate,
+                                  lastDate: selectedCustomDate.isAfter(maxDate) ? selectedCustomDate : maxDate,
                                 );
                                 if (picked != null) {
                                   setMState(() {
@@ -1147,11 +1150,14 @@ class DiscoverEventDialog {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () async {
+                                final now = DateTime.now();
+                                final minDate = now.subtract(const Duration(days: 30));
+                                final maxDate = now.add(const Duration(days: 365 * 2));
                                 final picked = await showDatePicker(
                                   context: ctx,
                                   initialDate: selectedCustomDate,
-                                  firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                                  firstDate: selectedCustomDate.isBefore(minDate) ? selectedCustomDate : minDate,
+                                  lastDate: selectedCustomDate.isAfter(maxDate) ? selectedCustomDate : maxDate,
                                 );
                                 if (picked != null) {
                                   setMState(() {
@@ -1743,11 +1749,14 @@ class DiscoverEventDialog {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () async {
+                                final now = DateTime.now();
+                                final minDate = now.subtract(const Duration(days: 30));
+                                final maxDate = now.add(const Duration(days: 365 * 2));
                                 final picked = await showDatePicker(
                                   context: ctx,
                                   initialDate: selectedCustomDate,
-                                  firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                                  firstDate: selectedCustomDate.isBefore(minDate) ? selectedCustomDate : minDate,
+                                  lastDate: selectedCustomDate.isAfter(maxDate) ? selectedCustomDate : maxDate,
                                 );
                                 if (picked != null) {
                                   setMState(() {

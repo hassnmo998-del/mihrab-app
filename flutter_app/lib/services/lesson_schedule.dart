@@ -129,6 +129,31 @@ class LessonSchedule {
     return null;
   }
 
+  /// الجلسة الأخيرة التي انعقد فيها الدرس (أو بدأت فعلاً) حتى لحظة [now]:
+  /// يُؤرَّخ بها التسجيل في الأرشيف بدل تاريخ الرفع.
+  ///
+  /// - لدرس المرة الواحدة: موعد جلسته الوحيدة ([singleStart]).
+  /// - للدرس المتكرر: أحدث جلسة بحسب أيام التكرار ووقتها (أو أذان صلاتها للدرس
+  ///   المربوط بصلاة «بعد الصلاة»، لأن الدرس قد يبدأ فور انتهاء الصلاة قبل مهلة
+  ///   [afterPrayerDelay] التقديرية). لا يُقيد بـ`firstDay` لأن نسخاً أقدم كانت
+  ///   تقدّم `eventDateTime` إلى الأسبوع التالي عند كل أرشفة.
+  static DateTime lastSessionStart(CommunityEvent e, DateTime now) {
+    if (!e.isRecurring) return singleStart(e);
+    final days = weekdaysOf(e);
+    final today = _dayOf(now);
+    final prayerAfter = _isPrayerLinked(e) &&
+        e.prayerRelation != 'before' &&
+        e.prayerRelation != 'between_adhan_iqama';
+    for (var i = 0; i <= 8; i++) {
+      final day = DateTime(today.year, today.month, today.day - i);
+      if (days.isNotEmpty && !days.contains(day.weekday)) continue;
+      final start = startOn(e, day);
+      final cutoff = prayerAfter ? _prayerTime(e, day) : start;
+      if (!cutoff.isAfter(now)) return start;
+    }
+    return now;
+  }
+
   /// درس لمرة واحدة انقضى موعده (بعد نهايته و[endGrace]).
   static bool hasEnded(CommunityEvent e, DateTime now) =>
       !e.isRecurring && currentOrNextStart(e, now) == null;

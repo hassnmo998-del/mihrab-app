@@ -11,6 +11,7 @@ import 'package:flutter_app/screens/discover_screen.dart';
 import 'package:flutter_app/services/audio_upload_queue_manager.dart';
 import 'package:flutter_app/services/data_service.dart';
 import 'package:flutter_app/services/lesson_audio_engine.dart';
+import 'package:flutter_app/services/lesson_schedule.dart';
 
 /// محرّك وهمي: يقيس مدة محددة ويكتب ملفاً صغيراً لكل جزء.
 class _FakeEngine implements LessonAudioEngine {
@@ -379,6 +380,49 @@ void main() {
 
       expect(opened, 1);
       expect(uploads, hasLength(1));
+    });
+
+    testWidgets('رفع ملف صوتي بعد أيام من الدرس المتكرر: الأرشيف بتاريخ آخر جلسة للدرس لا بتاريخ الرفع', (tester) async {
+      // كل سبت واثنين الساعة 18:00؛ الرفع يوم الاثنين 2026/10/12 الساعة 10:00 صباحاً
+      final mondayMorning = DateTime(2026, 10, 12, 10, 0);
+      final saturdayLesson = DateTime(2026, 10, 10, 18, 0);
+      LessonSchedule.clock = () => mondayMorning;
+      addTearDown(() => LessonSchedule.clock = DateTime.now);
+
+      final mosque = newMosque();
+      final ev = data.addCommunityEvent(
+        mosqueId: mosque.id,
+        title: 'فقه العبادات',
+        description: '',
+        eventType: 'lesson',
+        timingType: 'custom_time',
+        targetAudience: 'general',
+        eventDateTime: DateTime(2026, 10, 3, 18, 0),
+        organizerType: 'mosque',
+        organizerName: 'الشيخ أحمد',
+        isRecurring: true,
+        recurringDays: 'السبت, الاثنين',
+      );
+      final context = await pumpHost(tester);
+
+      await tester.runAsync(() => LessonAudioImportFlow.start(
+        context,
+        data,
+        ev,
+        picker: () async => PickedLessonFile(source.path, 'lesson.mp3'),
+        engine: _FakeEngine(const Duration(minutes: 95)),
+        outDir: '${tmp.path}${Platform.pathSeparator}out',
+      ));
+      await settle(tester);
+
+      expect(uploads, hasLength(2));
+      final p1 = byId(uploads[0].eventId);
+      final p2 = byId(uploads[1].eventId);
+      expect(p1.eventDateTime, saturdayLesson);
+      expect((p2.eventDateTime.year, p2.eventDateTime.month, p2.eventDateTime.day), (2026, 10, 10));
+      expect(p2.eventDateTime.isAfter(p1.eventDateTime), isTrue);
+      // جلسة اليوم (الاثنين 18:00) ما زالت قادمة ولم تُسقَط
+      expect(LessonSchedule.currentOrNextStart(byId(ev.id), mondayMorning), DateTime(2026, 10, 12, 18, 0));
     });
   });
 }

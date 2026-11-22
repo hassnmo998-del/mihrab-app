@@ -209,4 +209,89 @@ void main() {
       expect(LessonSchedule.hasEnded(e, at(12)), isFalse);
     });
   });
+
+  group('تاريخ آخر جلسة انعقد فيها الدرس (lastSessionStart)', () {
+    test('متكرر بوقت محدد: يعيد الجلسة السابقة عند الرفع في يوم آخر أو قبل موعد اليوم', () {
+      // كل ثلاثاء وخميس الساعة 18:00 (الثلاثاء = dayOffset 0، الخميس = dayOffset 2)
+      final e = lesson(at: at(18, 0, -14), recurring: true, days: 'الثلاثاء, الخميس');
+
+      // الأربعاء ظهراً: آخر جلسة كانت الثلاثاء أمس
+      expect(LessonSchedule.lastSessionStart(e, at(12, 0, 1)), at(18));
+      // الخميس 11 صباحاً (قبل جلسة الخميس): ما زالت آخر جلسة هي الثلاثاء
+      expect(LessonSchedule.lastSessionStart(e, at(11, 0, 2)), at(18));
+      // الخميس 19:30 (بعد جلسة الخميس): جلسة الخميس اليوم
+      expect(LessonSchedule.lastSessionStart(e, at(19, 30, 2)), at(18, 0, 2));
+      // الاثنين (بعد 4 أيام من الخميس): آخر جلسة كانت الخميس
+      expect(LessonSchedule.lastSessionStart(e, at(10, 0, 6)), at(18, 0, 2));
+    });
+
+    test('أسبوعي رُفع صباح يوم الدرس قبل موعده: يعيد الأسبوع الماضي لا اليوم', () {
+      final e = lesson(at: at(18, 0, -21), recurring: true, days: 'الثلاثاء');
+      expect(LessonSchedule.lastSessionStart(e, at(10)), at(18, 0, -7));
+      expect(LessonSchedule.lastSessionStart(e, at(18, 30)), at(18));
+    });
+
+    test('يومي أو ليلي امتدّ بعد منتصف الليل: يعيد جلسة الأمس لا اليوم التالي', () {
+      final daily = lesson(at: at(20, 0, -5), recurring: true);
+      expect(LessonSchedule.lastSessionStart(daily, at(9, 0, 1)), at(20));
+
+      final lateNight = lesson(at: at(23, 30, -14), recurring: true, days: 'الثلاثاء');
+      expect(LessonSchedule.lastSessionStart(lateNight, at(0, 20, 1)), at(23, 30));
+    });
+
+    test('متكرر قُدِّم تاريخه في نسخة أقدم إلى الأسبوع القادم: يبقى يجد جلسته السابقة', () {
+      // نسخة أقدم قدّمت eventDateTime إلى الخميس القادم؛ عند الرفع الأربعاء نعيد الثلاثاء
+      final legacy = lesson(at: at(18, 0, 2), recurring: true, days: 'الثلاثاء, الخميس');
+      expect(LessonSchedule.lastSessionStart(legacy, at(12, 0, 1)), at(18));
+    });
+
+    test('متكرر مربوط بصلاة: يلتقط الجمعة الماضية أو جلسة اليوم فور دخول الأذان', () {
+      final jumua = lesson(
+        at: at(12, 0, -20),
+        recurring: true,
+        days: 'السبت, الاثنين', // الجمعة تتجاوز أيام التكرار المختارة خطأً
+        timing: 'prayer_linked',
+        prayer: 'jumua',
+      );
+      final lastFriday = DateTime(tuesday.year, tuesday.month, tuesday.day - 4);
+      expect(lastFriday.weekday, DateTime.friday);
+      expect(
+        LessonSchedule.lastSessionStart(jumua, at(14)),
+        adhan('dhuhr', lastFriday).add(LessonSchedule.afterPrayerDelay),
+      );
+
+      final maghrib = lesson(
+        at: at(12, 0, -20),
+        recurring: true,
+        days: 'الثلاثاء',
+        timing: 'prayer_linked',
+        prayer: 'maghrib',
+      );
+      final tueMaghrib = adhan('maghrib', tuesday);
+      final prevTuesday = DateTime(tuesday.year, tuesday.month, tuesday.day - 7);
+      // قبل أذان المغرب: الثلاثاء الماضي
+      expect(
+        LessonSchedule.lastSessionStart(maghrib, tueMaghrib.subtract(const Duration(minutes: 10))),
+        adhan('maghrib', prevTuesday).add(LessonSchedule.afterPrayerDelay),
+      );
+      // بعد أذان المغرب بعشر دقائق (قبل انتهاء مهلة العشرين دقيقة): جلسة اليوم
+      expect(
+        LessonSchedule.lastSessionStart(maghrib, tueMaghrib.add(const Duration(minutes: 10))),
+        tueMaghrib.add(LessonSchedule.afterPrayerDelay),
+      );
+    });
+
+    test('درس لمرة واحدة (بوقت محدد أو بصلاة): يعيد موعد الدرس نفسه لا يوم الرفع', () {
+      final custom = lesson(at: at(18));
+      expect(LessonSchedule.lastSessionStart(custom, at(10, 0, 3)), at(18));
+
+      // أُعلن الثلاثاء 10:00 لدرس الجمعة (الحقل يحفظ الثلاثاء 12:00)، رُفع الأحد
+      final onceJumua = lesson(at: at(12), timing: 'prayer_linked', prayer: 'jumua');
+      final friday = DateTime(tuesday.year, tuesday.month, tuesday.day + 3);
+      expect(
+        LessonSchedule.lastSessionStart(onceJumua, at(14, 0, 5)),
+        adhan('dhuhr', friday).add(LessonSchedule.afterPrayerDelay),
+      );
+    });
+  });
 }

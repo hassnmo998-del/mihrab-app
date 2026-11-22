@@ -10,6 +10,7 @@ import '../../services/app_notification_service.dart';
 import '../../services/data_service.dart';
 import '../../services/lesson_audio_engine.dart';
 import '../../services/lesson_audio_importer.dart';
+import '../../services/lesson_schedule.dart';
 import 'sheikh_live_lesson_screen.dart';
 
 /// ملف اختاره المستخدم.
@@ -90,6 +91,9 @@ class LessonAudioImportFlow {
         return;
       }
       if (picked == null || !navigator.mounted) return;
+      // تاريخ الدرس نفسه (آخر جلسة انعقد فيها) يُحسم قبل الضغط كي لا يتغير إن طال الضغط
+      // حتى موعد جلسة تالية، وتأخذه كل أجزاء التسجيل بالتاريخ نفسه.
+      final sessionDate = LessonSchedule.lastSessionStart(event, LessonSchedule.clock());
 
       unawaited(showDialog<void>(
         context: navigator.context,
@@ -125,7 +129,11 @@ class LessonAudioImportFlow {
       var queued = 0;
       for (final part in parts) {
         // كل جزء سجل أرشيف مستقل كما في التسجيل المباشر («— الجزء n» من الثاني)
-        final archiveId = data.finalizeLiveSession(event.id, part: part.number);
+        final archiveId = data.finalizeLiveSession(
+          event.id,
+          part: part.number,
+          recordedAt: sessionDate,
+        );
         if (archiveId == null) break;
         await data.audioUploadQueue.addToQueue(
           eventId: archiveId,

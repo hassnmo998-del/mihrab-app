@@ -13,6 +13,7 @@ import '../../../services/app_notification_service.dart';
 import '../../../services/data_service.dart';
 import '../../../services/lesson_recording_guard.dart';
 import '../../../services/lesson_recording_journal.dart';
+import '../../../services/lesson_schedule.dart';
 import '../../../services/telegram_media_resolver.dart';
 import '../../../services/windows_audio_compressor.dart';
 
@@ -54,6 +55,10 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
   /// رقم الجزء الجاري: الجزء الواحد ساعة على الأكثر ([MediaLimits.maxRecording])، فإن
   /// طال الدرس تابع الشيخ في جزء ثانٍ يُحفظ في المكتبة مستقلاً.
   int _part = 1;
+
+  /// وقت بدء هذه الجلسة عند أول جزء؛ يثبت تاريخ الأرشيف على يوم انعقاد الدرس نفسه
+  /// حتى لو امتدّ الجزء الثاني بعد منتصف الليل أو أُنقذ التسجيل في يوم تالٍ.
+  DateTime? _sessionStartedAt;
 
   /// إنهاء جارٍ (يدوي أو عند الحد): يمنع إنهاءً ثانياً من نبضة المؤقت التالية.
   bool _finishing = false;
@@ -261,6 +266,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
           path: path,
         );
 
+        _sessionStartedAt ??= LessonSchedule.clock();
         setState(() {
           _isRecording = true;
           _isPaused = false;
@@ -276,6 +282,7 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
           title: widget.event.title,
           speaker: widget.event.organizerName,
           seconds: 0,
+          startedAt: _sessionStartedAt,
         )));
         // خدمة أمامية «ميكروفون»: بدونها يُسكت أندرويد الميكروفون حين تُقفل الشاشة
         unawaited(_startForegroundTask());
@@ -360,7 +367,11 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     if (finalPath == null || !File(finalPath).existsSync()) {
       await LessonRecordingJournal.clear();
       if (mounted) {
-        _dataService.finalizeLiveSession(widget.event.id, part: _part);
+        _dataService.finalizeLiveSession(
+          widget.event.id,
+          part: _part,
+          recordedAt: _sessionStartedAt,
+        );
         Navigator.pop(context);
       }
       return;
@@ -399,7 +410,12 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
     _stopForegroundTask();
     // التسجيل يُربط بلقطة الأرشيف التي أُنشئت لهذه الجلسة بعينها، لا بالدرس
     // المتكرر: جلستان تنتظران الرفع لا تكتبان على لقطة واحدة.
-    final archiveId = _dataService.finalizeLiveSession(widget.event.id, part: _part) ?? widget.event.id;
+    final archiveId = _dataService.finalizeLiveSession(
+          widget.event.id,
+          part: _part,
+          recordedAt: _sessionStartedAt,
+        ) ??
+        widget.event.id;
     final queued = await _addToUploadQueue(File(finalPath), archiveId, closeAfter: !auto);
     if (!auto || !queued || !mounted) return;
 
@@ -496,13 +512,22 @@ class _SheikhLiveLessonScreenState extends State<SheikhLiveLessonScreen>
         ],
       ),
     );
-    _dataService.finalizeLiveSession(widget.event.id, part: _part);
+    _dataService.finalizeLiveSession(
+      widget.event.id,
+      part: _part,
+      recordedAt: _sessionStartedAt,
+    );
     if (mounted) Navigator.pop(context);
   }
 
   /// حفظ ورفع بعد أن أُغلقت الشاشة (لا `context` ولا `setState`).
   Future<void> _queueDetached(String path) async {
-    final archiveId = _dataService.finalizeLiveSession(widget.event.id, part: _part) ?? widget.event.id;
+    final archiveId = _dataService.finalizeLiveSession(
+          widget.event.id,
+          part: _part,
+          recordedAt: _sessionStartedAt,
+        ) ??
+        widget.event.id;
     await _dataService.audioUploadQueue.addToQueue(
       eventId: archiveId,
       title: _part > 1 ? '${widget.event.title} — الجزء $_part' : widget.event.title,

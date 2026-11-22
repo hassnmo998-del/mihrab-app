@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_app/core/di/injection.dart';
 import 'package:flutter_app/models/models.dart';
 import 'package:flutter_app/services/data_service.dart';
+import 'package:flutter_app/services/lesson_schedule.dart';
 
 /// درس تجاوز ساعة التسجيل: كل جزء سجل أرشيف مستقل بتسجيله، ولا يكتب جزء فوق آخر مهما
 /// كان ترتيب انتهاء رفعهما.
@@ -138,5 +139,105 @@ void main() {
       ..sort((a, b) => b.eventDateTime.compareTo(a.eventDateTime));
     expect(archive.map((e) => e.id), containsAll([part1, part2]));
     expect(archive.first.id, part2);
+  });
+
+  group('تاريخ الأرشيف يطابق تاريخ الدرس لا تاريخ الرفع', () {
+    tearDown(() => LessonSchedule.clock = DateTime.now);
+
+    test('أرشفة درس متكرر صباح يوم جلسة تالية: تأخذ تاريخ الجلسة السابقة ولا تُسقط جلسة اليوم', () {
+      // كل سبت واثنين الساعة 18:00؛ اليوم الاثنين 2026/10/12 الساعة 10:00 صباحاً
+      final mondayMorning = DateTime(2026, 10, 12, 10, 0);
+      final saturdayLesson = DateTime(2026, 10, 10, 18, 0);
+      final mondayLesson = DateTime(2026, 10, 12, 18, 0);
+      LessonSchedule.clock = () => mondayMorning;
+
+      final ev = data.addCommunityEvent(
+        mosqueId: mosque.id,
+        title: 'تفسير السعدي',
+        description: '',
+        eventType: 'lesson',
+        timingType: 'custom_time',
+        targetAudience: 'general',
+        eventDateTime: DateTime(2026, 10, 3, 18, 0),
+        organizerType: 'mosque',
+        organizerName: 'الشيخ',
+        isRecurring: true,
+        recurringDays: 'السبت, الاثنين',
+        isQaEnabled: true,
+      );
+
+      final part1 = data.finalizeLiveSession(ev.id)!;
+      final part2 = data.finalizeLiveSession(ev.id, part: 2)!;
+
+      // الجزآن بتاريخ السبت 10/10 (لا الاثنين 10/12 يوم الرفع)
+      expect(byId(part1).eventDateTime, saturdayLesson);
+      expect(byId(part2).eventDateTime.year, saturdayLesson.year);
+      expect(byId(part2).eventDateTime.month, saturdayLesson.month);
+      expect(byId(part2).eventDateTime.day, saturdayLesson.day);
+      expect(byId(part2).eventDateTime.isAfter(byId(part1).eventDateTime), isTrue);
+
+      // جلسة الاثنين اليوم لم تسقط، وأسئلة ما قبل السبت لا تعود
+      expect(LessonSchedule.currentOrNextStart(byId(ev.id), mondayMorning), mondayLesson);
+      expect(LessonSchedule.questionsSince(byId(ev.id), mondayMorning),
+          saturdayLesson.add(const Duration(minutes: 60)).add(LessonSchedule.endGrace));
+    });
+
+    test('درس لمرة واحدة مربوط بصلاة (الجمعة): يُؤرشف بتاريخ الجمعة لا بتاريخ الإعلان ولا الرفع', () {
+      // أُعلن الثلاثاء 2026/10/06 الساعة 10:00 (الحقل 12:00)، أُرشف الأحد 2026/10/11
+      final sundayUpload = DateTime(2026, 10, 11, 14, 0);
+      LessonSchedule.clock = () => sundayUpload;
+
+      final ev = data.addCommunityEvent(
+        mosqueId: mosque.id,
+        title: 'خطبة الجمعة',
+        description: '',
+        eventType: 'lesson',
+        timingType: 'prayer_linked',
+        prayerName: 'jumua',
+        prayerRelation: 'after',
+        targetAudience: 'general',
+        eventDateTime: DateTime(2026, 10, 6, 12, 0),
+        organizerType: 'mosque',
+        organizerName: 'الشيخ',
+        isRecurring: false,
+      );
+
+      final part1 = data.finalizeLiveSession(ev.id)!;
+      final part2 = data.finalizeLiveSession(ev.id, part: 2)!;
+
+      // الجمعة 2026/10/09 لكل الأجزاء
+      expect((byId(part1).eventDateTime.year, byId(part1).eventDateTime.month, byId(part1).eventDateTime.day),
+          (2026, 10, 9));
+      expect((byId(part2).eventDateTime.year, byId(part2).eventDateTime.month, byId(part2).eventDateTime.day),
+          (2026, 10, 9));
+      expect(byId(part2).eventDateTime.isAfter(byId(part1).eventDateTime), isTrue);
+    });
+
+    test('تسجيل مباشر امتدّ بعد منتصف الليل: يحافظ على يوم بدء الدرس للجزأين', () {
+      final started = DateTime(2026, 10, 10, 23, 20);
+      LessonSchedule.clock = () => DateTime(2026, 10, 11, 0, 45);
+
+      final ev = data.addCommunityEvent(
+        mosqueId: mosque.id,
+        title: 'قيام وموعظة',
+        description: '',
+        eventType: 'lesson',
+        timingType: 'custom_time',
+        targetAudience: 'general',
+        eventDateTime: DateTime(2026, 10, 3, 23, 20),
+        organizerType: 'mosque',
+        organizerName: 'الشيخ',
+        isRecurring: true,
+        recurringDays: 'السبت',
+      );
+
+      final part1 = data.finalizeLiveSession(ev.id, part: 1, recordedAt: started)!;
+      final part2 = data.finalizeLiveSession(ev.id, part: 2, recordedAt: started)!;
+
+      expect(byId(part1).eventDateTime, started);
+      expect((byId(part2).eventDateTime.year, byId(part2).eventDateTime.month, byId(part2).eventDateTime.day),
+          (2026, 10, 10));
+      expect(byId(part2).eventDateTime.isAfter(byId(part1).eventDateTime), isTrue);
+    });
   });
 }

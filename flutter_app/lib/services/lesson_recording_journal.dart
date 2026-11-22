@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/utils/wall_clock.dart';
 import 'telegram_media_resolver.dart';
 
 /// التسجيل الجاري، محفوظ على القرص منذ لحظة بدئه.
@@ -15,6 +16,10 @@ class ActiveLessonRecording {
   final String speaker;
   final int seconds;
 
+  /// وقت بدء تسجيل هذه الجلسة؛ يُحفظ كي يظهر التسجيل المنقَذ بتاريخ الدرس نفسه ولو
+  /// أُعيد فتح التطبيق في يوم تالٍ.
+  final DateTime? startedAt;
+
   const ActiveLessonRecording({
     required this.eventId,
     required this.path,
@@ -22,6 +27,7 @@ class ActiveLessonRecording {
     required this.title,
     required this.speaker,
     required this.seconds,
+    this.startedAt,
   });
 
   ActiveLessonRecording withSeconds(int s) => ActiveLessonRecording(
@@ -31,6 +37,7 @@ class ActiveLessonRecording {
         title: title,
         speaker: speaker,
         seconds: s,
+        startedAt: startedAt,
       );
 
   Map<String, dynamic> toJson() => {
@@ -40,6 +47,7 @@ class ActiveLessonRecording {
         'title': title,
         'speaker': speaker,
         'seconds': seconds,
+        if (startedAt != null) 'startedAt': wallClockJson(startedAt!),
       };
 
   static ActiveLessonRecording? fromJson(Map<String, dynamic> j) {
@@ -53,6 +61,7 @@ class ActiveLessonRecording {
       title: j['title'] as String? ?? '',
       speaker: j['speaker'] as String? ?? '',
       seconds: (j['seconds'] as num?)?.toInt() ?? 0,
+      startedAt: tryParseWallClock(j['startedAt']),
     );
   }
 }
@@ -127,7 +136,7 @@ class LessonRecordingJournal {
   /// [finalize] يؤرشف الجلسة ويعيد معرّف سجل الأرشيف (`DataService.finalizeLiveSession`).
   /// [compress] لملفات WAV (ويندوز).
   static Future<RecordingRecovery> recover({
-    required String? Function(String eventId, int part) finalize,
+    required String? Function(String eventId, int part, DateTime? startedAt) finalize,
     required Future<void> Function({
       required String eventId,
       required String title,
@@ -169,7 +178,7 @@ class LessonRecordingJournal {
         return RecordingRecovery.kept;
       }
 
-      final archiveId = finalize(rec.eventId, rec.part);
+      final archiveId = finalize(rec.eventId, rec.part, rec.startedAt);
       if (archiveId == null) {
         await clear();
         return RecordingRecovery.kept;
